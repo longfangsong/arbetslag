@@ -65,33 +65,33 @@
 
 ### 3b: AgentFactory & Initialization
 
-- [ ] T021 [US1] Implement AgentFactory class in src/core/factory.ts:
+- [x] T021 [US1] Implement AgentFactory class in src/core/factory.ts:
   - Constructor takes AgentConfig (provider config + tools + spawn constraints)
   - build() validates + creates agent
   - Fail-fast: throw if provider unreachable or credentials invalid
-- [ ] T022 [US1] Implement provider instantiation in factory (resolve provider by name, validate config schema)
-- [ ] T023 [US1] Implement tool validation in factory (reject duplicate tool names within single agent per Principle IV)
-- [ ] T024 [US1] Implement AgentFactory validation for spawn constraints (apply defaults: maxCount=100, maxDepth=10)
+- [x] T022 [US1] Implement provider instantiation in factory (resolve provider by name, validate config schema)
+- [x] T023 [US1] Implement tool validation in factory (reject duplicate tool names within single agent per Principle IV)
+- [x] T024 [US1] Implement AgentFactory validation for spawn constraints (apply defaults: maxCount=100, maxDepth=10)
 
 ### 3c: Ollama Provider Adapter
 
-- [ ] T025 [US1] Implement OllamaProvider in src/providers/ollama.ts:
+- [x] T025 [US1] Implement OllamaProvider in src/providers/ollama.ts:
   - authenticate() validates baseUrl + connectivity (fail-fast)
   - translateToolsToLLM() converts Tool[] to Ollama format
   - callLLM() sends prompt + tools to Ollama API (http://localhost:11434)
   - parseResponse() extracts tool call from response
-- [ ] T026 [P] [US1] Setup Ollama provider error handling (network errors, invalid models, timeouts → structured errors)
-- [ ] T027 [US1] Document Ollama provider constraints (if any; e.g., max tools, response formats)
+- [x] T026 [P] [US1] Setup Ollama provider error handling (network errors, invalid models, timeouts → structured errors)
+- [x] T027 [US1] Document Ollama provider constraints (if any; e.g., max tools, response formats)
 
 ### 3d: Gemini Provider Adapter
 
-- [ ] T028 [US1] Implement GeminiProvider in src/providers/gemini.ts:
+- [x] T028 [US1] Implement GeminiProvider in src/providers/gemini.ts:
   - authenticate() validates API key (fail-fast)  
   - translateToolsToLLM() converts Tool[] to Gemini function_declarations format
   - callLLM() calls Gemini REST API or SDK
   - parseResponse() extracts tool call from Gemini response
-- [ ] T029 [P] [US1] Setup Gemini provider error handling (auth errors, quota exceeded, API deprecations)
-- [ ] T030 [US1] Document Gemini provider-specific constraints (cannot mix provider tools + user tools; documented in adapter)
+- [x] T029 [P] [US1] Setup Gemini provider error handling (auth errors, quota exceeded, API deprecations)
+- [x] T030 [US1] Document Gemini provider-specific constraints (cannot mix provider tools + user tools; documented in adapter)
 
 ### 3e: Unit Tests for US1
 
