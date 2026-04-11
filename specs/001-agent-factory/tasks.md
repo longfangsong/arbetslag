@@ -36,14 +36,14 @@
 
 **Purpose**: Core infrastructure all user stories depend on
 
-- [ ] T009 Define core types in src/core/types.ts (Agent, Message, Tool, AIProvider, SpawnConstraints, AgentConfig interfaces)
-- [ ] T010 [P] Implement Message type + factory in src/core/message.ts with validation against contracts/message.schema.json
-- [ ] T011 [P] Implement Tool interface + schema validation in src/core/tool.ts (JSONSchema validation via zod/ajv)
-- [ ] T012 [P] Implement SpawnConstraints type + validation in src/core/spawn-constraints.ts (maxCount, maxDepth, allowedTypes)
-- [ ] T013 Create AIProvider base adapter interface in src/providers/base.ts (authenticate, translateToolsToLLM, callLLM, parseResponse)
-- [ ] T014 [P] Implement structured logging in src/observability/logger.ts (JSON + human fallback; context metadata per message)
-- [ ] T015 [P] Implement .inspect() serialization utilities in src/utils/serialization.ts (agents + sessions → JSON state snapshots, Principle V)
-- [ ] T016 Create contract tests framework in tests/contract/ (JSON schema validation helpers)
+- [x] T009 Define core types in src/core/types.ts (Agent, Message, Tool, AIProvider, SpawnConstraints, AgentConfig interfaces)
+- [x] T010 [P] Implement Message type + factory in src/core/message.ts with validation against contracts/message.schema.json
+- [x] T011 [P] Implement Tool interface + schema validation in src/core/tool.ts (JSONSchema validation via zod/ajv)
+- [x] T012 [P] Implement SpawnConstraints type + validation in src/core/spawn-constraints.ts (maxCount, maxDepth, allowedTypes)
+- [x] T013 Create AIProvider base adapter interface in src/providers/base.ts (authenticate, translateToolsToLLM, callLLM, parseResponse)
+- [x] T014 [P] Implement structured logging in src/observability/logger.ts (JSON + human fallback; context metadata per message)
+- [x] T015 [P] Implement .inspect() serialization utilities in src/utils/serialization.ts (agents + sessions → JSON state snapshots, Principle V)
+- [x] T016 Create contract tests framework in tests/contract/ (JSON schema validation helpers)
 
 ---
 
@@ -54,14 +54,14 @@
 
 ### 3a: Core Agent Runtime
 
-- [ ] T017 [US1] Implement Agent class in src/core/agent.ts with:
+- [x] T017 [US1] Implement Agent class in src/core/agent.ts with:
   - Constructor taking provider + tools + spawn constraints
   - Message receiver: `receive(message: Message): Promise<Message>`
   - Tool executor with error handling (try-catch → error payload)
   - State: id, provider, tools, messageHistory, activeChildren, isRunning
-- [ ] T018 [P] [US1] Implement Agent.inspect() method returning AgentState (Principle V observability)
-- [ ] T019 [US1] Implement message routing in agent (sender/recipient validation, type dispatch: request/response/error)
-- [ ] T020 [US1] Implement tool selection from message payload (match tool name from agent.tools, reject if not found)
+- [x] T018 [P] [US1] Implement Agent.inspect() method returning AgentState (Principle V observability)
+- [x] T019 [US1] Implement message routing in agent (sender/recipient validation, type dispatch: request/response/error)
+- [x] T020 [US1] Implement tool selection from message payload (match tool name from agent.tools, reject if not found)
 
 ### 3b: AgentFactory & Initialization
 

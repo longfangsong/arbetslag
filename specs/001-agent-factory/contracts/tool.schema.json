@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-7/schema#",
+  "$id": "https://arbetslag.local/schemas/tool.json",
+  "title": "Agent Tool Definition",
+  "description": "Tool definition with explicit schema for type safety and LLM prompt generation (Type Safety, Principle IV)",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-zA-Z_][a-zA-Z0-9_]*$",
+      "description": "Tool identifier (must be unique within agent; alphanumeric + underscore)"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "description": "Human-readable description (used in LLM prompts)"
+    },
+    "schema": {
+      "$ref": "http://json-schema.org/draft-7/schema#",
+      "description": "JSON Schema (draft-7) for input validation"
+    }
+  },
+  "required": ["name", "description", "schema"],
+  "additionalProperties": false,
+  "examples": [
+    {
+      "name": "search",
+      "description": "Search the internet for information",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search query"
+          }
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "spawn_agent",
+      "description": "Create a child agent to delegate tasks",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "object",
+                "properties": {
+                  "apiKey": { "type": "string" },
+                  "modelName": { "type": "string" }
+                },
+                "required": ["modelName"]
+              },
+              "tools": {
+                "type": "array",
+                "items": { "$ref": "tool.json" }
+              }
+            },
+            "required": ["provider", "tools"]
+          },
+          "constraints": {
+            "type": "object",
+            "properties": {
+              "maxCount": { "type": "number", "minimum": 1, "default": 100 },
+              "maxDepth": { "type": "number", "minimum": 0, "default": 10 },
+              "allowedTypes": { "type": "array", "items": { "type": "string" }, "default": [] }
+            }
+          },
+          "initialMessage": { "$ref": "message.json" }
+        },
+        "required": ["config"]
+      }
+    }
+  ]
+}

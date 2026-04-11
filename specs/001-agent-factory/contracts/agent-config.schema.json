@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-7/schema#",
+  "$id": "https://arbetslag.local/schemas/agent-config.json",
+  "title": "Agent Configuration",
+  "description": "Configuration for agent factory instantiation (Agent-First Design, Principle I)",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": ["string", "null"],
+      "format": "uuid",
+      "description": "Optional agent ID (auto-generated if omitted)"
+    },
+    "provider": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "enum": ["ollama", "gemini", "custom"],
+          "description": "AI provider name"
+        },
+        "modelName": {
+          "type": "string",
+          "description": "Model identifier (e.g., 'llama2', 'gemini-pro')"
+        },
+        "apiKey": {
+          "type": ["string", "null"],
+          "description": "API key for cloud providers (not needed for Ollama)",
+          "default": null
+        },
+        "baseUrl": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Custom endpoint URL (e.g., http://localhost:11434 for local Ollama)",
+          "default": null
+        },
+        "timeout": {
+          "type": ["number", "null"],
+          "minimum": 1000,
+          "description": "Request timeout in milliseconds",
+          "default": 30000
+        }
+      },
+      "required": ["name", "modelName"],
+      "additionalProperties": true
+    },
+    "tools": {
+      "type": "array",
+      "items": { "$ref": "tool.schema.json" },
+      "minItems": 1,
+      "description": "Available tools (strict isolation: no duplicates)"
+    },
+    "spawnConstraints": {
+      "type": ["object", "null"],
+      "properties": {
+        "maxCount": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 10000,
+          "default": 100,
+          "description": "Maximum # of child agents this agent can spawn"
+        },
+        "maxDepth": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 50,
+          "default": 10,
+          "description": "Maximum nesting level (0 = no spawning)"
+        },
+        "allowedTypes": {
+          "type": ["array", "null"],
+          "items": { "type": "string" },
+          "description": "Permitted child agent template names (null/[] = any allowed)",
+          "default": []
+        }
+      },
+      "additionalProperties": false,
+      "default": null
+    }
+  },
+  "required": ["provider", "tools"],
+  "additionalProperties": false,
+  "examples": [
+    {
+      "provider": {
+        "name": "ollama",
+        "modelName": "llama2",
+        "baseUrl": "http://localhost:11434"
+      },
+      "tools": [
+        {
+          "name": "search",
+          "description": "Search the web",
+          "schema": {
+            "type": "object",
+            "properties": { "query": { "type": "string" } },
+            "required": ["query"]
+          }
+        }
+      ],
+      "spawnConstraints": {
+        "maxCount": 5,
+        "maxDepth": 3,
+        "allowedTypes": []
+      }
+    },
+    {
+      "provider": {
+        "name": "gemini",
+        "modelName": "gemini-pro",
+        "apiKey": "${GEMINI_API_KEY}"
+      },
+      "tools": [
+        {
+          "name": "calculate",
+          "description": "Simple math calculation",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "expression": { "type": "string" }
+            },
+            "required": ["expression"]
+          }
+        }
+      ]
+    }
+  ]
+}

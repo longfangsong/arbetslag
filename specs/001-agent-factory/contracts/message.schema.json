@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-7/schema#",
+  "$id": "https://arbetslag.local/schemas/message.json",
+  "title": "Agent Message",
+  "description": "Inter-agent message envelope (Protocol-Based Communication, Principle II)",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique message identifier (UUID v4)"
+    },
+    "sender": {
+      "type": "string",
+      "description": "Sender agent ID"
+    },
+    "recipient": {
+      "type": "string",
+      "description": "Recipient agent ID"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["request", "response", "error"],
+      "description": "Message category"
+    },
+    "payload": {
+      "description": "Message content (request, response, or error data)"
+    },
+    "timestamp": {
+      "type": "number",
+      "description": "Unix milliseconds when message created"
+    },
+    "context": {
+      "type": ["object", "null"],
+      "description": "Optional agent-specific metadata (tracing, correlation IDs, etc.)",
+      "default": null
+    },
+    "error": {
+      "type": ["object", "null"],
+      "description": "Error struct if type='error'",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Error name (e.g., 'ToolExecutionError')"
+        },
+        "message": {
+          "type": "string",
+          "description": "Error message"
+        },
+        "stack": {
+          "type": ["string", "null"],
+          "description": "Stack trace (optional, for debugging)"
+        },
+        "code": {
+          "type": ["string", "null"],
+          "description": "Error code (e.g., 'TOOL_NOT_FOUND')"
+        }
+      },
+      "required": ["name", "message"],
+      "default": null
+    }
+  },
+  "required": ["id", "sender", "recipient", "type", "payload", "timestamp"],
+  "additionalProperties": false
+}
