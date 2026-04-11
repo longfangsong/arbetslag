@@ -10,7 +10,8 @@
         ".specify/scripts/bash/": true,
         ".specify/scripts/powershell/": true,
         "git add": true,
-        "git commit": true
+        "git commit": true,
+        "timeout": true
     }
 }
 

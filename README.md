@@ -23,11 +23,93 @@ npm install arbetslag
 yarn add arbetslag
 ```
 
-## Quick Start
+## Quick Start (< 50 LOC)
 
-### 1. Prerequisites
+### Create a Single Agent with Tools
 
-**Ollama** (for local LLM):
+```typescript
+import { AgentFactory, createMessage } from 'arbetslag';
+import { createOllamaProvider } from 'arbetslag/providers/ollama';
+
+// 1. Define tools
+const tools = [
+  {
+    name: 'calculate',
+    description: 'Add two numbers',
+    schema: {
+      type: 'object',
+      properties: {
+        a: { type: 'number' },
+        b: { type: 'number' },
+      },
+      required: ['a', 'b'],
+    },
+    handler: async (input: { a: number; b: number }) => {
+      return { result: input.a + input.b };
+    },
+  },
+];
+
+// 2. Create provider
+const provider = createOllamaProvider({
+  model: 'llama2',
+  baseUrl: 'http://localhost:11434',
+});
+
+// 3. Create agent
+const config = {
+  provider: 'ollama',
+  providerConfig: { model: 'llama2' },
+  tools,
+};
+
+const factory = new AgentFactory(config, provider);
+const agent = await factory.build();
+
+// 4. Use agent
+const result = await agent.executeTool('calculate', { a: 5, b: 3 });
+console.log(result); // { result: 8 }
+```
+
+### Handle Messages with Protocol
+
+```typescript
+// Send request message
+const request = createMessage('user', 'Add 10 and 20');
+(request as any).type = 'request';
+(request as any).tool = 'calculate';
+(request as any).input = { a: 10, b: 20 };
+
+const response = await agent.receive(request);
+console.log(response.content); // Tool result as JSON
+```
+
+### Spawn Child Agents (Multi-Agent)
+
+```typescript
+// Parent agent spawns child with spawn_agent tool
+// (spawn_agent is automatically injected into all agents)
+
+const spawnRequest = createMessage('user', 'Delegate to child');
+(spawnRequest as any).type = 'request';
+(spawnRequest as any).tool = 'spawn_agent';
+(spawnRequest as any).input = {
+  provider: 'ollama',
+  providerConfig: { model: 'llama2' },
+  tools: [/* child tool definitions */],
+  spawnConstraints: {
+    maxCount: 5,
+    maxDepth: 3,
+  },
+};
+
+const spawnResponse = await parent.receive(spawnRequest);
+// Response contains { sessionId, agentId } for parent to track child
+```
+
+---
+
+## Prerequisites
 ```bash
 # Download from https://ollama.ai
 ollama serve  # Runs on http://localhost:11434

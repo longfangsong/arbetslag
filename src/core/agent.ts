@@ -178,8 +178,9 @@ export class Agent {
       } as any
     );
 
-    // Cast to add type field
+    // Set type and error fields
     (response as any).type = 'error';
+    (response as any).error = errorPayload;
 
     this.state.messageHistory.push(response);
     return response;
