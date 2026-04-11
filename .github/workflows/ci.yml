@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10.28.2
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm type-check
+
+      - name: Lint
+        run: pnpm lint:check
+
+      - name: Run tests with coverage
+        run: pnpm test:coverage
+
+      - name: Check coverage threshold
+        run: |
+          if grep -q '"lines":' coverage/coverage-final.json; then
+            COVERAGE=$(cat coverage/coverage-final.json | grep -o '"lines":{[^}]*}' | grep -o '[0-9.]*' | head -1)
+            if (( $(echo "$COVERAGE < 95" | bc -l) )); then
+              echo "Coverage $COVERAGE% is below 95% threshold"
+              exit 1
+            fi
+            echo "Coverage check passed: $COVERAGE%"
+          else
+            echo "Coverage report not found"
+            exit 1
+          fi
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella

@@ -1,20 +1,62 @@
 {
   "name": "arbetslag",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "packageManager": "pnpm@10.28.2",
+  "description": "Agent Factory - Multi-agent orchestration framework",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "type": "module",
+  "packageManager": "pnpm@10.28.2",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    },
+    "./core": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    },
+    "./providers/ollama": {
+      "import": "./dist/providers/ollama.js",
+      "require": "./dist/providers/ollama.cjs",
+      "types": "./dist/providers/ollama.d.ts"
+    },
+    "./providers/gemini": {
+      "import": "./dist/providers/gemini.js",
+      "require": "./dist/providers/gemini.cjs",
+      "types": "./dist/providers/gemini.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest --coverage",
+    "lint": "biome lint --apply src tests",
+    "lint:check": "biome lint src tests",
+    "format": "biome format --write src tests",
+    "format:check": "biome format --check src tests",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "agent",
+    "ai",
+    "orchestration",
+    "spawning",
+    "composition"
+  ],
+  "author": "Arbetslag Contributors",
+  "license": "MIT",
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "@vitest/coverage-v8": "^2.1.8",
+    "@vitest/ui": "^2.1.8",
     "biome": "^0.3.3",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.2"
+    "tsup": "^8.3.5",
+    "typescript": "^6.0.2",
+    "vitest": "^2.1.8"
   }
 }

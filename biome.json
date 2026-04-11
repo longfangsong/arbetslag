@@ -1,0 +1,88 @@
+{
+  "$schema": "https://biomejs.dev/schemas/1.9.2/schema.json",
+  "javascript": {
+    "parser": {
+      "unsafeParameterDecoratorsEnabled": true
+    },
+    "formatter": {
+      "bracketSpacing": true,
+      "bracketSameLine": false,
+      "trailingCommas": "es5",
+      "semicolons": "always",
+      "indentStyle": "space",
+      "indentSize": 2,
+      "lineEnding": "lf"
+    },
+    "linter": {
+      "enabled": true,
+      "rules": {
+        "recommended": true,
+        "complexity": {
+          "noBannedTypes": "error",
+          "noExcessiveCognitiveComplexity": "warn"
+        },
+        "correctness": {
+          "noConstantCondition": "warn",
+          "noDebuggerStatement": "error",
+          "noUnnecessaryElse": "warn",
+          "noUnusedVariables": "error"
+        },
+        "performance": {
+          "noBarrelFile": "warn"
+        },
+        "security": {
+          "noGlobalEvalLike": "error"
+        },
+        "style": {
+          "noDefaultExport": "off",
+          "noImplicitBoolean": "warn",
+          "noNegationElseIf": "warn",
+          "noNonNullAssertion": "warn",
+          "noUnusedTemplateLiteral": "warn",
+          "useConst": "error",
+          "useEventHandler": "error",
+          "useExponentiationOperator": "error",
+          "useFragmentSyntax": "error",
+          "useNamingConvention": "warn"
+        },
+        "suspicious": {
+          "noConsoleLog": "error",
+          "noConsoleWarn": "warn",
+          "noConsoleError": "off",
+          "noDebugger": "error",
+          "noDoubleEquals": "error"
+        }
+      }
+    }
+  },
+  "json": {
+    "parser": {
+      "allowTrailingComma": true
+    },
+    "formatter": {
+      "indentSize": 2,
+      "indentStyle": "space",
+      "lineEnding": "lf"
+    }
+  },
+  "overrides": [
+    {
+      "include": ["tests/**"],
+      "javascript": {
+        "linter": {
+          "rules": {
+            "suspicious": {
+              "noConsoleLog": "warn"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true,
+    "ignorePatterns": ["node_modules/", "dist/", "build/", ".next/", ".turbo/"]
+  }
+}
