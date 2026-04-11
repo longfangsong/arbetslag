@@ -1,4 +1,4 @@
-import { Tool, ToolCall, ToolResult } from '../types';
+import { ToolCall, ToolResult } from '../types';
 import { z } from 'zod';
 
 export interface ToolDefinition {

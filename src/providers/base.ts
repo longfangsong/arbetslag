@@ -1,4 +1,10 @@
-import { AIProvider, AgentConfig, AgentEvent, AgentState } from '../types';
+/**
+ * Base interface for AI Provider adapters
+ * 
+ * All providers must implement this interface to work with the Agent Factory
+ */
+
+import { AgentConfig } from '../types';
 
 export interface AIProviderAdapter {
   name: string;

@@ -3,15 +3,22 @@
  * This file defines the fundamental building blocks of the system.
  */
 
-export type Role = 'system' | 'user' | 'assistant' | 'tool' | 'error';
+export type Role = 'system' | 'user' | 'assistant' | 'tool' | 'error' | 'request' | 'response';
+export type MessageType = 'request' | 'response' | 'error';
 
 export interface Message {
   id: string;
-  role: Role;
+  sender?: string;
+  recipient?: string;
+  type?: MessageType;
+  role?: Role;
   content: string;
+  payload?: any;
   toolCalls?: ToolCall[];
   toolResults?: ToolResult[];
   timestamp: number;
+  context?: Record<string, unknown>;
+  error?: Record<string, any>;
   metadata?: Record<string, unknown>;
 }
 
@@ -30,7 +37,9 @@ export interface ToolResult {
 export interface Tool {
   name: string;
   description: string;
-  inputSchema: object; // JSON Schema
+  schema: any; // JSON Schema
+  handler: (input: any) => Promise<any>; // Tool implementation
+  inputSchema?: object; // Legacy field for compatibility
 }
 
 export interface SpawnConstraints {
