@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "guide": {
+      "source": "toss/es-toolkit",
+      "sourceType": "github",
+      "computedHash": "9cb4c59272025b49681344b6c624eb445dcecc70cb3e792749d4df68332324c6"
+    },
+    "recommend": {
+      "source": "toss/es-toolkit",
+      "sourceType": "github",
+      "computedHash": "635cf892797a95fb765fbb9c015b815e8704de5395401393938f54e60cc572fe"
+    }
+  }
+}
