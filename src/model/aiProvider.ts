@@ -8,5 +8,6 @@ export interface AIProvider {
     model: string,
     systemPrompt: string,
     message: string,
-    tools: Tool<any, any>[]) => Promise<string>;
+    tools: Tool<any, any>[]
+  ) => Promise<string>;
 }

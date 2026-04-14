@@ -55,7 +55,7 @@ export class OllamaAIProvider implements AIProvider {
                 tools: toolDefinitions,
             });
             console.log(`Ollama response (iteration ${iteration}):`, response);
-            
+            messages.push({role: 'assistant', content: response.message.content});
             // Check if tool calls were made
             if (response.message.tool_calls && response.message.tool_calls.length > 0) {
                 const toolResults: string[] = [];

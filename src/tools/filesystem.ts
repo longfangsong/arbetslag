@@ -29,13 +29,14 @@ export const DeleteDocumentInputSchema = z.object({
     path: z.string().describe("Document path to delete."),
 }) satisfies z.ZodTypeAny;
 
-class Write implements Tool<typeof WriteDocumentInputSchema, void> {
+class Write implements Tool<typeof WriteDocumentInputSchema, "success"> {
     name: string = "writeDocument";
     description: string = "Write content to a new document.";
     inputSchema = WriteDocumentInputSchema;
     constructor() { }
-    async handler(context: Context, input: z.infer<typeof WriteDocumentInputSchema>): Promise<void> {
+    async handler(context: Context, input: z.infer<typeof WriteDocumentInputSchema>): Promise<"success"> {
         await context.fileSystem.writeFile(input.path, input.content);
+        return "success";
     }
 }
 
@@ -55,13 +56,14 @@ class Read implements Tool<typeof ReadDocumentInputSchema, string> {
     }
 }
 
-class Replace implements Tool<typeof EditDocumentInputSchema, void> {
+class Replace implements Tool<typeof EditDocumentInputSchema, "success"> {
     name: string = "editDocument"
     description: string = "Edit content of a document, replace existing content in range [offset, offset + length) with new content.";
     inputSchema = EditDocumentInputSchema;
     constructor() { }
-    async handler(context: Context, input: z.infer<typeof EditDocumentInputSchema>): Promise<void> {
+    async handler(context: Context, input: z.infer<typeof EditDocumentInputSchema>): Promise<"success"> {
         await context.fileSystem.editFile(input.path, input.content, input.offset, input.length);
+        return "success";
     }
 }
 
@@ -75,13 +77,14 @@ class List implements Tool<typeof ListDocumentsInputSchema, string[]> {
     }
 }
 
-class Delete implements Tool<typeof DeleteDocumentInputSchema, void> {
+class Delete implements Tool<typeof DeleteDocumentInputSchema, 'success'> {
     name: string = "deleteDocument"
     description: string = "Delete a document.";
     inputSchema = DeleteDocumentInputSchema
     constructor() { }
-    async handler(context: Context, input: z.infer<typeof DeleteDocumentInputSchema>): Promise<void> {
+    async handler(context: Context, input: z.infer<typeof DeleteDocumentInputSchema>): Promise<'success'> {
         await context.fileSystem.deleteFile(input.path);
+        return 'success';
     }
 }
 
