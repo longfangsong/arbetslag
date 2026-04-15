@@ -1,5 +1,6 @@
 import { AIProvider } from "./aiProvider";
 import { Context } from "./context";
+import { Session } from "./session";
 import { Tool } from "./tool";
 import { nanoid } from 'nanoid/non-secure';
 
@@ -20,11 +21,17 @@ export class Agent {
     constructor(private context: Context, template: AgentTemplate) {
         this.id = nanoid(10);
         this.template = template;
-        this.provider = context.aiProviders.get(template.provider)!;
+        this.provider = context.getAIProvider(template.provider)!;
     }
 
-    async handleRequest(message: string): Promise<string> {
-        console.log(`Agent '${this.id}' handling request with message:`, message);
-        return this.provider.sendMessage(this.context, this.template.model, this.template.systemPrompt, message, this.template.tools);
+    async handleRequest(session: Session, message: string): Promise<string> {
+        return this.provider.sendMessage(this.context, 
+            session,
+            this.id,
+            this.template.model,
+            this.template.systemPrompt,
+            message,
+            this.template.tools
+        );
     }
 }
