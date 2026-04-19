@@ -1,37 +1,52 @@
-import { AIProvider } from "./aiProvider";
+import { nanoid } from "nanoid";
 import { Context } from "./context";
-import { Session } from "./session";
 import { Tool } from "./tool";
-import { nanoid } from 'nanoid/non-secure';
+import { Session } from "./session";
+import { AIProvider } from "./aiProvider";
 
-export interface AgentTemplate {
+export interface ToolConfig {
+    name: string;
+    metaParameters?: Record<string, any>;
+}
+
+export interface Template {
     name: string;
     description: string;
     provider: string;
     model: string;
     systemPrompt: string;
-    tools: Tool<any, any>[];
+    tools: ToolConfig[];
 }
 
 export class Agent {
     readonly id: string;
-    readonly template: AgentTemplate;
+    readonly template: Template;
+    private workingOn: Promise<string> | null = null;
+    public tools: Array<Tool<any, any>>;
     private provider: AIProvider;
 
-    constructor(private context: Context, template: AgentTemplate) {
+    constructor(context: Context, template: Template) {
         this.id = nanoid(10);
         this.template = template;
         this.provider = context.getAIProvider(template.provider)!;
+        this.tools = [];
+
+        for (const toolConfig of template.tools) {
+            const ToolConstructor = context.getToolConstructor(toolConfig.name);
+            if (!ToolConstructor) {
+                console.warn(`Tool constructor not found for tool: ${toolConfig.name}`);
+                continue;
+            }
+            const metaParams = toolConfig.metaParameters || {};
+            const toolInstance = new ToolConstructor(metaParams.maxDepth !== undefined ? { maxDepth: metaParams.maxDepth } : {});
+            this.tools.push(toolInstance);
+        }
     }
 
-    async handleRequest(session: Session, message: string): Promise<string> {
-        return this.provider.sendMessage(this.context, 
-            session,
-            this.id,
-            this.template.model,
-            this.template.systemPrompt,
-            message,
-            this.template.tools
-        );
+    async handleRequest(context: Context, session: Session, message: string): Promise<string> {
+        this.workingOn = this.provider.sendMessage(context, session, this, message);
+        session.agents.push(this);
+        return this.workingOn!;
     }
 }
+

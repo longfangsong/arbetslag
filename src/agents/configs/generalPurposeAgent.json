@@ -1,0 +1,21 @@
+{
+  "name": "generalPurposeAgent",
+  "description": "A general purpose agent that can handle various tasks using the provided tools.",
+  "provider": "openai",
+  "model": "unsloth/gemma-4-26B-A4B-it-GGUF",
+  "systemPrompt": "You are a helpful assistant.",
+  "tools": [
+    { "name": "writeDocument" },
+    { "name": "readDocument" },
+    { "name": "editDocument" },
+    { "name": "listDocuments" },
+    { "name": "deleteDocument" },
+    { "name": "listAgentTemplates" },
+    {
+      "name": "spawn",
+      "args": {
+        "template_name": "generalPurposeAgent"
+      }
+    }
+  ]
+}

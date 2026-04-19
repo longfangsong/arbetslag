@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { Tool } from "@/model/tool";
-import { Context } from "@/model/context";
-import { Session } from "@/model/session";
+import { Context } from "../context";
+import { Session } from "../session";
+import { Tool } from ".";
 
 
 export const ReadDocumentInputSchema = z.object({
@@ -31,23 +31,23 @@ export const DeleteDocumentInputSchema = z.object({
 }) satisfies z.ZodTypeAny;
 
 class Write implements Tool<typeof WriteDocumentInputSchema, "success"> {
-    name: string = "writeDocument";
+    static name: string = "writeDocument";
     description: string = "Write content to a new document.";
     inputSchema = WriteDocumentInputSchema;
     constructor() { }
     async handler(context: Context, session: Session, input: z.infer<typeof WriteDocumentInputSchema>): Promise<"success"> {
-        await session.fileSystem.writeFile(input.path, input.content);
+        await context.fileSystem.writeFile(input.path, input.content);
         return "success";
     }
 }
 
 class Read implements Tool<typeof ReadDocumentInputSchema, string> {
-    name: string = "readDocument";
+    static name: string = "readDocument";
     description: string = "Read the content of a document.";
     inputSchema = ReadDocumentInputSchema;
     constructor() { }
     async handler(context: Context, session: Session, input: z.infer<typeof ReadDocumentInputSchema>): Promise<string> {
-        const fullContent = await session.fileSystem.readFile(input.path) || "";
+        const fullContent = await context.fileSystem.readFile(input.path) || "";
         if (input.offset !== undefined) {
             const start = Math.max(0, input.offset);
             const end = input.length !== undefined ? start + input.length : fullContent.length;
@@ -58,33 +58,33 @@ class Read implements Tool<typeof ReadDocumentInputSchema, string> {
 }
 
 class Replace implements Tool<typeof EditDocumentInputSchema, "success"> {
-    name: string = "editDocument"
+    static name: string = "editDocument"
     description: string = "Edit content of a document, replace existing content in range [offset, offset + length) with new content.";
     inputSchema = EditDocumentInputSchema;
     constructor() { }
     async handler(context: Context, session: Session, input: z.infer<typeof EditDocumentInputSchema>): Promise<"success"> {
-        await session.fileSystem.editFile(input.path, input.content, input.offset, input.length);
+        await context.fileSystem.editFile(input.path, input.content, input.offset, input.length);
         return "success";
     }
 }
 
 class List implements Tool<typeof ListDocumentsInputSchema, string[]> {
-    name: string = "listDocuments";
+    static name: string = "listDocuments";
     description: string = "List all documents in a directory.";
     inputSchema = ListDocumentsInputSchema;
     constructor() { }
     async handler(context: Context, session: Session, input: z.infer<typeof ListDocumentsInputSchema>): Promise<string[]> {
-        return await session.fileSystem.listFiles(input.path);
+        return await context.fileSystem.listFiles(input.path);
     }
 }
 
 class Delete implements Tool<typeof DeleteDocumentInputSchema, 'success'> {
-    name: string = "deleteDocument"
+    static name: string = "deleteDocument"
     description: string = "Delete a document.";
     inputSchema = DeleteDocumentInputSchema
     constructor() { }
     async handler(context: Context, session: Session, input: z.infer<typeof DeleteDocumentInputSchema>): Promise<'success'> {
-        await session.fileSystem.deleteFile(input.path);
+        await context.fileSystem.deleteFile(input.path);
         return 'success';
     }
 }
