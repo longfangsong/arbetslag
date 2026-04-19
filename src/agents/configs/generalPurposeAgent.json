@@ -13,9 +13,10 @@
     { "name": "listAgentTemplates" },
     {
       "name": "spawn",
-      "args": {
-        "template_name": "generalPurposeAgent"
+      "metaParameters": {
+        "maxDepth": 3
       }
-    }
+    },
+    { "name": "await" }
   ]
 }

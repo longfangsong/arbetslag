@@ -31,15 +31,18 @@ export class OpenAIProvider extends AIProvider {
     }
 
     protected buildToolDefinitions(tools: Array<Tool<any, any>>): ChatCompletionTool[] {
-        const toolDefinitions: ChatCompletionTool[] = tools.map((tool) => ({
-            type: "function",
-            function: {
-                name: tool.name,
-                description: tool.description,
-                parameters: z.toJSONSchema(tool.inputSchema),
-                strict: true,
-            },
-        }));
+        const toolDefinitions: ChatCompletionTool[] = tools.map((tool) => {
+            const toolName = (tool.constructor as { name: string }).name;
+            return {
+                type: "function",
+                function: {
+                    name: toolName,
+                    description: tool.description,
+                    parameters: z.toJSONSchema(tool.inputSchema),
+                    strict: true,
+                },
+            };
+        });
         return toolDefinitions;
     }
 
@@ -65,9 +68,13 @@ export class OpenAIProvider extends AIProvider {
     }
 
     protected parseResponse(response: unknown): AssistantMessage | undefined {
-        const msg = (response as { choices?: Array<{ message: { content?: unknown; tool_calls?: unknown[] } }> }).choices?.[0]?.message;
+        const msg = (response as { choices?: Array<{ message: { role?: string; content?: unknown; tool_calls?: unknown[] } }> }).choices?.[0]?.message;
         if (!msg) return undefined;
-        return { content: msg.content as string | unknown[], tool_calls: msg.tool_calls as ToolCall[] };
+        return { 
+            role: msg.role as string | undefined,
+            content: msg.content as string | unknown[], 
+            tool_calls: msg.tool_calls as ToolCall[] 
+        };
     }
 
     protected isFunctionToolCall(toolCall: unknown): boolean {

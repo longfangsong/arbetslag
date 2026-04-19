@@ -15,11 +15,12 @@ export class OllamaAIProvider extends AIProvider {
     }
 
     protected buildToolDefinitions(tools: Array<Tool<any, any>>): unknown {
-        const toolDefinitions = tools.map(tool => {            
+        const toolDefinitions = tools.map(tool => {
+            const toolName = (tool.constructor as { new (...args: any[]): Tool<any, any> }).name as string;
             return {
                 type: "function",
                 function: {
-                    name: (tool.constructor as typeof Tool).name,
+                    name: toolName,
                     description: tool.description,
                     parameters: z.toJSONSchema(tool.inputSchema),
                 },
@@ -50,9 +51,13 @@ export class OllamaAIProvider extends AIProvider {
     }
 
     protected parseResponse(response: unknown): AssistantMessage | undefined {
-        const msg = (response as { message?: { content?: unknown; tool_calls?: unknown[] } }).message;
+        const msg = (response as { message?: { role?: string; content?: unknown; tool_calls?: unknown[] } }).message;
         if (!msg) return undefined;
-        return { content: msg.content as string | unknown[], tool_calls: msg.tool_calls as ToolCall[] };
+        return { 
+            role: msg.role as string | undefined,
+            content: msg.content as string | unknown[], 
+            tool_calls: msg.tool_calls as ToolCall[] 
+        };
     }
 
     protected isFunctionToolCall(toolCall: unknown): boolean {

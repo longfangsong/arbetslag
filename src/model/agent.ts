@@ -21,7 +21,7 @@ export interface Template {
 export class Agent {
     readonly id: string;
     readonly template: Template;
-    private workingOn: Promise<string> | null = null;
+    workingOn: Promise<string> | null = null;
     public tools: Array<Tool<any, any>>;
     private provider: AIProvider;
 
@@ -38,7 +38,7 @@ export class Agent {
                 continue;
             }
             const metaParams = toolConfig.metaParameters || {};
-            const toolInstance = new ToolConstructor(metaParams.maxDepth !== undefined ? { maxDepth: metaParams.maxDepth } : {});
+            const toolInstance = new ToolConstructor(metaParams);
             this.tools.push(toolInstance);
         }
     }

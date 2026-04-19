@@ -9,6 +9,7 @@ export interface ToolCall {
 }
 
 export interface AssistantMessage {
+  role?: string;
   content?: string | unknown[];
   tool_calls?: ToolCall[];
 }
@@ -47,7 +48,7 @@ export abstract class AIProvider {
     }
 
     const toolName = this.getToolName(toolCall);
-    const tool = agent.tools.find((candidate) => (candidate.constructor as typeof Tool).name === toolName);
+    const tool = agent.tools.find((candidate) => (candidate.constructor as { name: string }).name === toolName);
 
     try {
       if (!tool) {
