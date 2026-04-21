@@ -1,11 +1,28 @@
 {
   "name": "arbetslag",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "description": "A TypeScript agent framework with tool support",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "agent",
+    "ai",
+    "llm",
+    "framework"
+  ],
+  "author": "Fangsong Long",
+  "license": "Unlicense",
   "packageManager": "pnpm@10.28.2",
   "scripts": {
     "build": "tsdown",
