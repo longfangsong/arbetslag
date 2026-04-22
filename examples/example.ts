@@ -14,6 +14,11 @@ import { HttpRequest } from "../src/model/tool/http";
 import { OpenAIProvider } from "../src/model/aiProvider/openai";
 import { NodeFsFileSystem } from "../src/model/fileSystem/nodefs";
 import readline from "readline";
+import dotenv from "dotenv";
+import { GetTime } from "@/model/tool/getTime";
+import { CreateCronJob } from "@/model/tool/cronJob";
+
+dotenv.config();
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -22,7 +27,12 @@ const rl = readline.createInterface({
 
 async function main(): Promise<void> {
   const context = new Context(
-    [new OpenAIProvider("openai", { baseURL: "http://127.0.0.1:8033/v1" })],
+    [
+      new OpenAIProvider("openai", {
+        baseURL: "http://127.0.0.1:8000/v1",
+        apiKey: process.env.openai_apikey,
+      }),
+    ],
     [
       Write,
       Read,
@@ -33,9 +43,14 @@ async function main(): Promise<void> {
       ListTemplates,
       Spawn,
       Await,
+      GetTime,
+      CreateCronJob,
     ],
     new NodeFsFileSystem("./data"),
     await loadTemplates("./examples/configs"),
+    {
+      cron_token: process.env.cron_token,
+    },
   );
 
   const template = context.getTemplate("taskDispatcher");

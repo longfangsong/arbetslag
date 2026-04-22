@@ -46,6 +46,7 @@
     "vitest": "^4.1.4"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "es-toolkit": "^1.45.1",
     "nanoid": "^5.1.7",
     "ollama": "^0.6.3",

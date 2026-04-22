@@ -11,5 +11,4 @@ export default defineConfig({
   shims: true,
   target: "es2020",
   minify: false,
-  external: [],
 });

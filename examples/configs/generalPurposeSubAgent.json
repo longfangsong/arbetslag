@@ -2,9 +2,16 @@
   "name": "generalPurposeSubAgent",
   "description": "A subagent that executes delegated tasks such as reading, writing, and analyzing files.",
   "provider": "openai",
-  "model": "unsloth/gemma-4-26B-A4B-it-GGUF",
+  "model": "Qwen3.6-35B-A3B-8bit",
   "systemPrompt": "You are a General Purpose Subagent. You execute specific tasks delegated by the Task Dispatcher.\n\nGuidelines:\n- Focus on completing your assigned task efficiently.\n- When reading large amounts of data, return a concise summary or conclusion unless the full detail is explicitly requested.\n- If a task involves modifying files, be precise and only make the necessary changes.\n- If you encounter an obstacle or insufficient information, explain the issue clearly so the Task Dispatcher can reassign or adjust.",
   "tools": [
+    { "name": "getTime" },
+    {
+      "name": "createCronJob",
+      "metaParameters": {
+        "url": "https://example.com/webhook"
+      }
+    },
     { "name": "writeDocument" },
     { "name": "readDocument" },
     { "name": "editDocument" },
