@@ -4,13 +4,18 @@ import { Tool as OllamaTool } from "ollama";
 import { z } from "zod";
 import { AIProvider, AssistantMessage, ToolCall } from ".";
 
+export interface OllamaProviderOptions {
+  baseURL?: string;
+}
+
 export class OllamaAIProvider extends AIProvider {
   name: string;
   private client: Ollama;
 
-  constructor(name: string, endpoint: string = "http://localhost:11434") {
+  constructor(name: string, options: OllamaProviderOptions = {}) {
     super();
     this.name = name;
+    const endpoint = options.baseURL ?? "http://localhost:11434";
     this.client = new Ollama({ host: endpoint });
   }
 

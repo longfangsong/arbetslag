@@ -1,6 +1,6 @@
 {
   "name": "arbetslag",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A TypeScript agent framework with tool support",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -43,10 +43,10 @@
     "tsdown": "^0.21.7",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.4",
+    "dotenv": "^17.4.2"
   },
   "dependencies": {
-    "dotenv": "^17.4.2",
     "es-toolkit": "^1.45.1",
     "nanoid": "^5.1.7",
     "ollama": "^0.6.3",
