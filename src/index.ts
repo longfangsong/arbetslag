@@ -8,6 +8,8 @@ export type { FileSystem } from "./model/fileSystem";
 export { Write, Read, Replace, List, Delete } from "./model/tool/fileSystem";
 export { HttpRequest } from "./model/tool/http";
 export { ListTemplates, Spawn, Await } from "./model/tool/subagent";
+export { GetTime } from "./model/tool/getTime";
+export { CreateCronJob } from "./model/tool/cronJob";
 export { OpenAIProvider } from "./model/aiProvider/openai";
 export { OllamaAIProvider } from "./model/aiProvider/ollama";
 export { InMemoryFileSystem } from "./model/fileSystem/inMemory";
