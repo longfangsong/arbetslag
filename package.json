@@ -1,6 +1,6 @@
 {
   "name": "arbetslag",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "A TypeScript agent framework with tool support",
   "main": "dist/index.js",
   "module": "dist/index.mjs",

@@ -20,6 +20,9 @@ import { CreateCronJob } from "@/model/tool/cronJob";
 
 dotenv.config();
 
+// For edge runtimes, pass templates directly instead of a directory path:
+// const templates = await loadTemplates([...myTemplates]);
+
 const rl = readline.createInterface({
   input: process.stdin,
   output: process.stdout,

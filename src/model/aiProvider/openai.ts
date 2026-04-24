@@ -25,10 +25,10 @@ export class OpenAIProvider extends AIProvider {
     super();
     this.name = name;
     this.client = new OpenAI({
-      apiKey: options.apiKey ?? process.env.OPENAI_API_KEY ?? "EMPTY",
-      baseURL: options.baseURL ?? process.env.OPENAI_BASE_URL,
-      organization: options.organization ?? process.env.OPENAI_ORG_ID,
-      project: options.project ?? process.env.OPENAI_PROJECT_ID,
+      apiKey: options.apiKey ?? "EMPTY",
+      baseURL: options.baseURL,
+      organization: options.organization,
+      project: options.project,
       timeout: options.timeout ?? 7200000,
       maxRetries: options.maxRetries ?? 2,
     });
