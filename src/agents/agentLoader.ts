@@ -1,36 +1,43 @@
 import type { Template } from "../model/agent";
 
 /**
- * Load agent templates from a directory on the filesystem (Node.js only).
- * Uses dynamic imports so Node.js builtins are not bundled — edge runtimes
- * should pass templates directly instead.
- */
-async function loadTemplatesFromDir(
-  configDir: string,
-): Promise<Template[]> {
-  const fs = await import("fs/promises");
-  const path = await import("path");
-  const files = (await fs.readdir(configDir)).filter((f) => f.endsWith(".json"));
-
-  const templates: Template[] = [];
-  for (const file of files) {
-    const filePath = path.join(configDir, file);
-    const content = await fs.readFile(filePath, "utf-8");
-    templates.push(JSON.parse(content) as Template);
-  }
-  return templates;
-}
-
-/**
- * Load agent templates. Accepts either:
- * - a directory path (Node.js, reads JSON files from disk)
- * - an array of Template objects (edge/runtime-agnostic)
+ * Load agent templates from JSON files.
+ *
+ * @param pathsOrTemplates - Either:
+ *   - an array of file paths (strings) to load templates from
+ *   - an array of already-parsed Template objects
+ *
+ * @remarks
+ * In Node.js environments, file paths are resolved from the filesystem.
+ * In edge environments (Cloudflare Workers, etc.), use the Workers VFS:
+ *
+ * ```ts
+ * import { readFileSync } from "node:fs";
+ * import { loadTemplates } from "arbetslag";
+ *
+ * const templates = await loadTemplates([
+ *   "/bundle/configs/taskDispatcher.json",
+ *   "/bundle/configs/generalPurposeSubAgent.json",
+ * ]);
+ * ```
+ *
+ * Note: The Workers VFS supports `readFileSync` but NOT `readdir`, so you
+ * must list your template files explicitly.
  */
 export async function loadTemplates(
-  configOrTemplates: string | Template[],
+  pathsOrTemplates: (string | Template)[],
 ): Promise<Template[]> {
-  if (Array.isArray(configOrTemplates)) {
-    return configOrTemplates;
+  const templates: Template[] = [];
+
+  for (const item of pathsOrTemplates) {
+    if (typeof item === "string") {
+      const fs = await import("node:fs/promises");
+      const content = await fs.readFile(item, "utf-8");
+      templates.push(JSON.parse(content) as Template);
+    } else {
+      templates.push(item);
+    }
   }
-  return loadTemplatesFromDir(configOrTemplates);
+
+  return templates;
 }

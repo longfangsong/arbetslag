@@ -10,6 +10,9 @@ export { HttpRequest } from "./model/tool/http";
 export { ListTemplates, Spawn, Await } from "./model/tool/subagent";
 export { OpenAIProvider } from "./model/aiProvider/openai";
 export { OllamaAIProvider } from "./model/aiProvider/ollama";
-export { NodeFsFileSystem } from "./model/fileSystem/nodefs";
 export { InMemoryFileSystem } from "./model/fileSystem/inMemory";
-export { loadTemplates } from "./agents/agentLoader";
+// NodeFsFileSystem and loadTemplates are Node.js-only and not exported from
+// the main entry point to keep the package edge-runtime compatible.
+// They are still available by importing directly:
+//   import { NodeFsFileSystem } from "arbetslag/dist/model/fileSystem/nodefs";
+//   import { loadTemplates } from "arbetslag/dist/agents/agentLoader";
