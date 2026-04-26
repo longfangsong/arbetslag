@@ -1,13 +1,16 @@
 import { z } from "zod";
-import { Context } from "../context";
-import { Session } from "../session";
-import { Tool } from ".";
+import { nanoid } from "nanoid";
+import { Context } from "../../context";
+import { Session } from "../../session";
+import { Tool } from "..";
+import type { CronJob, JobSchedule } from "./type";
+
+// ── Zod Schemas ──────────────────────────────────────────────────────────────
 
 export const CronJobScheduleInputSchema = z.object({
   timezone: z
     .string()
     .describe("The timezone for the job schedule (e.g., 'Europe/Stockholm')."),
-  // expiresAt: z.number().describe("Unix timestamp when the job expires."),
   hours: z.array(z.number()).describe("Hours when the job should run (0-23)."),
   mdays: z
     .array(z.number())
@@ -31,20 +34,7 @@ export const CreateCronJobInputSchema = z.object({
   ),
 });
 
-export interface CronJob {
-  jobId: number;
-  enabled: boolean;
-  url: string;
-  schedule: {
-    timezone: string;
-    // expiresAt: number;
-    hours: number[];
-    mdays: number[];
-    minutes: number[];
-    months: number[];
-    wdays: number[];
-  };
-}
+// ── Tool ─────────────────────────────────────────────────────────────────────
 
 export class CreateCronJob implements Tool<
   typeof CreateCronJobInputSchema,
@@ -71,13 +61,30 @@ export class CreateCronJob implements Tool<
       );
     }
 
+    const eventId = `cron-${nanoid(10)}`;
+    const sessionId = session.id;
+    const agentId = session.currentAgentId;
+
+    if (context.eventRegistry && agentId) {
+      await context.eventRegistry.register(eventId, sessionId, agentId);
+    }
+
     const response = await fetch("https://api.cron-job.org/jobs", {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${cronToken}`,
       },
-      body: JSON.stringify({ job: { ...input, url: this.url } }),
+      body: JSON.stringify({
+        job: {
+          ...input,
+          url: this.url,
+          extendedData: {
+            headers: {},
+            body: JSON.stringify({ eventId, sessionId }),
+          },
+        },
+      }),
     });
 
     if (!response.ok) {
@@ -87,9 +94,19 @@ export class CreateCronJob implements Tool<
     const data = (await response.json()) as { jobId: number };
 
     return {
-      ...input,
-      url: this.url,
       jobId: data.jobId,
+      eventId,
+      enabled: input.enabled,
+      url: this.url,
+      schedule: {
+        timezone: input.schedule.timezone,
+        expiresAt: 0,
+        hours: input.schedule.hours,
+        mdays: input.schedule.mdays,
+        minutes: input.schedule.minutes,
+        months: input.schedule.months,
+        wdays: input.schedule.wdays,
+      },
     };
   }
 }

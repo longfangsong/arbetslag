@@ -67,15 +67,16 @@ export abstract class AIProvider {
     session: Session,
     agent: Agent,
     message: string,
+    history?: unknown[],
   ): Promise<string> {
     const toolDefinitions = this.buildToolDefinitions(agent.tools);
-    const messages = this.createInitialMessages(agent.template.systemPrompt, message);
+    const messages = history ?? this.createInitialMessages(agent.systemPrompt, message);
 
     let iteration = 0;
     while (iteration < 128) {
       iteration++;
 
-      const response = await this.requestNextResponse(agent.template.model, messages, toolDefinitions);
+      const response = await this.requestNextResponse(agent.model, messages, toolDefinitions);
       const assistantMessage = this.parseResponse(response);
 
       if (!assistantMessage) {
@@ -90,7 +91,7 @@ export abstract class AIProvider {
           messages.push(this.createToolMessage(toolCall, toolResult));
         }
       }
-      await session.recordMessages(agent.id, messages, context.fileSystem);
+      await agent.recordState(session.id, messages, context.fileSystem);
       if (toolCalls.length === 0) {
         return this.extractFinalContent(assistantMessage);
       }

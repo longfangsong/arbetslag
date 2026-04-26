@@ -2,6 +2,7 @@ import { AIProvider } from "./aiProvider";
 import { Tool } from "./tool";
 import { FileSystem } from "./fileSystem";
 import { Template } from "./agent";
+import { EventRegistry } from "./eventRegistry";
 
 type NamedToolCtor = (new (...args: any[]) => Tool<any, any>) & {
   name: string;
@@ -14,6 +15,7 @@ export class Context {
     public fileSystem: FileSystem,
     public agentTemplates: Array<Template>,
     public config: Record<string, any>,
+    public readonly eventRegistry: EventRegistry,
   ) {}
 
   getAIProvider(name: string): AIProvider | undefined {

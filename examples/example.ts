@@ -2,6 +2,7 @@ import { Context } from "../src/model/context";
 import { loadTemplates } from "../src/agents/agentLoader";
 import { Agent } from "../src/model/agent";
 import { Session } from "../src/model/session";
+import { EventRegistry } from "../src/model/eventRegistry";
 import {
   Write,
   Read,
@@ -17,6 +18,8 @@ import readline from "readline";
 import dotenv from "dotenv";
 import { GetTime } from "@/model/tool/getTime";
 import { CreateCronJob } from "@/model/tool/cronJob";
+import { AwaitEvent } from "@/model/tool/awaitEvent";
+import { handleEvent } from "@/model/eventHandler";
 
 dotenv.config();
 
@@ -48,12 +51,17 @@ async function main(): Promise<void> {
       Await,
       GetTime,
       CreateCronJob,
+      AwaitEvent,
     ],
     new NodeFsFileSystem("./data"),
-    await loadTemplates("./examples/configs"),
+    await loadTemplates([
+      "./examples/configs/taskDispatcher.json",
+      "./examples/configs/generalPurposeSubAgent.json",
+    ]),
     {
       cron_token: process.env.cron_token,
     },
+    new EventRegistry("data/events.json", new NodeFsFileSystem("./data")),
   );
 
   const template = context.getTemplate("taskDispatcher");
@@ -81,3 +89,41 @@ async function main(): Promise<void> {
 }
 
 main().catch(console.error);
+
+// ── Event Handler Demo ───────────────────────────────────────────────────────
+//
+// In a real deployment, you'd wire `handleEvent` to your webhook endpoint:
+//
+// ```ts
+// import { handleEvent, Context, EventRegistry, NodeFsFileSystem, OpenAIProvider,
+//          Write, Read, Replace, List, Delete, HttpRequest, ListTemplates,
+//          Spawn, Await, GetTime, CreateCronJob, AwaitEvent } from "arbetslag";
+// import { loadTemplates } from "arbetslag/dist/agents/agentLoader";
+//
+// function buildContext(): Context {
+//   return new Context(
+//     [new OpenAIProvider("openai", { ... })],
+//     [Write, Read, Replace, List, Delete, HttpRequest, ListTemplates, Spawn,
+//      Await, GetTime, CreateCronJob, AwaitEvent],
+//     new NodeFsFileSystem("./data"),
+//     await loadTemplates(["./configs/taskDispatcher.json"]),
+//     { cron_token: process.env.CRON_TOKEN },
+//     new EventRegistry("data/events.json", new NodeFsFileSystem("./data")),
+//   );
+// }
+//
+// // Hono example:
+// import { Hono } from "hono";
+// const app = new Hono();
+// app.post("/webhook", async (c) => {
+//   const payload = await c.req.json();
+//   const context = buildContext();
+//   const result = await handleEvent(context, payload);
+//   return c.text(result);
+// });
+// ```
+//
+// When the agent calls `awaitEvent({ eventId: "cron-xxx" })`, it pauses and
+// returns. The external system (cron-job.org) POSTs to your webhook with the
+// payload containing `eventId`. `handleEvent` resolves the event, loads the
+// agent's saved state from disk, and resumes the loop with the event data.
