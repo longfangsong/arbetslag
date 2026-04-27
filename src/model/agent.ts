@@ -89,7 +89,11 @@ export class Agent {
     return this.workingOn!;
   }
 
-  async recordState(sessionId: string, messages: unknown[], fs: FileSystem): Promise<void> {
+  async recordState(
+    sessionId: string,
+    messages: unknown[],
+    fs: FileSystem,
+  ): Promise<void> {
     const state: AgentState = {
       id: this.id,
       model: this.model,
@@ -98,7 +102,10 @@ export class Agent {
       toolNames: this.toolNames,
       history: messages,
     };
-    await fs.writeFile(`run/${sessionId}/${this.id}.json`, JSON.stringify(state));
+    await fs.writeFile(
+      `run/${sessionId}/${this.id}.json`,
+      JSON.stringify(state),
+    );
   }
 
   static async resumeFromFile(
@@ -129,12 +136,19 @@ export class Agent {
       state.toolNames,
       tools,
     );
-
+    console.log(state.history);
+    console.log(eventMessage);
     // Inject event into history
-    state.history.push(eventMessage);
+    state.history.push({ role: "tool", content: JSON.stringify(eventMessage) });
 
     // Continue the loop
     const session = new Session({ prompt: "" });
-    return agent.provider.sendMessage(context, session, agent, "", state.history);
+    return agent.provider.sendMessage(
+      context,
+      session,
+      agent,
+      "",
+      state.history,
+    );
   }
 }

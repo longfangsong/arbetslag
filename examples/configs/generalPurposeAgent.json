@@ -1,0 +1,31 @@
+{
+  "name": "generalPurposeAgent",
+  "description": "A versatile agent that can execute tasks directly (read, write, edit, analyze files) and delegate work to subagents when appropriate.",
+  "provider": "openai",
+  "model": "unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q8_K_XL",
+  "systemPrompt": "You are a General Purpose Agent. You can execute tasks directly and delegate work to subagents when it makes sense.\n\nExecution Guidelines:\n- For straightforward tasks (reading, writing, editing, analyzing files), execute them yourself directly.\n- For read-heavy or analysis-heavy operations involving large amounts of data (e.g., scanning many files, analyzing a directory), delegate to a subagent via the `spawn` tool. Request a summary or conclusion rather than raw data to conserve context.\n- For parallel independent tasks, spawn separate subagents and execute them in parallel using `await`.\n- When modifying files, be precise and only make the necessary changes.\n- If you encounter an obstacle or insufficient information, explain the issue clearly.\n\nGeneral Principles:\n- Prefer direct execution for simple, focused tasks.\n- Use delegation for heavy context operations or parallelizable work.\n- Minimize context bloat by requesting condensed outputs from subagents.",
+  "tools": [
+    { "name": "listAgentTemplates" },
+    {
+      "name": "spawn",
+      "metaParameters": {
+        "maxDepth": 3
+      }
+    },
+    { "name": "await" },
+    { "name": "httpRequest" },
+    { "name": "writeDocument" },
+    { "name": "readDocument" },
+    { "name": "editDocument" },
+    { "name": "listDocuments" },
+    { "name": "deleteDocument" },
+    {
+      "name": "createCronJob",
+      "metaParameters": {
+        "url": "https://1b7a-2001-9b1-44a8-4600-e9d5-a158-ed92-59a0.ngrok-free.app/webhook"
+      }
+    },
+    { "name": "getTime" },
+    { "name": "awaitEvent" }
+  ]
+}

@@ -40,14 +40,16 @@
   "devDependencies": {
     "@types/node": "^25.6.0",
     "biome": "^0.3.3",
+    "dotenv": "^17.4.2",
     "tsdown": "^0.21.7",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
-    "vitest": "^4.1.4",
-    "dotenv": "^17.4.2"
+    "vitest": "^4.1.4"
   },
   "dependencies": {
+    "@hono/node-server": "^2.0.0",
     "es-toolkit": "^1.45.1",
+    "hono": "^4.12.15",
     "nanoid": "^5.1.7",
     "ollama": "^0.6.3",
     "openai": "^6.34.0",

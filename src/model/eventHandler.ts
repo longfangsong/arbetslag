@@ -44,13 +44,19 @@ export async function handleEvent(
     throw new Error(`Event '${eventId}' not found in registry`);
   }
 
-  // Mark event as resolved (prevents double-processing)
-  await eventRegistry.markResolved(eventId);
+  // Store event data so awaitEvent can read it (if blocking).
+  // If awaitEvent is polling, it will consume the data and delete the record.
+  // If the record is gone, awaitEvent already handled it — don't resume.
+  await eventRegistry.storeResolved(eventId, payload);
 
-  // Construct state path and resume agent
+  // Check if awaitEvent already consumed the event (blocking path)
+  const stillExists = await eventRegistry.exists(eventId);
+  if (!stillExists) {
+    return `Event '${eventId}' was handled by a blocking awaitEvent.`;
+  }
+
+  // Non-blocking path: resume agent from disk with the event data
   const statePath = `run/${eventRecord.sessionId}/${eventRecord.agentId}.json`;
-
-  // Extract the actual event data from payload
   const eventMessage =
     (payload as { data?: unknown })?.data ??
     (payload as Record<string, unknown>)?.data ??

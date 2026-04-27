@@ -16,10 +16,9 @@ import { OpenAIProvider } from "../src/model/aiProvider/openai";
 import { NodeFsFileSystem } from "../src/model/fileSystem/nodefs";
 import readline from "readline";
 import dotenv from "dotenv";
-import { GetTime } from "@/model/tool/getTime";
-import { CreateCronJob } from "@/model/tool/cronJob";
-import { AwaitEvent } from "@/model/tool/awaitEvent";
-import { handleEvent } from "@/model/eventHandler";
+import { GetTime } from "../src/model/tool/getTime";
+import { CreateCronJob } from "../src/model/tool/cronJob";
+import { AwaitEvent } from "../src/model/tool/awaitEvent";
 
 dotenv.config();
 
@@ -35,7 +34,7 @@ async function main(): Promise<void> {
   const context = new Context(
     [
       new OpenAIProvider("openai", {
-        baseURL: "http://127.0.0.1:8000/v1",
+        baseURL: "http://127.0.0.1:8033/v1",
         apiKey: process.env.openai_apikey,
       }),
     ],
@@ -54,10 +53,7 @@ async function main(): Promise<void> {
       AwaitEvent,
     ],
     new NodeFsFileSystem("./data"),
-    await loadTemplates([
-      "./examples/configs/taskDispatcher.json",
-      "./examples/configs/generalPurposeSubAgent.json",
-    ]),
+    await loadTemplates(["./examples/configs/generalPurposeAgent.json"]),
     {
       cron_token: process.env.cron_token,
     },

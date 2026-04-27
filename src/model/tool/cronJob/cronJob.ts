@@ -26,23 +26,16 @@ export const CronJobScheduleInputSchema = z.object({
     .describe("Days of the week when the job should run (0-6, 0=Sunday)."),
 });
 
-export const CreateCronJobInputSchema = z.object({
-  enabled: z.boolean().describe("Whether the job is enabled."),
-  url: z.string().describe("The URL to call when the cron job executes."),
-  schedule: CronJobScheduleInputSchema.describe(
-    "Schedule configuration for the cron job.",
-  ),
-});
-
 // ── Tool ─────────────────────────────────────────────────────────────────────
 
 export class CreateCronJob implements Tool<
-  typeof CreateCronJobInputSchema,
+  typeof CronJobScheduleInputSchema,
   CronJob
 > {
   static name: string = "createCronJob";
-  description: string = "Create a new cron job using the cron-job.org API.";
-  inputSchema = CreateCronJobInputSchema;
+  description: string =
+    "Create a new cron job using the cron-job.org API. This tool registers an event listener and returns an eventId. AFTER calling this tool, you should call `awaitEvent` with the returned eventId to wait for the cron job's callback.";
+  inputSchema = CronJobScheduleInputSchema;
   private readonly url: string;
 
   constructor(metaParams?: Record<string, any>) {
@@ -52,7 +45,7 @@ export class CreateCronJob implements Tool<
   async handler(
     context: Context,
     session: Session,
-    input: z.infer<typeof CreateCronJobInputSchema>,
+    input: z.infer<typeof CronJobScheduleInputSchema>,
   ): Promise<CronJob> {
     const cronToken = context.config?.cron_token;
     if (!cronToken) {
@@ -68,8 +61,7 @@ export class CreateCronJob implements Tool<
     if (context.eventRegistry && agentId) {
       await context.eventRegistry.register(eventId, sessionId, agentId);
     }
-
-    const response = await fetch("https://api.cron-job.org/jobs", {
+    const payload = {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -77,15 +69,20 @@ export class CreateCronJob implements Tool<
       },
       body: JSON.stringify({
         job: {
-          ...input,
+          schedule: input,
           url: this.url,
+          enabled: true,
+          requestMethod: 1,
           extendedData: {
-            headers: {},
+            headers: {
+              "Content-Type": "application/json",
+            },
             body: JSON.stringify({ eventId, sessionId }),
           },
         },
       }),
-    });
+    };
+    const response = await fetch("https://api.cron-job.org/jobs", payload);
 
     if (!response.ok) {
       throw new Error(`Failed to create cron job: ${response.statusText}`);
@@ -96,16 +93,16 @@ export class CreateCronJob implements Tool<
     return {
       jobId: data.jobId,
       eventId,
-      enabled: input.enabled,
+      enabled: true,
       url: this.url,
       schedule: {
-        timezone: input.schedule.timezone,
+        timezone: input.timezone,
         expiresAt: 0,
-        hours: input.schedule.hours,
-        mdays: input.schedule.mdays,
-        minutes: input.schedule.minutes,
-        months: input.schedule.months,
-        wdays: input.schedule.wdays,
+        hours: input.hours,
+        mdays: input.mdays,
+        minutes: input.minutes,
+        months: input.months,
+        wdays: input.wdays,
       },
     };
   }
