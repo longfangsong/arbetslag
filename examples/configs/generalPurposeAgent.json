@@ -26,6 +26,9 @@
       }
     },
     { "name": "getTime" },
-    { "name": "awaitEvent" }
+    { "name": "awaitEvent" },
+    { "name": "sendTelegramMessage" },
+    { "name": "sendSlackMessage" },
+    { "name": "sendEmail" }
   ]
 }

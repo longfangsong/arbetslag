@@ -1,6 +1,3 @@
-import { Agent } from "../agent";
-import { Context } from "../context";
-import { Session } from "../session";
 import { Tool } from "../tool";
 
 export interface ToolCall {
@@ -14,89 +11,52 @@ export interface AssistantMessage {
   tool_calls?: ToolCall[];
 }
 
-export abstract class AIProvider {
+export interface LLMAdapter {
+  name: string;
+  /** Build tool definitions for this provider's format. */
+  buildToolDefs(tools: Array<Tool<any, any, string>>): unknown;
+  /** Make one API call, return the assistant message. */
+  call(messages: unknown[], toolDefs: unknown, model: string): Promise<AssistantMessage>;
+  /** Create a tool-result message for this provider's format. */
+  createToolMessage(toolCall: ToolCall, result: unknown): unknown;
+  /** Get the tool name from a tool call. */
+  getToolName(toolCall: ToolCall): string;
+  /** Get the raw arguments from a tool call. */
+  getToolArguments(toolCall: ToolCall): unknown;
+  /** Parse raw arguments against a tool's input schema. */
+  parseToolArguments<T = unknown>(tool: Tool<any, any, string>, rawArguments: unknown): T;
+}
+
+export abstract class BaseProvider implements LLMAdapter {
   abstract name: string;
+  abstract buildToolDefs(tools: Array<Tool<any, any, string>>): unknown;
+  abstract call(messages: unknown[], toolDefs: unknown, model: string): Promise<AssistantMessage>;
+  abstract createToolMessage(toolCall: ToolCall, result: unknown): unknown;
 
-  protected abstract buildToolDefinitions(tools: Array<Tool<any, any>>): unknown;
-
-  protected abstract createInitialMessages(systemPrompt: string, message: string): unknown[];
-
-  protected abstract requestNextResponse(model: string, messages: unknown[], toolDefinitions: unknown): Promise<unknown>;
-
-  protected abstract parseResponse(response: unknown): AssistantMessage | undefined;
-
-  protected abstract isFunctionToolCall(toolCall: unknown): boolean;
-
-  protected abstract getToolName(toolCall: unknown): string;
-
-  protected abstract getToolArguments(toolCall: unknown): unknown;
-
-  protected abstract createToolMessage(toolCall: ToolCall, toolResult: unknown): unknown;
-
-  protected abstract extractFinalContent(assistantMessage: AssistantMessage): string;
-
-  protected abstract parseToolArguments<T = unknown>(tool: Tool<any, any>, rawArguments: unknown): T;
-
-  private async callTool(
-    context: Context,
-    session: Session,
-    agent: Agent,
-    toolCall: ToolCall,
-  ): Promise<unknown | undefined> {
-    if (!this.isFunctionToolCall(toolCall)) {
-      return undefined;
-    }
-
-    const toolName = this.getToolName(toolCall);
-    const tool = agent.tools.find((candidate) => (candidate.constructor as { name: string }).name === toolName);
-
-    try {
-      if (!tool) {
-        throw new Error(`Tool '${toolName}' not found.`);
-      }
-
-      const args = this.parseToolArguments(tool, this.getToolArguments(toolCall));
-      return await tool.handler(context, session, args);
-    } catch (error) {
-      return `Error executing tool '${toolName}': ${error instanceof Error ? error.message : String(error)}`;
-    }
+  /** Get the tool name from a tool call. */
+  getToolName(toolCall: ToolCall): string {
+    return (toolCall as { function: { name: string } }).function.name;
   }
 
-  public async sendMessage(
-    context: Context,
-    session: Session,
-    agent: Agent,
-    message: string,
-    history?: unknown[],
-  ): Promise<string> {
-    const toolDefinitions = this.buildToolDefinitions(agent.tools);
-    const messages = history ?? this.createInitialMessages(agent.systemPrompt, message);
+  /** Get the raw arguments from a tool call. */
+  getToolArguments(toolCall: ToolCall): unknown {
+    return (toolCall as { function: { arguments: unknown } }).function.arguments;
+  }
 
-    let iteration = 0;
-    while (iteration < 128) {
-      iteration++;
-
-      const response = await this.requestNextResponse(agent.model, messages, toolDefinitions);
-      const assistantMessage = this.parseResponse(response);
-
-      if (!assistantMessage) {
-        throw new Error(`${this.name} provider returned no assistant message.`);
-      }
-      messages.push(assistantMessage);
-
-      const toolCalls = assistantMessage.tool_calls ?? [];
-      for (const toolCall of toolCalls) {
-        const toolResult = await this.callTool(context, session, agent, toolCall);
-        if (toolResult !== undefined) {
-          messages.push(this.createToolMessage(toolCall, toolResult));
-        }
-      }
-      await agent.recordState(session.id, messages, context.fileSystem);
-      if (toolCalls.length === 0) {
-        return this.extractFinalContent(assistantMessage);
-      }
+  /** Parse raw arguments against a tool's input schema. */
+  parseToolArguments<T = unknown>(tool: Tool<any, any, string>, rawArguments: unknown): T {
+    if (rawArguments === undefined || rawArguments === null) {
+      return tool.inputSchema.parse({}) as T;
     }
-
-    return "Conversation ended: Maximum iterations reached";
+    if (typeof rawArguments === "string") {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(rawArguments);
+      } catch {
+        throw new Error(`Invalid JSON in tool arguments: ${rawArguments}`);
+      }
+      return tool.inputSchema.parse(parsed) as T;
+    }
+    return tool.inputSchema.parse(rawArguments) as T;
   }
 }

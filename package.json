@@ -48,9 +48,11 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.0",
+    "date-fns": "^4.1.0",
     "es-toolkit": "^1.45.1",
     "hono": "^4.12.15",
     "nanoid": "^5.1.7",
+    "neverthrow": "^8.2.0",
     "ollama": "^0.6.3",
     "openai": "^6.34.0",
     "zod": "^4.3.6"

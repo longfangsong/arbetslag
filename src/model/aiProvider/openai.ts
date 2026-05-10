@@ -6,7 +6,8 @@ import {
 } from "openai/resources/chat/completions";
 import { Tool } from "../tool";
 import { z } from "zod";
-import { AIProvider, AssistantMessage, ToolCall } from ".";
+import { hoursToMilliseconds } from "date-fns";
+import { BaseProvider, AssistantMessage, ToolCall } from ".";
 
 export interface OpenAICompatibleProviderOptions {
   apiKey?: string;
@@ -17,7 +18,7 @@ export interface OpenAICompatibleProviderOptions {
   maxRetries?: number;
 }
 
-export class OpenAIProvider extends AIProvider {
+export class OpenAIProvider extends BaseProvider {
   name: string;
   private client: OpenAI;
 
@@ -29,16 +30,16 @@ export class OpenAIProvider extends AIProvider {
       baseURL: options.baseURL,
       organization: options.organization,
       project: options.project,
-      timeout: options.timeout ?? 7200000,
+      timeout: options.timeout ?? hoursToMilliseconds(2),
       maxRetries: options.maxRetries ?? 2,
     });
   }
 
-  protected buildToolDefinitions(
+  public buildToolDefs(
     tools: Array<Tool<any, any>>,
   ): ChatCompletionTool[] {
-    const toolDefinitions: ChatCompletionTool[] = tools.map((tool) => {
-      const toolName = (tool.constructor as { name: string }).name;
+    return tools.map((tool) => {
+      const toolName = (tool.constructor as unknown as { toolName: string }).toolName;
       return {
         type: "function",
         function: {
@@ -49,35 +50,39 @@ export class OpenAIProvider extends AIProvider {
         },
       };
     });
-    return toolDefinitions;
   }
 
-  protected createInitialMessages(
-    systemPrompt: string,
-    message: string,
-  ): ChatCompletionMessageParam[] {
-    const messages: ChatCompletionMessageParam[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: message },
-    ];
-    return messages;
-  }
-
-  protected async requestNextResponse(
-    model: string,
+  public async call(
     messages: unknown[],
-    toolDefinitions: unknown,
-  ): Promise<unknown> {
-    return this.client.chat.completions.create({
+    toolDefs: unknown,
+    model: string,
+  ): Promise<AssistantMessage> {
+    const response = await this.client.chat.completions.create({
       model,
       messages: messages as ChatCompletionMessageParam[],
-      tools: toolDefinitions as ChatCompletionTool[],
+      tools: toolDefs as ChatCompletionTool[],
       tool_choice:
-        (toolDefinitions as ChatCompletionTool[]).length > 0 ? "auto" : "none",
+        (toolDefs as ChatCompletionTool[]).length > 0 ? "auto" : "none",
     });
+    return this.parseResponse(response) ?? {
+      role: "assistant",
+      content: `${this.name} provider returned no assistant message.`,
+    };
   }
 
-  protected parseResponse(response: unknown): AssistantMessage | undefined {
+  public createToolMessage(
+    toolCall: ToolCall,
+    toolResult: unknown,
+  ): unknown {
+    const toolMessage: ChatCompletionToolMessageParam = {
+      role: "tool",
+      tool_call_id: toolCall.id,
+      content: JSON.stringify(toolResult),
+    };
+    return toolMessage;
+  }
+
+  private parseResponse(response: unknown): AssistantMessage | undefined {
     const msg = (
       response as {
         choices?: Array<{
@@ -91,73 +96,5 @@ export class OpenAIProvider extends AIProvider {
       content: msg.content as string | unknown[],
       tool_calls: msg.tool_calls as ToolCall[],
     };
-  }
-
-  protected isFunctionToolCall(toolCall: unknown): boolean {
-    return (
-      typeof toolCall === "object" &&
-      toolCall !== null &&
-      "function" in toolCall
-    );
-  }
-
-  protected getToolName(toolCall: unknown): string {
-    return (toolCall as { function: { name: string } }).function.name;
-  }
-
-  protected getToolArguments(toolCall: unknown): unknown {
-    return (toolCall as { function: { arguments: unknown } }).function
-      .arguments;
-  }
-
-  protected createToolMessage(
-    toolCall: ToolCall,
-    toolResult: unknown,
-  ): unknown {
-    const toolMessage: ChatCompletionToolMessageParam = {
-      role: "tool",
-      tool_call_id: toolCall.id,
-      content: JSON.stringify(toolResult),
-    };
-    return toolMessage;
-  }
-
-  protected extractFinalContent(assistantMessage: AssistantMessage): string {
-    const content = assistantMessage.content;
-
-    if (typeof content === "string") {
-      return content;
-    }
-
-    if (Array.isArray(content)) {
-      return content
-        .map((part) =>
-          typeof part === "object" && part !== null && "text" in part
-            ? String((part as { text?: unknown }).text ?? "")
-            : "",
-        )
-        .join("");
-    }
-
-    return "";
-  }
-
-  protected parseToolArguments<T = unknown>(
-    tool: Tool<any, any>,
-    rawArguments: unknown,
-  ): T {
-    if (rawArguments === undefined || rawArguments === null) {
-      return tool.inputSchema.parse({}) as T;
-    }
-    if (typeof rawArguments === "string") {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(rawArguments);
-      } catch {
-        throw new Error(`Invalid JSON in tool arguments: ${rawArguments}`);
-      }
-      return tool.inputSchema.parse(parsed) as T;
-    }
-    return tool.inputSchema.parse(rawArguments) as T;
   }
 }

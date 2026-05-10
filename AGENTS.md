@@ -2,38 +2,37 @@
 
 **arbetslag** (Swedish: "work team") is a TypeScript framework for building tool-using AI agents with sub-agent delegation.
 
-## Core Concepts
+## Development Principle
+
+### YAGNI
+
+Do not over design things. Do not design for something that "will be useful in the future".
+
+When a simple function can do the job, don't create a class.
+
+Do not create abstraction of things until there are multiple (>=3) instance of things that fits in the abstraction.
+
+Do not extract separated interface/class from another interface/class unless the original interface/class has more than 10 fields or there is a really good reason for the new interface/class to exist.
+
+## Ubiquitous language
+
+Please always use these core concepts when talking with the user:
 
 ### Context
-The shared dependency container. Holds AI providers, tool constructors, a `FileSystem`, agent templates, and arbitrary config. Agents resolve tools and providers from context at construction time.
 
-### Agent Templates (JSON)
-Agents are defined as JSON configs in a directory (e.g. `examples/configs/`):
-- `name` / `description` — identifier and purpose
-- `provider` / `model` — which AI provider and model to use
-- `systemPrompt` — the system message
-- `tools` — array of `{ name, metaParameters? }` specifying which tools the agent gets
+Shared information among the whole program. Including filesystem, all agent templates, aiProviders, etc.
 
-Templates are loaded via `loadTemplates(dir)` and resolved by name from `Context`.
+### Agent Templates
+
+Template for creating agents, contains system prompt, aiProvider and model, allowed to use tools and their metaParameters.
 
 ### Agent
-Instantiated from a `Context` + `Template`. Resolves tool constructors and provider at construction. `handleRequest()` kicks off the provider's tool-call loop, which iterates up to 128 times: call LLM → execute tool calls → append results → repeat until no tool calls remain.
 
-### Session
-Tracks agents involved in a conversation and records message histories to the file system (`run/{sessionId}/{agentId}.json`).
+A working AI which aims to solve certain task, with a set of tools.
 
-### AI Provider Loop (`AIProvider.sendMessage`)
-Abstract base class implements the agentic loop. Concrete providers (`OpenAIProvider`, `OllamaAIProvider`) implement provider-specific message formatting, API calls, and response parsing.
+### AI Provider
 
-### Sub-Agent Delegation
-- `listAgentTemplates` — lists available agent templates
-- `spawn` — creates a new agent from a template with a given prompt; returns the agent ID. Enforces `maxDepth` to prevent infinite nesting.
-- `await` — waits for a spawned agent to complete and returns its result.
-
-### File System Abstraction
-`FileSystem` interface with `readFile`, `writeFile`, `editFile`, `listFiles`, `deleteFile`. Two implementations:
-- `NodeFsFileSystem` — real filesystem, sandboxed to a base directory
-- `InMemoryFileSystem` — in-memory map, for testing
+An endpoint which can provide AI chatting service.
 
 ## Build & Development
 
@@ -49,11 +48,3 @@ pnpm type-check     # TypeScript type checking
 ```
 
 **Tooling:** tsdown (bundler), Biome (lint/format), Vitest (tests), Zod v4 (schemas), TypeScript 6
-
-## Example Usage
-
-See `examples/example.ts` — creates a `Context` with an OpenAI provider, registers all built-in tools, loads templates from `examples/configs/`, instantiates a `taskDispatcher` agent, and runs it against a user prompt.
-
-## Configuration
-
-Agent templates live as JSON files (see `examples/configs/taskDispatcher.json` and `generalPurposeSubAgent.json`). The `taskDispatcher` template demonstrates the multi-agent pattern: it can spawn parallel sub-agents for independent tasks and synthesize results.

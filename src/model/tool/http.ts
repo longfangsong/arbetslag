@@ -1,7 +1,7 @@
 import { z } from "zod";
+import { Result } from "neverthrow";
 import { Context } from "../context";
-import { Session } from "../session";
-import { Tool } from ".";
+import { Tool, ok, err } from ".";
 import { customAlphabet } from "nanoid";
 
 const nanoid = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 8);
@@ -42,15 +42,15 @@ export interface HttpResponse {
 }
 
 class HttpRequest implements Tool<typeof HttpRequestInputSchema, HttpResponse> {
-  static name: string = "httpRequest";
+  static toolName: string = "httpRequest";
   description: string = "Make an HTTP request to a URL and get the response.";
   inputSchema = HttpRequestInputSchema;
 
   async handler(
     context: Context,
-    session: Session,
+    _agentId: string,
     input: z.infer<typeof HttpRequestInputSchema>,
-  ): Promise<HttpResponse> {
+  ): Promise<Result<HttpResponse, string>> {
     const url: string = input.url;
     const method: string = input.method ?? "GET";
     const headers = input.headers;
@@ -69,7 +69,12 @@ class HttpRequest implements Tool<typeof HttpRequestInputSchema, HttpResponse> {
       fetchOptions.body = body;
     }
 
-    const response = await fetch(url, fetchOptions);
+    let response: Response;
+    try {
+      response = await fetch(url, fetchOptions);
+    } catch (e) {
+      return err(`Failed to fetch ${url}: ${(e as Error).message}`);
+    }
 
     const responseHeaders: Record<string, string> = {};
     response.headers.forEach((value, key) => {
@@ -93,7 +98,7 @@ class HttpRequest implements Tool<typeof HttpRequestInputSchema, HttpResponse> {
       result.body = `[Response saved to ${filename}] (${responseBody.length} chars total)`;
     }
 
-    return result;
+    return ok(result);
   }
 }
 

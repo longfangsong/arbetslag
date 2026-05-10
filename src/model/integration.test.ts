@@ -1,21 +1,15 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { InMemoryFileSystem } from "./fileSystem/inMemory";
-import { EventRegistry } from "./eventRegistry";
-import { Context } from "./context";
-import { Session } from "./session";
-import { Agent, Template } from "./agent";
-import { AwaitEvent } from "./tool/awaitEvent";
-import { handleEvent } from "./eventHandler";
-import { AIProvider, ToolCall } from "./aiProvider";
+import { InMemoryAgentRepository } from "./agentRepository";
+import { createRuntime, type Context } from "./context";
+import type { Template } from "./agent";
+import { BaseProvider, AssistantMessage, ToolCall } from "./aiProvider";
 import { Tool } from "./tool";
+import { SubscriptionRegistry } from "./subscriptionRegistry";
 
-// ── Mock AI Provider ─────────────────────────────────────────────────────────
+// ── Mock LLM Adapter ─────────────────────────────────────────────────────────
 
-/**
- * A minimal AIProvider that returns a simple response with no tool calls.
- * Useful for integration tests where we don't want to hit a real LLM.
- */
-class MockAIProvider extends AIProvider {
+class MockLLMAdapter extends BaseProvider {
   name: string;
   private _response: { content?: string; toolCalls?: ToolCall[] } | null;
 
@@ -33,21 +27,34 @@ class MockAIProvider extends AIProvider {
     this._response = { toolCalls: calls };
   }
 
-  protected buildToolDefinitions(tools: Array<Tool<any, any>>): unknown {
+  public buildToolDefs(_tools: Array<Tool<any, any, string>>): unknown {
     return [];
   }
 
-  protected createInitialMessages(
-    systemPrompt: string,
-    message: string,
-  ): unknown[] {
-    return [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: message },
-    ];
+  public async call(
+    messages: unknown[],
+    _toolDefs: unknown,
+    _model: string,
+  ): Promise<AssistantMessage> {
+    const response = await this.requestNextResponse(_model, messages, []);
+    return this.parseResponse(response) ?? {
+      role: "assistant",
+      content: `${this.name} adapter returned no assistant message.`,
+    };
   }
 
-  protected async requestNextResponse(
+  public createToolMessage(
+    toolCall: ToolCall,
+    toolResult: unknown,
+  ): unknown {
+    return {
+      role: "tool",
+      tool_call_id: toolCall.id,
+      content: JSON.stringify(toolResult),
+    };
+  }
+
+  private async requestNextResponse(
     _model: string,
     _messages: unknown[],
     _toolDefinitions: unknown,
@@ -77,7 +84,7 @@ class MockAIProvider extends AIProvider {
     };
   }
 
-  protected parseResponse(response: unknown): {
+  private parseResponse(response: unknown): {
     role?: string;
     content?: string;
     tool_calls?: ToolCall[];
@@ -90,173 +97,109 @@ class MockAIProvider extends AIProvider {
     if (!msg) return undefined;
     return msg;
   }
-
-  protected isFunctionToolCall(_toolCall: unknown): boolean {
-    return true;
-  }
-
-  protected getToolName(toolCall: unknown): string {
-    return (toolCall as { function: { name: string } }).function.name;
-  }
-
-  protected getToolArguments(toolCall: unknown): unknown {
-    return (toolCall as { function: { arguments: unknown } }).function
-      .arguments;
-  }
-
-  protected createToolMessage(
-    toolCall: ToolCall,
-    toolResult: unknown,
-  ): unknown {
-    return {
-      role: "tool",
-      tool_call_id: toolCall.id,
-      content: JSON.stringify(toolResult),
-    };
-  }
-
-  protected extractFinalContent(msg: { content?: string }): string {
-    return msg.content ?? "";
-  }
-
-  protected parseToolArguments<T = unknown>(
-    _tool: Tool<any, any>,
-    rawArguments: unknown,
-  ): T {
-    if (typeof rawArguments === "string") {
-      try {
-        return JSON.parse(rawArguments) as T;
-      } catch {
-        return {} as T;
-      }
-    }
-    return (rawArguments ?? {}) as T;
-  }
 }
 
 // ── Integration Tests ────────────────────────────────────────────────────────
 
-describe("Integration: awaitEvent → handleEvent → resume", () => {
+describe("Integration: actor-based event loop", () => {
   let fs: InMemoryFileSystem;
-  let registry: EventRegistry;
-  let mockProvider: MockAIProvider;
+  let mockAdapter: MockLLMAdapter;
+  let repo: InMemoryAgentRepository;
   let context: Context;
+  let agentRunner: import("./agentRunner").AgentRunner;
 
-  const testTemplate: Template = {
-    name: "test-agent",
-    description: "Test agent for integration tests",
+  const defaultTemplate: Template = {
+    name: "default-agent",
+    description: "Default agent for integration tests",
     provider: "mock",
     model: "mock-model",
     systemPrompt: "You are a test agent.",
-    tools: [{ name: "awaitEvent" }],
+    tools: [],
+    isDefault: true,
   };
 
   beforeEach(() => {
     fs = new InMemoryFileSystem();
-    registry = new EventRegistry("data/events.json", fs);
-    mockProvider = new MockAIProvider("mock");
-    context = new Context(
-      [mockProvider],
-      [AwaitEvent],
+    mockAdapter = new MockLLMAdapter("mock");
+    repo = new InMemoryAgentRepository();
+    const runtime = createRuntime(
+      [mockAdapter],
+      [],
       fs,
-      [testTemplate],
+      [defaultTemplate],
       {},
-      registry,
+      repo,
     );
+    context = runtime.context;
+    agentRunner = runtime.agentRunner;
   });
 
-  it(
-    "agent pauses with awaitEvent, handleEvent resumes it",
-    async () => {
-      // Step 1: Agent calls awaitEvent tool
-      const session = new Session({ prompt: "test" });
-      const agent = new Agent(context, testTemplate);
-      session.currentAgentId = agent.id;
+  it("default agent is created on first message", async () => {
+    mockAdapter.setResponse("Hello from default agent");
 
-      const awaitEventTool = new AwaitEvent();
-      const registerResult = await awaitEventTool.handler(context, session, {
-        eventId: "test-event-1",
-      });
+    await agentRunner.handleMessage({
+      content: "Hello",
+    });
 
-      expect(registerResult).toEqual({
-        eventId: "test-event-1",
-        status: "registered",
-      });
+    // Verify default agent ID was persisted
+    const defaultId = await fs.readFile("run/_default_agent_id.json");
+    expect(defaultId).toBeDefined();
+  });
 
-      // Step 2: Verify event is in registry
-      const record = await registry.resolve("test-event-1");
-      expect(record).toBeDefined();
-      expect(record!.sessionId).toBe(session.id);
-      expect(record!.agentId).toBe(agent.id);
+  it("default agent persists state across calls", async () => {
+    mockAdapter.setResponse("First response");
+    await agentRunner.handleMessage({ content: "First" });
 
-      // Step 3: Save agent state to disk (simulating what recordState does)
-      await agent.recordState(session.id, [], fs);
+    mockAdapter.setResponse("Second response");
+    await agentRunner.handleMessage({ content: "Second" });
 
-      // Step 4: Call handleEvent with a payload
-      const payload = {
-        eventId: "test-event-1",
-        data: { message: "external event received" },
-      };
+    // Both messages should go to the same agent
+    const defaultId = await fs.readFile("run/_default_agent_id.json");
+    const agent = await repo.load(defaultId, context);
+    expect(agent).not.toBeNull();
+    expect(agent!.history.length).toBe(4); // 2 user + 2 assistant
+  });
 
-      // Step 5: handleEvent should resume the agent
-      // The mock provider returns a simple response with no tool calls,
-      // so the loop completes and returns the final content
-      mockProvider.setResponse("Agent resumed successfully.");
+  it("emitEvent routes to subscribed agent", async () => {
+    const reg = new SubscriptionRegistry(fs);
+    await reg.subscribe("user:message", "agent-1");
 
-      const result = await handleEvent(context, payload);
+    mockAdapter.setResponse("Got it");
 
-      expect(result).toBe("Agent resumed successfully.");
+    const agent = await repo.create(defaultTemplate, context);
+    await agentRunner.handleMessage({
+      agentId: agent.id,
+      content: "Start",
+    });
 
-      // Step 6: Verify event was marked resolved
-      const resolved = await registry.resolve("test-event-1");
-      expect(resolved).toBeUndefined();
-    },
-    5000,
-  );
+    const count = await agentRunner.emitEvent("user:message", "Hello!");
+    expect(count).toBe(1);
 
-  it(
-    "handleEvent throws on missing eventId",
-    async () => {
-      await expect(
-        handleEvent(context, { data: "no event id" }),
-      ).rejects.toThrow("Missing eventId in payload");
-    },
-  );
+    // Verify message was enqueued to mailbox
+    const mailboxContent = await fs.readFile("mailbox/agent-1.json");
+    const messages = JSON.parse(mailboxContent) as Array<{ content: string }>;
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toBe("Hello!");
+  });
 
-  it(
-    "handleEvent throws on unknown eventId",
-    async () => {
-      await expect(
-        handleEvent(context, { eventId: "nonexistent-event" }),
-      ).rejects.toThrow("Event 'nonexistent-event' not found in registry");
-    },
-  );
+  it("spawn creates and processes agent", async () => {
+    const workerTemplate: Template = {
+      name: "worker",
+      description: "Worker agent",
+      provider: "mock",
+      model: "mock-model",
+      systemPrompt: "You are a worker.",
+      tools: [],
+    };
+    context.agentTemplates.push(workerTemplate);
 
-  it(
-    "handleEvent uses payload.data as event message when present",
-    async () => {
-      // Register an event
-      const session = new Session({ prompt: "test" });
-      const agent = new Agent(context, testTemplate);
-      session.currentAgentId = agent.id;
+    mockAdapter.setResponse("Spawned agent done");
 
-      const awaitEventTool = new AwaitEvent();
-      await awaitEventTool.handler(context, session, {
-        eventId: "test-event-2",
-      });
+    const agentId = await agentRunner.spawn("worker", "Do the work");
+    expect(typeof agentId).toBe("string");
 
-      await agent.recordState(session.id, [], fs);
-
-      // Call with data payload
-      mockProvider.setResponse("Event: {\"value\":42}");
-
-      const result = await handleEvent(context, {
-        eventId: "test-event-2",
-        data: { value: 42 },
-      });
-
-      expect(result).toBe("Event: {\"value\":42}");
-    },
-    5000,
-  );
+    const agent = await repo.load(agentId, context);
+    expect(agent).not.toBeNull();
+    expect(agent!.history.length).toBe(2); // user + assistant
+  });
 });

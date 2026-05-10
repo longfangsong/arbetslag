@@ -1,7 +1,7 @@
 import { z } from "zod";
+import { Result } from "neverthrow";
 import { Context } from "../context";
-import { Session } from "../session";
-import { Tool } from ".";
+import { Tool, ok, err } from ".";
 
 export const ReadDocumentInputSchema = z
   .object({
@@ -49,89 +49,109 @@ export const DeleteDocumentInputSchema = z
   })
   .describe("Delete a document from the file system.") satisfies z.ZodTypeAny;
 
-class Write implements Tool<typeof WriteDocumentInputSchema, "success"> {
-  static name: string = "writeDocument";
+class Write implements Tool<typeof WriteDocumentInputSchema, {}> {
+  static toolName: string = "writeDocument";
   description: string = "Write content to a new document.";
   inputSchema = WriteDocumentInputSchema;
   constructor() {}
   async handler(
     context: Context,
-    session: Session,
+    _agentId: string,
     input: z.infer<typeof WriteDocumentInputSchema>,
-  ): Promise<"success"> {
-    await context.fileSystem.writeFile(input.path, input.content);
-    return "success";
+  ): Promise<Result<{}, string>> {
+    try {
+      await context.fileSystem.writeFile(input.path, input.content);
+      return ok({});
+    } catch (e) {
+      return err(`Failed to write file: ${(e as Error).message}`);
+    }
   }
 }
 
 class Read implements Tool<typeof ReadDocumentInputSchema, string> {
-  static name: string = "readDocument";
+  static toolName: string = "readDocument";
   description: string = "Read the content of a document.";
   inputSchema = ReadDocumentInputSchema;
   constructor() {}
   async handler(
     context: Context,
-    session: Session,
+    _agentId: string,
     input: z.infer<typeof ReadDocumentInputSchema>,
-  ): Promise<string> {
-    const fullContent = (await context.fileSystem.readFile(input.path)) || "";
-    if (input.offset !== undefined) {
-      const start = Math.max(0, input.offset);
-      const end =
-        input.length !== undefined ? start + input.length : fullContent.length;
-      return fullContent.slice(start, end);
+  ): Promise<Result<string, string>> {
+    try {
+      const fullContent = (await context.fileSystem.readFile(input.path)) || "";
+      if (input.offset !== undefined) {
+        const start = Math.max(0, input.offset);
+        const end =
+          input.length !== undefined ? start + input.length : fullContent.length;
+        return ok(fullContent.slice(start, end));
+      }
+      return ok(fullContent);
+    } catch (e) {
+      return err(`Failed to read file: ${(e as Error).message}`);
     }
-    return fullContent;
   }
 }
 
-class Replace implements Tool<typeof EditDocumentInputSchema, "success"> {
-  static name: string = "editDocument";
+class Replace implements Tool<typeof EditDocumentInputSchema, {}> {
+  static toolName: string = "editDocument";
   description: string =
     "Edit content of a document, replace existing content in range [offset, offset + length) with new content.";
   inputSchema = EditDocumentInputSchema;
   constructor() {}
   async handler(
     context: Context,
-    session: Session,
+    _agentId: string,
     input: z.infer<typeof EditDocumentInputSchema>,
-  ): Promise<"success"> {
-    await context.fileSystem.editFile(
-      input.path,
-      input.content,
-      input.offset,
-      input.length,
-    );
-    return "success";
+  ): Promise<Result<{}, string>> {
+    try {
+      await context.fileSystem.editFile(
+        input.path,
+        input.content,
+        input.offset,
+        input.length,
+      );
+      return ok({});
+    } catch (e) {
+      return err(`Failed to edit file: ${(e as Error).message}`);
+    }
   }
 }
 
 class List implements Tool<typeof ListDocumentsInputSchema, string[]> {
-  static name: string = "listDocuments";
+  static toolName: string = "listDocuments";
   description: string = "List all documents in a directory.";
   inputSchema = ListDocumentsInputSchema;
   constructor() {}
   async handler(
     context: Context,
-    session: Session,
+    _agentId: string,
     input: z.infer<typeof ListDocumentsInputSchema>,
-  ): Promise<string[]> {
-    return await context.fileSystem.listFiles(input.path);
+  ): Promise<Result<string[], string>> {
+    try {
+      return ok(await context.fileSystem.listFiles(input.path));
+    } catch (e) {
+      return err(`Failed to list files: ${(e as Error).message}`);
+    }
   }
 }
 
-class Delete implements Tool<typeof DeleteDocumentInputSchema, "success"> {
-  static name: string = "deleteDocument";
+class Delete implements Tool<typeof DeleteDocumentInputSchema, {}> {
+  static toolName: string = "deleteDocument";
   description: string = "Delete a document.";
   inputSchema = DeleteDocumentInputSchema;
   constructor() {}
   async handler(
     context: Context,
-    session: Session,
+    _agentId: string,
     input: z.infer<typeof DeleteDocumentInputSchema>,
-  ): Promise<"success"> {
-    await context.fileSystem.deleteFile(input.path);
-    return "success";
+  ): Promise<Result<{}, string>> {
+    try {
+      await context.fileSystem.deleteFile(input.path);
+      return ok({});
+    } catch (e) {
+      return err(`Failed to delete file: ${(e as Error).message}`);
+    }
   }
 }
 

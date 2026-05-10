@@ -2,13 +2,13 @@ import { Ollama, type Message } from "ollama";
 import { Tool } from "../tool";
 import { Tool as OllamaTool } from "ollama";
 import { z } from "zod";
-import { AIProvider, AssistantMessage, ToolCall } from ".";
+import { BaseProvider, AssistantMessage, ToolCall } from ".";
 
 export interface OllamaProviderOptions {
   baseURL?: string;
 }
 
-export class OllamaAIProvider extends AIProvider {
+export class OllamaAIProvider extends BaseProvider {
   name: string;
   private client: Ollama;
 
@@ -19,11 +19,9 @@ export class OllamaAIProvider extends AIProvider {
     this.client = new Ollama({ host: endpoint });
   }
 
-  protected buildToolDefinitions(tools: Array<Tool<any, any>>): unknown {
-    const toolDefinitions = tools.map((tool) => {
-      const toolName = (
-        tool.constructor as { new (...args: any[]): Tool<any, any> }
-      ).name as string;
+  public buildToolDefs(tools: Array<Tool<any, any, string>>): unknown {
+    return tools.map((tool) => {
+      const toolName = (tool.constructor as unknown as { toolName: string }).toolName;
       return {
         type: "function",
         function: {
@@ -32,35 +30,38 @@ export class OllamaAIProvider extends AIProvider {
           parameters: z.toJSONSchema(tool.inputSchema),
         },
       };
-    }) as Array<OllamaTool>;
-    return toolDefinitions;
+    }) as unknown;
   }
 
-  protected createInitialMessages(
-    systemPrompt: string,
-    message: string,
-  ): Message[] {
-    const messages: Message[] = [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: message },
-    ];
-    return messages;
-  }
-
-  protected async requestNextResponse(
-    model: string,
+  public async call(
     messages: unknown[],
-    toolDefinitions: unknown,
-  ): Promise<unknown> {
-    return this.client.chat({
+    toolDefs: unknown,
+    model: string,
+  ): Promise<AssistantMessage> {
+    const response = await this.client.chat({
       model,
       messages: messages as Message[],
       stream: false,
-      tools: toolDefinitions as Array<OllamaTool>,
+      tools: toolDefs as Array<OllamaTool>,
     });
+    return this.parseResponse(response) ?? {
+      role: "assistant",
+      content: `${this.name} provider returned no assistant message.`,
+    };
   }
 
-  protected parseResponse(response: unknown): AssistantMessage | undefined {
+  public createToolMessage(
+    toolCall: ToolCall,
+    toolResult: unknown,
+  ): unknown {
+    return {
+      role: "tool",
+      tool_name: toolCall.function.name,
+      content: JSON.stringify(toolResult),
+    };
+  }
+
+  private parseResponse(response: unknown): AssistantMessage | undefined {
     const msg = (
       response as {
         message?: { role?: string; content?: unknown; tool_calls?: unknown[] };
@@ -72,56 +73,5 @@ export class OllamaAIProvider extends AIProvider {
       content: msg.content as string | unknown[],
       tool_calls: msg.tool_calls as ToolCall[],
     };
-  }
-
-  protected isFunctionToolCall(toolCall: unknown): boolean {
-    return (
-      typeof toolCall === "object" &&
-      toolCall !== null &&
-      "function" in toolCall
-    );
-  }
-
-  protected getToolName(toolCall: unknown): string {
-    return (toolCall as { function: { name: string } }).function.name;
-  }
-
-  protected getToolArguments(toolCall: unknown): unknown {
-    return (toolCall as { function: { arguments: unknown } }).function
-      .arguments;
-  }
-
-  protected createToolMessage(
-    toolCall: ToolCall,
-    toolResult: unknown,
-  ): unknown {
-    return {
-      role: "tool",
-      tool_name: toolCall.function.name,
-      content: JSON.stringify(toolResult),
-    };
-  }
-
-  protected extractFinalContent(assistantMessage: AssistantMessage): string {
-    return String(assistantMessage.content ?? "");
-  }
-
-  protected parseToolArguments<T = unknown>(
-    tool: Tool<any, any>,
-    rawArguments: unknown,
-  ): T {
-    if (rawArguments === undefined || rawArguments === null) {
-      return tool.inputSchema.parse({}) as T;
-    }
-    if (typeof rawArguments === "string") {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(rawArguments);
-      } catch {
-        throw new Error(`Invalid JSON in tool arguments: ${rawArguments}`);
-      }
-      return tool.inputSchema.parse(parsed) as T;
-    }
-    return tool.inputSchema.parse(rawArguments) as T;
   }
 }

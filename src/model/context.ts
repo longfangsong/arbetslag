@@ -1,32 +1,54 @@
-import { AIProvider } from "./aiProvider";
-import { Tool } from "./tool";
-import { FileSystem } from "./fileSystem";
-import { Template } from "./agent";
-import { EventRegistry } from "./eventRegistry";
+import type { AgentRepository } from "./agentRepository";
+import type { LLMAdapter } from "./aiProvider";
+import type { Tool } from "./tool";
+import type { FileSystem } from "./fileSystem";
+import type { Template } from "./agent";
+import { AgentRunner } from "./agentRunner";
 
-type NamedToolCtor = (new (...args: any[]) => Tool<any, any>) & {
-  name: string;
+export type NamedToolCtor = new (...args: any[]) => Tool<any, any> & { toolName: string };
+
+export type Context = {
+  adapters: Array<LLMAdapter>;
+  tools: Array<any>;
+  fileSystem: FileSystem;
+  agentTemplates: Array<Template>;
+  config: Record<string, any>;
+  agentRepository: AgentRepository;
+  agentRunner: AgentRunner;
 };
 
-export class Context {
-  constructor(
-    public aiProviders: Array<AIProvider>,
-    public tools: Array<NamedToolCtor>,
-    public fileSystem: FileSystem,
-    public agentTemplates: Array<Template>,
-    public config: Record<string, any>,
-    public readonly eventRegistry: EventRegistry,
-  ) {}
+/**
+ * Create a Context and AgentRunner together.
+ * Returns both the Context type and the AgentRunner instance.
+ */
+export function createRuntime(
+  adapters: Array<LLMAdapter>,
+  tools: Array<any>,
+  fileSystem: FileSystem,
+  agentTemplates: Array<Template>,
+  config: Record<string, any>,
+  agentRepository: AgentRepository,
+): { context: Context; agentRunner: AgentRunner } {
+  // Create AgentRunner first (it doesn't need Context anymore)
+  const agentRunner = new AgentRunner(
+    adapters,
+    tools,
+    fileSystem,
+    agentTemplates,
+    config,
+    agentRepository,
+  );
 
-  getAIProvider(name: string): AIProvider | undefined {
-    return this.aiProviders.find((provider) => provider.name === name);
-  }
+  // Then create Context with agentRunner reference
+  const context: Context = {
+    adapters,
+    tools,
+    fileSystem,
+    agentTemplates,
+    config,
+    agentRepository,
+    agentRunner,
+  };
 
-  getToolConstructor(name: string): NamedToolCtor | undefined {
-    return this.tools.find((ctor) => ctor.name === name);
-  }
-
-  getTemplate(name: string): Template | undefined {
-    return this.agentTemplates.find((template) => template.name === name);
-  }
+  return { context, agentRunner };
 }

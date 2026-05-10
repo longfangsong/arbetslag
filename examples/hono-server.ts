@@ -1,9 +1,8 @@
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
-import { Context } from "../src/model/context";
-import { Agent } from "../src/model/agent";
-import { Session } from "../src/model/session";
-import { EventRegistry } from "../src/model/eventRegistry";
+import { createRuntime } from "../src/model/context";
+import { FileAgentRepository } from "../src/model/agentRepository";
+import { runAgent } from "../src/model/workLoop";
 import {
   Write,
   Read,
@@ -11,28 +10,35 @@ import {
   List,
   Delete,
 } from "../src/model/tool/fileSystem";
-import { Await, ListTemplates, Spawn } from "../src/model/tool/subagent";
+import { ListTemplates, Spawn } from "../src/model/tool/subagent";
 import { HttpRequest } from "../src/model/tool/http";
 import { OpenAIProvider } from "../src/model/aiProvider/openai";
 import { NodeFsFileSystem } from "../src/model/fileSystem/nodefs";
 import { GetTime } from "../src/model/tool/getTime";
 import { CreateCronJob } from "../src/model/tool/cronJob";
-import { AwaitEvent } from "../src/model/tool/awaitEvent";
-import { handleEvent } from "../src/model/eventHandler";
+import { SendTelegramMessage } from "../src/model/tool/telegram";
+import { SendSlackMessage } from "../src/model/tool/slack";
+import { SendEmail } from "../src/model/tool/email";
+import { EmitEvent } from "../src/model/tool/emitEvent";
+import { SubscribeToEvent } from "../src/model/tool/subscribeToEvent";
+import { CancelCronJob } from "../src/model/tool/cronJob";
 import { loadTemplates } from "../src/agents/agentLoader";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-// ── Context Factory ──────────────────────────────────────────────────────────
+// ── Shared Infrastructure ────────────────────────────────────────────────────
 //
-// Creates a fresh Context per request. This is important because:
-// - Each request gets its own AI provider instance
-// - Tool instances are constructed per-request
-// - Sessions and state are isolated per request
+// AgentRepository is created once at boot and shared across all requests.
+// This ensures agent state persists across requests.
 
-async function buildContext(): Promise<Context> {
-  return new Context(
+const fileSystem = new NodeFsFileSystem("./data");
+const agentRepository = new FileAgentRepository(fileSystem);
+
+// ── Context Factory ──────────────────────────────────────────────────────────
+
+async function buildRuntime() {
+  return createRuntime(
     [
       new OpenAIProvider("openai", {
         baseURL: "http://127.0.0.1:8033/v1",
@@ -48,17 +54,25 @@ async function buildContext(): Promise<Context> {
       HttpRequest,
       ListTemplates,
       Spawn,
-      Await,
       GetTime,
       CreateCronJob,
-      AwaitEvent,
+      SendTelegramMessage,
+      SendSlackMessage,
+      SendEmail,
+      EmitEvent,
+      SubscribeToEvent,
+      CancelCronJob,
     ],
-    new NodeFsFileSystem("./data"),
+    fileSystem,
     await loadTemplates(["./examples/configs/generalPurposeAgent.json"]),
     {
       cron_token: process.env.cron_token,
+      telegram_bot_token: process.env.telegram_bot_token,
+      slack_bot_token: process.env.slack_bot_token,
+      email_api_url: process.env.email_api_url,
+      email_api_key: process.env.email_api_key,
     },
-    new EventRegistry("data/events.json", new NodeFsFileSystem("./data")),
+    agentRepository,
   );
 }
 
@@ -79,8 +93,6 @@ const app = new Hono();
  * Response:
  * ```json
  * {
- *   "sessionId": "abc123",
- *   "agentId": "xyz789",
  *   "response": "Here's the summary..."
  * }
  * ```
@@ -93,23 +105,17 @@ app.post("/chat", async (c) => {
     return c.json({ error: "Missing 'prompt' in request body" }, 400);
   }
 
-  const context = await buildContext();
-  const template = context.getTemplate("generalPurposeAgent");
+  const runtime = await buildRuntime();
+  const template = runtime.context.agentTemplates.find((t) => t.name === "generalPurposeAgent");
 
   if (!template) {
     return c.json({ error: "Template 'generalPurposeAgent' not found" }, 404);
   }
 
-  const agent = new Agent(context, template);
-  const session = new Session({ prompt });
-
   try {
-    const response = await agent.handleRequest(context, session, prompt);
-    return c.json({
-      sessionId: session.id,
-      agentId: agent.id,
-      response,
-    });
+    const agent = await runtime.context.agentRepository.create(template, runtime.context);
+    const response = await runAgent(runtime.context, agent, prompt);
+    return c.json({ response });
   } catch (error) {
     console.error("Agent error:", error);
     return c.json(
@@ -119,60 +125,151 @@ app.post("/chat", async (c) => {
   }
 });
 
+// ── Agent REST Endpoints ─────────────────────────────────────────────────────
+
 /**
- * POST /webhook — Event handler for resolving paused agents.
- *
- * Used when an agent calls `awaitEvent`. External systems (cron jobs, webhooks,
- * etc.) POST to this endpoint with the event payload.
+ * POST /agents — Create a new agent from a template.
  *
  * Request body:
  * ```json
  * {
- *   "eventId": "evt_abc123",
- *   "data": { "status": "completed", "result": "..." }
- * }
- * ```
- *
- * Response:
- * ```json
- * {
- *   "result": "Agent resumed with event data..."
+ *   "templateName": "generalPurposeAgent",
+ *   "prompt": "Initial prompt to start the agent"
  * }
  * ```
  */
-app.post("/webhook", async (c) => {
-  const payload = await c.req.json();
+app.post("/agents", async (c) => {
+  const body = await c.req.json();
+  const { templateName, prompt } = body;
 
-  const context = await buildContext();
+  if (!templateName) {
+    return c.json({ error: "Missing 'templateName' in request body" }, 400);
+  }
+
+  const runtime = await buildRuntime();
+  const template = runtime.context.agentTemplates.find((t) => t.name === templateName);
+
+  if (!template) {
+    return c.json({ error: `Template '${templateName}' not found` }, 404);
+  }
 
   try {
-    const result = await handleEvent(context, payload);
-    return c.json({ result });
+    const agent = await agentRepository.create(template, runtime.context);
+
+    if (prompt) {
+      const response = await runAgent(runtime.context, agent, prompt);
+      return c.json({ agentId: agent.id, response });
+    }
+
+    return c.json({ agentId: agent.id });
   } catch (error) {
-    console.error("Webhook error:", error);
+    console.error("Agent creation error:", error);
     return c.json(
-      { error: "Event handling failed", details: String(error) },
+      { error: "Agent creation failed", details: String(error) },
       500,
     );
   }
 });
 
 /**
- * GET / — Health check
+ * GET /agents/:id — Get agent status.
  */
-app.get("/", (c) => c.json({ status: "ok", service: "arbetslag-agent" }));
+app.get("/agents/:id", async (c) => {
+  const agentId = c.req.param("id");
+
+  const state = await agentRepository.loadState(agentId);
+  if (!state) {
+    return c.json({ error: `Agent '${agentId}' not found` }, 404);
+  }
+
+  const agentState = JSON.parse(state);
+  return c.json({
+    agentId: agentState.id,
+    model: agentState.model,
+    provider: agentState.provider,
+    toolNames: agentState.toolNames,
+    historyLength: agentState.history?.length ?? 0,
+  });
+});
+
+/**
+ * POST /agents/:id/resume — Resume a paused agent with a new prompt.
+ *
+ * Request body:
+ * ```json
+ * {
+ *   "prompt": "Follow-up message to the agent"
+ * }
+ * ```
+ */
+app.post("/agents/:id/resume", async (c) => {
+  const agentId = c.req.param("id");
+  const body = await c.req.json();
+  const prompt = body.prompt as string;
+
+  if (!prompt) {
+    return c.json({ error: "Missing 'prompt' in request body" }, 400);
+  }
+
+  const runtime = await buildRuntime();
+
+  try {
+    const agent = await agentRepository.load(agentId, runtime.context);
+    if (!agent) {
+      return c.json({ error: `Agent '${agentId}' not found` }, 404);
+    }
+    const response = await runAgent(runtime.context, agent, prompt);
+    return c.json({ response });
+  } catch (error) {
+    console.error("Agent resume error:", error);
+    return c.json(
+      { error: "Agent resume failed", details: String(error) },
+      500,
+    );
+  }
+});
+
+/**
+ * DELETE /agents/:id — Delete an agent's persisted state.
+ */
+app.delete("/agents/:id", async (c) => {
+  const agentId = c.req.param("id");
+  const statePath = `run/${agentId}.json`;
+
+  try {
+    await fileSystem.deleteFile(statePath);
+    return c.json({ message: `Agent '${agentId}' deleted` });
+  } catch {
+    return c.json({ error: `Agent '${agentId}' not found` }, 404);
+  }
+});
+
+/**
+ * GET /agents — List all agent IDs.
+ */
+app.get("/agents", async (c) => {
+  const allFiles = await fileSystem.listFiles("run");
+  const agentIds = allFiles
+    .filter((f: string) => f.endsWith(".json"))
+    .map((f: string) => f.replace("run/", "").replace(".json", ""));
+
+  return c.json({ agents: agentIds });
+});
 
 // ── Start Server ─────────────────────────────────────────────────────────────
 
 const PORT = Number(process.env.PORT) || 3000;
 
 console.log(`🚀 Arbetslag Hono server running on http://localhost:${PORT}`);
-console.log("  POST /chat   — Start a new agent conversation");
-console.log("  POST /webhook — Resolve paused agents (awaitEvent)");
-console.log("  GET  /       — Health check");
+console.log("  POST /agents        — Create a new agent");
+console.log("  GET  /agents        — List all agents");
+console.log("  GET  /agents/:id    — Get agent status");
+console.log("  POST /agents/:id/resume — Resume agent with new prompt");
+console.log("  DELETE /agents/:id  — Delete agent state");
+console.log("  GET  /              — Health check");
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.log(`Listening on http://localhost:${info.port}`);
 });
 
-export { app, buildContext };
+export { app, buildRuntime, agentRepository };

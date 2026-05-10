@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { Context } from "../../context";
-import { Session } from "../../session";
 import { Tool } from "..";
-import type { CronJob, JobSchedule } from "./type";
+import type { CronJob } from "./type";
+import { err, ok, Result } from "neverthrow";
 
 // ── Zod Schemas ──────────────────────────────────────────────────────────────
 
@@ -32,9 +32,9 @@ export class CreateCronJob implements Tool<
   typeof CronJobScheduleInputSchema,
   CronJob
 > {
-  static name: string = "createCronJob";
+  static readonly toolName: string = "createCronJob";
   description: string =
-    "Create a new cron job using the cron-job.org API. This tool registers an event listener and returns an eventId. AFTER calling this tool, you should call `awaitEvent` with the returned eventId to wait for the cron job's callback.";
+    "Create a new cron job using the cron-job.org API. Returns an eventId. Call `emitEvent` with this eventId when the cron job callback arrives to notify subscribed agents.";
   inputSchema = CronJobScheduleInputSchema;
   private readonly url: string;
 
@@ -44,23 +44,18 @@ export class CreateCronJob implements Tool<
 
   async handler(
     context: Context,
-    session: Session,
+    agentId: string,
     input: z.infer<typeof CronJobScheduleInputSchema>,
-  ): Promise<CronJob> {
+  ): Promise<Result<CronJob, string>> {
     const cronToken = context.config?.cron_token;
     if (!cronToken) {
-      throw new Error(
+      return err(
         "Cron token not found in context. Please provide a cron_token.",
       );
     }
 
     const eventId = `cron-${nanoid(10)}`;
-    const sessionId = session.id;
-    const agentId = session.currentAgentId;
 
-    if (context.eventRegistry && agentId) {
-      await context.eventRegistry.register(eventId, sessionId, agentId);
-    }
     const payload = {
       method: "PUT",
       headers: {
@@ -77,7 +72,7 @@ export class CreateCronJob implements Tool<
             headers: {
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ eventId, sessionId }),
+            body: JSON.stringify({ eventId }),
           },
         },
       }),
@@ -85,12 +80,12 @@ export class CreateCronJob implements Tool<
     const response = await fetch("https://api.cron-job.org/jobs", payload);
 
     if (!response.ok) {
-      throw new Error(`Failed to create cron job: ${response.statusText}`);
+      return err(`Failed to create cron job: ${response.statusText}`);
     }
 
     const data = (await response.json()) as { jobId: number };
 
-    return {
+    return ok({
       jobId: data.jobId,
       eventId,
       enabled: true,
@@ -104,6 +99,6 @@ export class CreateCronJob implements Tool<
         months: input.months,
         wdays: input.wdays,
       },
-    };
+    });
   }
 }

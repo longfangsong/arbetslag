@@ -1,8 +1,8 @@
 import z from "zod";
-import { Agent, Template } from "../agent";
-import { Tool } from ".";
+import type { Template } from "../agent";
+import { Tool, ok, err } from ".";
+import { Result } from "neverthrow";
 import { Context } from "../context";
-import { Session } from "../session";
 import cloneDeep from "es-toolkit/compat/cloneDeep";
 
 export const ListTemplatesInputSchema = z.object({}) satisfies z.ZodTypeAny;
@@ -11,20 +11,20 @@ export class ListTemplates implements Tool<
   typeof ListTemplatesInputSchema,
   Array<{ name: string; description: string }>
 > {
-  static name: string = "listAgentTemplates";
+  static toolName: string = "listAgentTemplates";
   description = "List all available agent templates in the system.";
   inputSchema = ListTemplatesInputSchema;
   constructor() {}
 
   async handler(
     context: Context,
-    session: Session,
+    _agentId: string,
     input: Record<string, never>,
-  ): Promise<Array<{ name: string; description: string }>> {
-    return context.agentTemplates.map((template) => ({
+  ): Promise<Result<Array<{ name: string; description: string }>, string>> {
+    return ok(context.agentTemplates.map((template) => ({
       name: template.name,
       description: template.description,
-    }));
+    })));
   }
 }
 
@@ -40,9 +40,9 @@ export const SpawnInputSchema = z
   .describe("Specification for a sub-agent to spawn.") satisfies z.ZodTypeAny;
 
 export class Spawn implements Tool<typeof SpawnInputSchema, string> {
-  static name: string = "spawn";
+  static toolName: string = "spawn";
   description: string =
-    "Spawn an new agent based from a existing template (use the template name to specify a template you found with `listAgentTemplates`) and prompt. The agents will keep running on its own until they finish their given tasks, you will get the id of the spawned agent, with it you can use `await` tool to wait for it to complete and get the result.";
+    "Spawn a new agent based on an existing template (use the template name to specify a template you found with `listAgentTemplates`) and prompt. The agent will run asynchronously and process its mailbox.";
   inputSchema = SpawnInputSchema;
 
   private constraints: SpawnConstraints;
@@ -53,21 +53,21 @@ export class Spawn implements Tool<typeof SpawnInputSchema, string> {
 
   async handler(
     context: Context,
-    session: Session,
+    _agentId: string,
     input: z.infer<typeof SpawnInputSchema>,
-  ): Promise<string> {
-    const template = cloneDeep(context.getTemplate(input.template_name));
+  ): Promise<Result<string, string>> {
+    const template = cloneDeep(context.agentTemplates.find((t) => t.name === input.template_name));
     if (!template) {
-      throw new Error(
+      return err(
         `Agent template ${input.template_name} not found, please check the template_name parameter.`,
       );
     }
     const spawnToolIndex = template.tools.findIndex(
-      (tool) => tool.name === Spawn.name,
+      (tool) => tool.name === Spawn.toolName,
     );
     if (spawnToolIndex !== -1) {
       template.tools[spawnToolIndex] = {
-        name: Spawn.name,
+        name: Spawn.toolName,
         metaParameters: {
           maxDepth: this.constraints.maxDepth - 1,
         },
@@ -78,38 +78,11 @@ export class Spawn implements Tool<typeof SpawnInputSchema, string> {
       }
     }
 
-    const newAgent = new Agent(context, template);
-    newAgent.handleRequest(context, session, input.prompt);
-    return newAgent.id;
-  }
-}
+    const agentId = await context.agentRunner.spawn(
+      input.template_name,
+      input.prompt,
+    );
 
-export const AwaitInputSchema = z
-  .object({
-    agent_id: z.string().describe("ID of the spawned agent to await."),
-  })
-  .describe(
-    "Wait for a spawned agent to complete and return its result.",
-  ) satisfies z.ZodTypeAny;
-
-export class Await implements Tool<typeof AwaitInputSchema, string> {
-  static name: string = "await";
-  description: string =
-    "Wait for a spawned agent to complete. Returns the result of the agent's execution.";
-  inputSchema = AwaitInputSchema;
-
-  async handler(
-    context: Context,
-    session: Session,
-    input: z.infer<typeof AwaitInputSchema>,
-  ): Promise<string> {
-    const agent = session.agents.find((a) => a.id === input.agent_id);
-    if (!agent) {
-      throw new Error(`Agent ${input.agent_id} not found.`);
-    }
-    if (!agent.workingOn) {
-      throw new Error(`Agent ${input.agent_id} has no pending request.`);
-    }
-    return agent.workingOn;
+    return ok(agentId);
   }
 }

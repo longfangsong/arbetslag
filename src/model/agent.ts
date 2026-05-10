@@ -1,9 +1,7 @@
 import { nanoid } from "nanoid";
 import { Context } from "./context";
 import { Tool } from "./tool";
-import { Session } from "./session";
-import { AIProvider } from "./aiProvider";
-import { FileSystem } from "./fileSystem";
+import type { LLMAdapter } from "./aiProvider";
 
 export interface ToolConfig {
   name: string;
@@ -17,15 +15,8 @@ export interface Template {
   model: string;
   systemPrompt: string;
   tools: ToolConfig[];
-}
-
-export interface AgentState {
-  id: string;
-  model: string;
-  provider: string;
-  systemPrompt: string;
-  toolNames: string[];
-  history: unknown[];
+  /** When true, this template is used for the default agent (single instance). */
+  isDefault?: boolean;
 }
 
 export class Agent {
@@ -33,20 +24,24 @@ export class Agent {
   readonly model: string;
   readonly systemPrompt: string;
   readonly toolNames: string[];
-  workingOn: Promise<string> | null = null;
   public tools: Array<Tool<any, any>>;
-  private provider: AIProvider;
+  public adapter: LLMAdapter;
+  readonly adapterName: string;
+  history: unknown[] = [];
 
   constructor(context: Context, template: Template) {
     this.id = nanoid(10);
     this.model = template.model;
     this.systemPrompt = template.systemPrompt;
     this.toolNames = template.tools.map((t) => t.name);
-    this.provider = context.getAIProvider(template.provider)!;
+    this.adapterName = template.provider;
+    this.adapter = context.adapters.find((a) => a.name === template.provider)!;
     this.tools = [];
 
     for (const toolConfig of template.tools) {
-      const ToolConstructor = context.getToolConstructor(toolConfig.name);
+      const ToolConstructor = context.tools.find(
+        (t) => (t as unknown as { toolName: string }).toolName === toolConfig.name,
+      );
       if (!ToolConstructor) {
         console.warn(`Tool constructor not found for tool: ${toolConfig.name}`);
         continue;
@@ -57,98 +52,45 @@ export class Agent {
     }
   }
 
-  private static createFromState(
-    id: string,
-    model: string,
-    provider: AIProvider,
-    systemPrompt: string,
-    toolNames: string[],
-    tools: Array<Tool<any, any>>,
-  ): Agent {
+  toJson(): string {
+    return JSON.stringify({
+      id: this.id,
+      model: this.model,
+      adapter: this.adapterName,
+      systemPrompt: this.systemPrompt,
+      toolNames: this.toolNames,
+      history: this.history,
+    });
+  }
+
+  static fromJson(context: Context, json: string): Agent {
+    const state = JSON.parse(json);
+    const adapter = context.adapters.find((a) => a.name === state.adapter);
+    if (!adapter) {
+      throw new Error(
+        `Adapter '${state.adapter}' not found. Available: ${context.adapters.map((a) => a.name).join(', ')}.`,
+      );
+    }
+
     const agent = Object.create(Agent.prototype);
-    agent.id = id;
-    agent.model = model;
-    agent.provider = provider;
-    agent.systemPrompt = systemPrompt;
-    agent.toolNames = toolNames;
-    agent.tools = tools;
-    agent.workingOn = null;
+    agent.id = state.id;
+    agent.model = state.model;
+    agent.adapterName = state.adapter;
+    agent.adapter = adapter;
+    agent.systemPrompt = state.systemPrompt;
+    agent.toolNames = state.toolNames;
+    agent.tools = state.toolNames.map((name: string) => {
+      const ToolConstructor = context.tools.find(
+        (t) => (t as unknown as { toolName: string }).toolName === name,
+      );
+      if (ToolConstructor) {
+        return new ToolConstructor();
+      }
+      console.warn(`Tool constructor not found for tool: ${name}`);
+      return undefined!;
+    }).filter((t: Tool<any, any> | undefined) => t !== undefined);
+    agent.history = state.history ?? [];
     return agent;
   }
 
-  async handleRequest(
-    context: Context,
-    session: Session,
-    message: string,
-  ): Promise<string> {
-    session.currentAgentId = this.id;
-    if (!session.agents.includes(this)) {
-      session.addAgent(this);
-    }
-    this.workingOn = this.provider.sendMessage(context, session, this, message);
-    return this.workingOn!;
-  }
-
-  async recordState(
-    sessionId: string,
-    messages: unknown[],
-    fs: FileSystem,
-  ): Promise<void> {
-    const state: AgentState = {
-      id: this.id,
-      model: this.model,
-      provider: this.provider.name,
-      systemPrompt: this.systemPrompt,
-      toolNames: this.toolNames,
-      history: messages,
-    };
-    await fs.writeFile(
-      `run/${sessionId}/${this.id}.json`,
-      JSON.stringify(state),
-    );
-  }
-
-  static async resumeFromFile(
-    context: Context,
-    statePath: string,
-    eventMessage: unknown,
-  ): Promise<string> {
-    const fs = context.fileSystem;
-    const raw = await fs.readFile(statePath);
-    const state: AgentState = JSON.parse(raw);
-
-    // Reconstruct provider and tools from context
-    const provider = context.getAIProvider(state.provider)!;
-    const tools: Array<Tool<any, any>> = [];
-    for (const toolName of state.toolNames) {
-      const ToolConstructor = context.getToolConstructor(toolName);
-      if (ToolConstructor) {
-        tools.push(new ToolConstructor());
-      }
-    }
-
-    // Reconstruct agent with loaded state
-    const agent = Agent.createFromState(
-      state.id,
-      state.model,
-      provider,
-      state.systemPrompt,
-      state.toolNames,
-      tools,
-    );
-    console.log(state.history);
-    console.log(eventMessage);
-    // Inject event into history
-    state.history.push({ role: "tool", content: JSON.stringify(eventMessage) });
-
-    // Continue the loop
-    const session = new Session({ prompt: "" });
-    return agent.provider.sendMessage(
-      context,
-      session,
-      agent,
-      "",
-      state.history,
-    );
-  }
 }
