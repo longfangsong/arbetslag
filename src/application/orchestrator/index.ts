@@ -16,8 +16,8 @@ export interface State {
 
 export function step(state: State, event: Event): State {
     switch (event.event_type) {
-        case 'user_message':
-            // Handle user message event
+        case 'message':
+            // Handle message event
             break;
         case 'tool_response':
             // Handle tool response event
