@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { GetTime, GetTimeInputSchema } from "@/infrastructure/tool/getTime";
-import { createMockState } from "@/testUtils";
+import { createMockState } from "@/application/orchestrator/state.mock";
+import { createMockAgent } from "@/domain/agent/model.mock";
 
 describe("GetTime", () => {
     const tool = new GetTime();
@@ -16,7 +17,7 @@ describe("GetTime", () => {
     it("returns current time string", async () => {
         vi.useFakeTimers();
         vi.setSystemTime(1000);
-        const result = await tool.call(createMockState(), {});
+        const result = await tool.call(createMockState(), createMockAgent(), {});
         expect(result.isOk()).toBe(true);
         const value = result._unsafeUnwrap();
         expect(new Date(value).getTime()).toBe(1000);
@@ -26,10 +27,10 @@ describe("GetTime", () => {
     it("returns different times for different calls", async () => {
         vi.useFakeTimers();
         vi.setSystemTime(0);
-        const result1 = await tool.call(createMockState(), {});
+        const result1 = await tool.call(createMockState(), createMockAgent(), {});
         const time1 = new Date(result1._unsafeUnwrap()).getTime();
         vi.setSystemTime(1000);
-        const result2 = await tool.call(createMockState(), {});
+        const result2 = await tool.call(createMockState(), createMockAgent(), {});
         const time2 = new Date(result2._unsafeUnwrap()).getTime();
         expect(time2).toBeGreaterThan(time1);
         vi.useRealTimers();

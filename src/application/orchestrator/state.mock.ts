@@ -6,6 +6,7 @@ import { Repository as ToolRepository } from "@/domain/tool/repository";
 
 export function createMockState(overrides?: Partial<State>): State {
     return {
+        ai_providers: [],
         agent_repository: new AgentRepository(),
         agent_template_repository: new AgentTemplateRepository(),
         tool_repository: new ToolRepository(),

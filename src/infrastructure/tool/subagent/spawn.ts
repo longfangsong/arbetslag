@@ -1,10 +1,11 @@
 import { State } from "@/application/orchestrator";
 import { Agent } from "@/domain/agent/model";
-import { createAgent } from "@/domain/agent/template/model";
+import { MessageEvent } from "@/domain/event/model";
 import { Tool } from "@/domain/tool/model";
 import { err, ok, Result } from "neverthrow";
 import z from "zod";
 import { nanoid } from "nanoid";
+import { createAgent } from "@/domain/agent/template/model";
 
 export const SpawnInputSchema = z
   .object({
@@ -30,8 +31,8 @@ export class Spawn implements Tool<z.infer<typeof SpawnInputSchema>, string, str
             id: nanoid(10),
             event_type: "message",
             to_agent_id: newAgent.id,
-            payload: input.prompt,
-        });
+            payload: { content: input.prompt },
+        } as MessageEvent);
         return Promise.resolve(ok(newAgent.id));
     }
 }
