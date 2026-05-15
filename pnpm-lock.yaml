@@ -12,14 +12,14 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0
       es-toolkit:
-        specifier: ^1.45.1
-        version: 1.45.1
+        specifier: ^1.46.1
+        version: 1.46.1
       hash-wasm:
         specifier: ^4.12.0
         version: 4.12.0
       nanoid:
-        specifier: ^5.1.7
-        version: 5.1.7
+        specifier: ^5.1.11
+        version: 5.1.11
       neverthrow:
         specifier: ^8.2.0
         version: 8.2.0
@@ -27,11 +27,11 @@ importers:
         specifier: ^0.6.3
         version: 0.6.3
       openai:
-        specifier: ^6.34.0
-        version: 6.34.0(zod@4.3.6)
+        specifier: ^6.37.0
+        version: 6.37.0(zod@4.4.3)
       zod:
-        specifier: ^4.3.6
-        version: 4.3.6
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@hono/node-server':
         specifier: ^2.0.0
@@ -800,8 +800,8 @@ packages:
   es-module-lexer@2.0.0:
     resolution: {integrity: sha512-5POEcUuZybH7IdmGsD8wlf0AI55wMecM9rVBTI/qEAy2c1kTOm3DjFYjrBdI2K3BaJjJYfYFeRtM0t9ssnRuxw==}
 
-  es-toolkit@1.45.1:
-    resolution: {integrity: sha512-/jhoOj/Fx+A+IIyDNOvO3TItGmlMKhtX8ISAHKE90c4b/k1tqaqEZ+uUqfpU8DMnW5cgNJv606zS55jGvza0Xw==}
+  es-toolkit@1.46.1:
+    resolution: {integrity: sha512-5eNtXOs3tbfxXOj04tjjseeWkRWaoCjdEI+96DgwzZoe6c9juL49pXlzAFTI72aWC9Y8p7168g6XIKjh7k6pyQ==}
 
   esbuild@0.27.7:
     resolution: {integrity: sha512-IxpibTjyVnmrIQo5aqNpCgoACA/dTKLTlhMHihVHhdkxKyPO1uBBthumT0rdHmcsk9uMonIWS0m4FljWzILh3w==}
@@ -1077,8 +1077,8 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  nanoid@5.1.7:
-    resolution: {integrity: sha512-ua3NDgISf6jdwezAheMOk4mbE1LXjm1DfMUDMuJf4AqxLFK3ccGpgWizwa5YV7Yz9EpXwEaWoRXSb/BnV0t5dQ==}
+  nanoid@5.1.11:
+    resolution: {integrity: sha512-v+KEsUv2ps74PaSKv0gHTxTCgMXOIfBEbaqa6w6ISIGC7ZsvHN4N9oJ8d4cmf0n5oTzQz2SLmThbQWhjd/8eKg==}
     engines: {node: ^18 || >=20}
     hasBin: true
 
@@ -1110,8 +1110,8 @@ packages:
     resolution: {integrity: sha512-GZ+g4jayMqzCRMgB2sol7GiCLjKfS1PINkjmx8spcKce1LiVqcbQreXwqs2YAFXC6R03VIG28ZS31t8M866v6A==}
     engines: {node: '>=0.10.0'}
 
-  openai@6.34.0:
-    resolution: {integrity: sha512-yEr2jdGf4tVFYG6ohmr3pF6VJuveP0EA/sS8TBx+4Eq5NT10alu5zg2dmxMXMgqpihRDQlFGpRt2XwsGj+Fyxw==}
+  openai@6.37.0:
+    resolution: {integrity: sha512-0H5dEGFmmLv6KSd0W1w2nyL8WsLkX6yoLeQpU+dZAOuGcany5qkYQMmj35ZrKgb6yiyYqpUzFOpR8mZQkgqeEQ==}
     hasBin: true
     peerDependencies:
       ws: ^8.18.0
@@ -1491,8 +1491,8 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
-  zod@4.3.6:
-    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
 
 snapshots:
 
@@ -2021,7 +2021,7 @@ snapshots:
 
   es-module-lexer@2.0.0: {}
 
-  es-toolkit@1.45.1: {}
+  es-toolkit@1.46.1: {}
 
   esbuild@0.27.7:
     optionalDependencies:
@@ -2297,7 +2297,7 @@ snapshots:
 
   nanoid@3.3.11: {}
 
-  nanoid@5.1.7: {}
+  nanoid@5.1.11: {}
 
   neverthrow@8.2.0:
     optionalDependencies:
@@ -2321,9 +2321,9 @@ snapshots:
 
   onetime@1.1.0: {}
 
-  openai@6.34.0(zod@4.3.6):
+  openai@6.37.0(zod@4.4.3):
     optionalDependencies:
-      zod: 4.3.6
+      zod: 4.4.3
 
   os-homedir@1.0.2: {}
 
@@ -2685,4 +2685,4 @@ snapshots:
 
   wrappy@1.0.2: {}
 
-  zod@4.3.6: {}
+  zod@4.4.3: {}

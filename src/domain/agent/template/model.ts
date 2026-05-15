@@ -10,9 +10,10 @@ export interface Template {
     allowedTools: string[];
 }
 
-export function createAgent(template: Template, prompt: string): Agent {
+export function createAgent(template: Template, prompt?: string): Agent {
     const agent = new Agent(template);
     agent.history.push({ role: 'system', content: template.systemPrompt });
-    agent.history.push({ role: 'user', content: prompt });
+    if (prompt)
+        agent.history.push({ role: 'user', content: prompt });
     return agent;
 }

@@ -11,7 +11,7 @@ export interface ToolCallEvent {
 
 export interface MessageEvent {
     id: string;
-    to_agent_id: string;
+    chat_id: string;
     event_type: 'message';
     payload: {
         content: string;

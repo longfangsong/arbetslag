@@ -11,4 +11,8 @@ export class Repository {
     async list(): Promise<Array<Template>> {
         return this.templates;
     }
+
+    async default(): Promise<Template> {
+        return this.templates[0];
+    }
 }
