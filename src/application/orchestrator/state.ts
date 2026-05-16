@@ -1,26 +1,55 @@
-import { State } from ".";
+import { AIProvider } from "@/domain/aiProvider/model";
 import { Event } from "@/domain/event/model";
+import { Repository as AgentRepository } from "@/domain/agent/repository";
+import { Repository as ToolRepository } from "@/domain/tool/repository";
+import { FileSystem } from "@/domain/filesystem/model";
+import { Repository as AgentTemplateRepository } from "@/domain/agent/template/repository";
+import { Repository as ChatRepository } from "@/domain/chat/repository";
+import { SerializedAgent } from "@/domain/agent/model";
+import { Chat } from "@/domain/chat/model";
 
-interface SerializableState {
-    event_queue: Event[];
+export interface StaticConfig {
+    aiProviders: Array<AIProvider>;
+    agentTemplateRepository: AgentTemplateRepository;
+    toolRepository: ToolRepository;
     config: Record<string, any>;
-    tool_state: Record<string, any>;
-    saved_at: string;
+    fileSystem: FileSystem,
 }
 
-/**
- * Extract serializable state from the orchestrator and write to a file.
- *
- * Repositories, AI providers, and the file system itself are infrastructure
- * objects that are re-injected at runtime — only the data they manage is saved.
- */
-export async function saveStateToDisk(state: State, path: string): Promise<void> {
-    const payload: SerializableState = {
-        event_queue: state.event_queue,
-        config: state.config,
-        tool_state: state.tool_state,
-        saved_at: new Date().toISOString(),
+interface SerializedState {
+    agentRepository: Array<SerializedAgent>;
+    chatRepository: Array<Chat>;
+    eventQueue: Array<Event>;
+    toolState: Record<string, any>;
+}
+
+export interface State extends StaticConfig {
+    agentRepository: AgentRepository;
+    chatRepository: ChatRepository;
+    eventQueue: Array<Event>;
+    toolState: Record<string, any>;
+}
+
+export async function deserialize(
+    serialized: SerializedState,
+    staticConfig: StaticConfig,
+): Promise<State> {
+    return {
+        agentRepository: await AgentRepository.deserialize(serialized.agentRepository, staticConfig.agentTemplateRepository),
+        chatRepository: new ChatRepository(serialized.chatRepository),
+        eventQueue: serialized.eventQueue,
+        toolState: serialized.toolState,
+        ...staticConfig,
+    };
+}
+
+export async function serialize(state: State): Promise<void> {
+    const payload: SerializedState = {
+        agentRepository: state.agentRepository.serialize(),
+        chatRepository: state.chatRepository.chats,
+        eventQueue: state.eventQueue,
+        toolState: state.toolState,
     };
 
-    await state.file_system.writeFile(path, JSON.stringify(payload, null, 2));
+    await state.fileSystem.writeFile(`run/state.json`, JSON.stringify(payload));
 }

@@ -3,15 +3,36 @@ import { nanoid } from "nanoid";
 import { Template } from "./template/model";
 import { complete, HistoryEntry } from "../aiProvider/model";
 import { ApiCallbackEvent, Event, MessageEvent, ToolResponseEvent } from "@/domain/event/model";
+import { Repository as TemplateRepository } from "./template/repository";
+import { template } from "node_modules/es-toolkit/dist/compat/string/template";
+
+export interface SerializedAgent {
+    id: string;
+    template_name: string;
+    history: Array<HistoryEntry>;
+}
 
 export class Agent {
     public readonly id: string;
     public readonly template: Template;
     public history: Array<HistoryEntry> = [];
 
-    constructor(template: Template) {
-        this.id = nanoid(10);
+    private constructor(id: string, template: Template, history: Array<HistoryEntry>) {
+        this.id = id;
         this.template = template;
+        this.history = history;
+    }
+
+    static create(template: Template): Agent {
+        return new Agent(nanoid(10), template, []);
+    }
+
+    static async deserialize(data: SerializedAgent, templateRepo: TemplateRepository): Promise<Agent> {
+        const template = await templateRepo.getByName(data.template_name);
+        if (!template) {
+            throw new Error(`Template not found: ${data.template_name}`);
+        }
+        return new Agent(data.id, template, data.history);
     }
 
     async handleEvent(state: State, event: Event): Promise<State> {
@@ -49,5 +70,13 @@ export class Agent {
             }
         }
         return complete(state, this);
+    }
+
+    serialize(): SerializedAgent {
+        return {
+            id: this.id,
+            template_name: this.template.name,
+            history: this.history,
+        };
     }
 }

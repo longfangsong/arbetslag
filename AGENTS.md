@@ -16,19 +16,7 @@ Do not extract separated interface/class from another interface/class unless the
 
 ## Ubiquitous language
 
-Please always use these core concepts when talking with the user:
-
-### Context
-
-Shared information among the whole program. Including filesystem, all agent templates, aiProviders, etc.
-
-### Agent Templates
-
-Template for creating agents, contains system prompt, aiProvider and model, allowed to use tools and their metaParameters.
-
-### Agent
-
-A working AI which aims to solve certain task, with a set of tools.
+Please always use the terms listed in ./CONTEXT.md when talking with the user.
 
 ### AI Provider
 
