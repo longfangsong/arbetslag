@@ -3,7 +3,8 @@ import { Agent } from "./model";
 import { Template } from "./template/model";
 import { Repository as TemplateRepository } from "./template/repository";
 import { Repository as AgentRepository } from "./repository";
-import { UserOutputHandler, ToParentOutputHandler, OutputHandlerRegistry } from "../outputHandler/model";
+import { ToParentOutputHandler, OutputHandlerRegistry } from "../outputHandler/model";
+import { TestUserOutputHandler } from "../outputHandler/model.mock";
 
 function makeTemplate(overrides?: Partial<Template>): Template {
     return {
@@ -20,7 +21,7 @@ function makeTemplate(overrides?: Partial<Template>): Template {
 describe("Agent serialization round-trip", () => {
     it("serializes and deserializes a root agent with UserOutputHandler", async () => {
         const registry = new OutputHandlerRegistry();
-        const userHandler = new UserOutputHandler("telegram", "chat-123");
+        const userHandler = new TestUserOutputHandler("telegram", "chat-123");
         registry.register("telegram", "chat-123", userHandler);
 
         const template = makeTemplate();
@@ -60,7 +61,7 @@ describe("Agent serialization round-trip", () => {
 
     it("deserializes with AgentRepository.deserialize", async () => {
         const registry = new OutputHandlerRegistry();
-        const userHandler = new UserOutputHandler("http", "chat-789");
+        const userHandler = new TestUserOutputHandler("http", "chat-789");
         registry.register("http", "chat-789", userHandler);
 
         const template = makeTemplate();

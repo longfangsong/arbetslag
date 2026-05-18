@@ -1,32 +1,29 @@
 import { State } from "@/application/orchestrator";
 import { Agent } from "../agent/model";
+import { nanoid } from "nanoid";
 
 export type SerializedOutputHandler =
     | { type: "user"; adapter: string; chat_id: string }
     | { type: "to_parent"; parent_agent_id: string };
 
 export interface OutputHandler {
+    readonly tag: string;
     handle(state: State, agent: Agent, content: string): Promise<State>;
-    readonly _tag: string;
 }
 
-export class UserOutputHandler implements OutputHandler {
-    readonly _tag = "user";
+export abstract class UserOutputHandler implements OutputHandler {
+    readonly tag = "user";
 
     constructor(
         readonly adapter: string,
         readonly chat_id: string,
     ) {}
 
-    async handle(state: State, _agent: Agent, _content: string): Promise<State> {
-        // Send output to the user via the appropriate adapter
-        // Concrete implementations would use HTTP, WebSocket, etc.
-        return state;
-    }
+    abstract handle(state: State, _agent: Agent, _content: string): Promise<State>;
 }
 
 export class ToParentOutputHandler implements OutputHandler {
-    readonly _tag = "to_parent";
+    readonly tag = "to_parent";
 
     constructor(
         readonly parent_agent_id: string,
@@ -34,7 +31,6 @@ export class ToParentOutputHandler implements OutputHandler {
 
     async handle(state: State, _agent: Agent, content: string): Promise<State> {
         // Push a message event targeting the parent agent
-        const { nanoid } = await import("nanoid");
         state.eventQueue.push({
             id: nanoid(10),
             to_agent_id: this.parent_agent_id,
@@ -58,13 +54,13 @@ export class OutputHandlerRegistry {
 }
 
 export function serializeOutputHandler(handler: OutputHandler): SerializedOutputHandler {
-    switch (handler._tag) {
+    switch (handler.tag) {
         case "user":
             return { type: "user", adapter: (handler as UserOutputHandler).adapter, chat_id: (handler as UserOutputHandler).chat_id };
         case "to_parent":
             return { type: "to_parent", parent_agent_id: (handler as ToParentOutputHandler).parent_agent_id };
         default:
-            throw new Error(`Unknown output handler type: ${(handler as OutputHandler)._tag}`);
+            throw new Error(`Unknown output handler type: ${(handler as OutputHandler).tag}`);
     }
 }
 

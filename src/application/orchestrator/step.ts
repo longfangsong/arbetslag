@@ -3,6 +3,16 @@ import { State } from "./state";
 import { Event, MessageEvent, AgentMessageEvent, ToolCallEvent, ToolResponseEvent } from "@/domain/event/model";
 import { nanoid } from "nanoid";
 import { UserOutputHandler, ToParentOutputHandler } from "@/domain/outputHandler/model";
+import { Agent } from "@/domain/agent/model";
+
+// todo: remove in later PR after wiring up real output handlers for user messages. This is just a placeholder to allow testing the full flow of incoming messages -> agent handling -> outgoing events.
+export class TempUserOutputHandler extends UserOutputHandler {
+    async handle(state: State, _agent: Agent, _content: string): Promise<State> {
+        // Default no-op — concrete adapters override this
+        return state;
+    }
+}
+
 
 export async function step(state: State, event: Event): Promise<State> {
     switch (event.event_type) {
@@ -34,7 +44,7 @@ export async function step(state: State, event: Event): Promise<State> {
             let chat = await state.chatRepository.getById(msgEvent.chat_id);
             if (!chat) {
                 const defaultTemplate = await state.agentTemplateRepository.default();
-                const outputHandler = new UserOutputHandler(msgEvent.adapter, msgEvent.chat_id);
+                const outputHandler = new TempUserOutputHandler(msgEvent.adapter, msgEvent.chat_id);
                 const newAgent = createAgent(defaultTemplate, undefined, outputHandler);
                 chat = {
                     id: msgEvent.chat_id,
