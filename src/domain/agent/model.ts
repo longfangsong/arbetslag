@@ -2,7 +2,7 @@ import { State } from "@/application/orchestrator";
 import { nanoid } from "nanoid";
 import { Template } from "./template/model";
 import { complete, HistoryEntry } from "../aiProvider/model";
-import { ApiCallbackEvent, Event, MessageEvent, ToolResponseEvent } from "@/domain/event/model";
+import { ApiCallbackEvent, AgentMessageEvent, Event, MessageEvent, ToolResponseEvent } from "@/domain/event/model";
 import { Repository as TemplateRepository } from "./template/repository";
 export interface SerializedAgent {
     id: string;
@@ -42,6 +42,13 @@ export class Agent {
                 this.history.push({
                     role: 'user',
                     content: msg.payload.content,
+                });
+            }
+            case 'agent_message': {
+                const agentMsg = event as AgentMessageEvent;
+                this.history.push({
+                    role: 'user',
+                    content: agentMsg.payload.content,
                 });
             }
             case 'api_callback': {

@@ -1,7 +1,7 @@
 // Core types
 export { Agent, type SerializedAgent } from "@/domain/agent/model";
 export { type Template, createAgent } from "@/domain/agent/template/model";
-export { type Event, type MessageEvent, type ToolCallEvent, type ToolResponseEvent, type ApiCallbackEvent } from "@/domain/event/model";
+export { type Event, type MessageEvent, type AgentMessageEvent, type ToolCallEvent, type ToolResponseEvent, type ApiCallbackEvent } from "@/domain/event/model";
 export { type State } from "@/application/orchestrator";
 export { type AIProvider, type HistoryEntry, type ToolCall, type CompletionResult, type ToolCallResult, complete } from "@/domain/aiProvider/model";
 export { type Tool } from "@/domain/tool/model";

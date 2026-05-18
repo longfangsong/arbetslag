@@ -30,6 +30,15 @@ export interface ToolResponseEvent {
     };
 }
 
+export interface AgentMessageEvent {
+    id: string;
+    to_agent_id: string;
+    event_type: 'agent_message';
+    payload: {
+        content: string;
+    };
+}
+
 export interface ApiCallbackEvent {
     id: string;
     to_agent_id?: string;
@@ -40,4 +49,4 @@ export interface ApiCallbackEvent {
     };
 }
 
-export type Event = ToolCallEvent | MessageEvent | ToolResponseEvent | ApiCallbackEvent;
+export type Event = ToolCallEvent | MessageEvent | AgentMessageEvent | ToolResponseEvent | ApiCallbackEvent;
