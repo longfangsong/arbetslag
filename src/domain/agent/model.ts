@@ -4,8 +4,6 @@ import { Template } from "./template/model";
 import { complete, HistoryEntry } from "../aiProvider/model";
 import { ApiCallbackEvent, Event, MessageEvent, ToolResponseEvent } from "@/domain/event/model";
 import { Repository as TemplateRepository } from "./template/repository";
-import { template } from "node_modules/es-toolkit/dist/compat/string/template";
-
 export interface SerializedAgent {
     id: string;
     template_name: string;

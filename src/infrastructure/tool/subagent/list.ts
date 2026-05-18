@@ -14,8 +14,8 @@ export class ListTemplates implements Tool<z.infer<typeof ListTemplatesInputSche
     inputSchema = ListTemplatesInputSchema;
 
     call(state: State, caller: Agent, input: Record<string, never>): Promise<Result<Output, never>> {
-        return state.agent_template_repository.list().then(templates => {
-            return ok(templates.map(t => ({ name: t.name, description: t.description })));
+        return state.agentTemplateRepository.list().then((templates: Array<{name: string, description: string}>) => {
+            return ok(templates.map((t: {name: string, description: string}) => ({ name: t.name, description: t.description })));
         });
     }
 }

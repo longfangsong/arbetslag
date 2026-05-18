@@ -1,6 +1,6 @@
 import { State } from "@/application/orchestrator";
 import { Agent } from "@/domain/agent/model";
-import { MessageEvent } from "@/domain/event/model";
+
 import { Tool } from "@/domain/tool/model";
 import { err, ok, Result } from "neverthrow";
 import z from "zod";
@@ -20,19 +20,20 @@ export class Spawn implements Tool<z.infer<typeof SpawnInputSchema>, string, str
     inputSchema = SpawnInputSchema;
 
     async call(state: State, caller: Agent, input: z.infer<typeof SpawnInputSchema>): Promise<Result<string, string>> {
-        const template = await state.agent_template_repository.getByName(input.template_name);
+        const template = await state.agentTemplateRepository.getByName(input.template_name);
         if (!template) {
             return Promise.resolve(err(`Template ${input.template_name} not found.`));
         }
         const newAgent = createAgent(template, input.prompt);
-        await state.agent_repository.add(newAgent);
-        (state.tool_state['parent_agent'] as Map<string, string>).set(newAgent.id, caller.id);
-        state.event_queue.push({
+        await state.agentRepository.add(newAgent);
+        (state.toolState['parent_agent'] as Map<string, string>).set(newAgent.id, caller.id);
+        state.eventQueue.push({
             id: nanoid(10),
+            chat_id: String(caller.id),
+            adapter: "plain",
             event_type: "message",
-            to_agent_id: newAgent.id,
             payload: { content: input.prompt },
-        } as MessageEvent);
+        });
         return Promise.resolve(ok(newAgent.id));
     }
 }

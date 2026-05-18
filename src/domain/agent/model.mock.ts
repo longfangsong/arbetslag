@@ -10,5 +10,5 @@ export function createMockAgent(template?: Partial<Template>): Agent {
         systemPrompt: template?.systemPrompt ?? "",
         allowedTools: template?.allowedTools ?? [],
     };
-    return new Agent(t);
+    return Agent.create(t);
 }

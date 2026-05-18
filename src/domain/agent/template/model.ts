@@ -11,7 +11,7 @@ export interface Template {
 }
 
 export function createAgent(template: Template, prompt?: string): Agent {
-    const agent = new Agent(template);
+    const agent = Agent.create(template);
     agent.history.push({ role: 'system', content: template.systemPrompt });
     if (prompt)
         agent.history.push({ role: 'user', content: prompt });

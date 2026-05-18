@@ -12,6 +12,7 @@ export interface ToolCallEvent {
 export interface MessageEvent {
     id: string;
     chat_id: string;
+    adapter: string;
     event_type: 'message';
     payload: {
         content: string;
