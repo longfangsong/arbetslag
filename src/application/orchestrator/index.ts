@@ -8,6 +8,7 @@ export async function onUserMessage(state: State, chat: Chat, content: string): 
     const userMessageEvent: MessageEvent = {
         id: nanoid(10),
         chat_id: chat.id,
+        adapter: 'generic',
         event_type: 'message',
         payload: {
             content,

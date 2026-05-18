@@ -55,6 +55,7 @@ export function convertTelegramUpdateToMessageEvent(update: Update): MessageEven
   return {
     id: nanoid(10),
     chat_id: String(msg.chat.id),
+    adapter: "telegram",
     event_type: "message",
     payload: { content: msg.text },
   };
