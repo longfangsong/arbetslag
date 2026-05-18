@@ -1,5 +1,7 @@
 // Core types
-export { Agent, type SerializedAgent } from "@/domain/agent/model";
+export { Agent, type SerializedAgent, type SerializedOutputHandler } from "@/domain/agent/model";
+export { type OutputHandler } from "@/domain/agent/model";
+export { UserOutputHandler, ToParentOutputHandler, OutputHandlerRegistry, serializeOutputHandler, deserializeOutputHandler } from "@/domain/outputHandler/model";
 export { type Template, createAgent } from "@/domain/agent/template/model";
 export { type Event, type MessageEvent, type AgentMessageEvent, type ToolCallEvent, type ToolResponseEvent, type ApiCallbackEvent } from "@/domain/event/model";
 export { type State } from "@/application/orchestrator";

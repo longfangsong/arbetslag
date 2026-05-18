@@ -2,6 +2,7 @@ import { createAgent } from "@/domain/agent/template/model";
 import { State } from "./state";
 import { Event, MessageEvent, AgentMessageEvent, ToolCallEvent, ToolResponseEvent } from "@/domain/event/model";
 import { nanoid } from "nanoid";
+import { UserOutputHandler, ToParentOutputHandler } from "@/domain/outputHandler/model";
 
 export async function step(state: State, event: Event): Promise<State> {
     switch (event.event_type) {
@@ -33,7 +34,8 @@ export async function step(state: State, event: Event): Promise<State> {
             let chat = await state.chatRepository.getById(msgEvent.chat_id);
             if (!chat) {
                 const defaultTemplate = await state.agentTemplateRepository.default();
-                const newAgent = createAgent(defaultTemplate);
+                const outputHandler = new UserOutputHandler(msgEvent.adapter, msgEvent.chat_id);
+                const newAgent = createAgent(defaultTemplate, undefined, outputHandler);
                 chat = {
                     id: msgEvent.chat_id,
                     entry_agent_id: newAgent.id,

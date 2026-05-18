@@ -6,6 +6,7 @@ import { err, ok, Result } from "neverthrow";
 import z from "zod";
 import { nanoid } from "nanoid";
 import { createAgent } from "@/domain/agent/template/model";
+import { ToParentOutputHandler } from "@/domain/outputHandler/model";
 
 export const SpawnInputSchema = z
   .object({
@@ -24,14 +25,13 @@ export class Spawn implements Tool<z.infer<typeof SpawnInputSchema>, string, str
         if (!template) {
             return Promise.resolve(err(`Template ${input.template_name} not found.`));
         }
-        const newAgent = createAgent(template, input.prompt);
+        const newAgent = createAgent(template, input.prompt, new ToParentOutputHandler(caller.id));
         await state.agentRepository.add(newAgent);
         (state.toolState['parent_agent'] as Map<string, string>).set(newAgent.id, caller.id);
         state.eventQueue.push({
             id: nanoid(10),
-            chat_id: String(caller.id),
-            adapter: "plain",
-            event_type: "message",
+            to_agent_id: caller.id,
+            event_type: "agent_message" as const,
             payload: { content: input.prompt },
         });
         return Promise.resolve(ok(newAgent.id));
