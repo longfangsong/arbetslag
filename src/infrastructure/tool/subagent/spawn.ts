@@ -30,7 +30,7 @@ export class Spawn implements Tool<z.infer<typeof SpawnInputSchema>, string, str
         state.eventQueue.push({
             id: nanoid(10),
             chat_id: String(caller.id),
-            adapter: "internal",
+            adapter: "plain",
             event_type: "message",
             payload: { content: input.prompt },
         });

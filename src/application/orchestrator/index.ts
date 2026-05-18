@@ -8,11 +8,11 @@ import { State } from "./state";
 
 export { step, stepUntilIdle };
 
-export async function onUserMessage(state: State, chat: Chat, content: string): Promise<State> {
+export async function onUserMessage(state: State, chat: Chat, content: string, adapter: string = 'generic'): Promise<State> {
     const userMessageEvent: MessageEvent = {
         id: nanoid(10),
         chat_id: chat.id,
-        adapter: 'generic',
+        adapter,
         event_type: 'message',
         payload: {
             content,
