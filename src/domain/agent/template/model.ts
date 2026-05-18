@@ -1,4 +1,4 @@
-import { Agent } from "../model";
+import { Agent, type OutputHandler } from "../model";
 
 export interface Template {
     name: string;
@@ -10,8 +10,8 @@ export interface Template {
     allowedTools: string[];
 }
 
-export function createAgent(template: Template, prompt?: string): Agent {
-    const agent = Agent.create(template);
+export function createAgent(template: Template, prompt?: string, outputHandler?: OutputHandler): Agent {
+    const agent = Agent.create(template, outputHandler);
     agent.history.push({ role: 'system', content: template.systemPrompt });
     if (prompt)
         agent.history.push({ role: 'user', content: prompt });

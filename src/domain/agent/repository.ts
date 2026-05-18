@@ -1,12 +1,13 @@
 import { Agent, SerializedAgent } from "./model";
 import { Repository as TemplateRepository } from "./template/repository";
+import { OutputHandlerRegistry } from "../outputHandler/model";
 
 export class Repository {
     private agents: Array<Agent> = [];
 
-    static async deserialize(data: Array<SerializedAgent>, templateRepo: TemplateRepository): Promise<Repository> {
+    static async deserialize(data: Array<SerializedAgent>, templateRepo: TemplateRepository, registry?: OutputHandlerRegistry): Promise<Repository> {
         const repo = new Repository();
-        repo.agents = await Promise.all(data.map(agentData => Agent.deserialize(agentData, templateRepo)));
+        repo.agents = await Promise.all(data.map(agentData => Agent.deserialize(agentData, templateRepo, registry)));
         return repo;
     }
 
