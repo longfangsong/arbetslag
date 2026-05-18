@@ -13,7 +13,7 @@ export function createMockState(overrides?: Partial<State>): State {
         toolRepository: new ToolRepository(),
         chatRepository: new ChatRepository(),
         eventQueue: [],
-        file_system: new InMemoryFileSystem(),
+        fileSystem: new InMemoryFileSystem(),
         config: {},
         toolState: {},
         ...overrides,

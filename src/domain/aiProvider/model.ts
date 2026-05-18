@@ -38,11 +38,11 @@ export interface AIProvider {
 }
 
 export async function complete(state: State, agent: Agent): Promise<State> {
-    const provider = state.ai_providers.find(p => p.name === agent.template.ai_provider);
+    const provider = state.aiProviders.find(p => p.name === agent.template.ai_provider);
     if (!provider) {
         throw new Error(`AI provider ${agent.template.ai_provider} not found`);
     }
-    const allowedTools = state.tool_repository.tools.filter(tool => agent.template.allowedTools.includes(tool.name));
+    const allowedTools = state.toolRepository.tools.filter((tool: Tool<unknown, unknown, unknown>) => agent.template.allowedTools.includes(tool.name));
     const response = await provider.complete(
         agent.template.model,
         agent.history,
@@ -51,7 +51,7 @@ export async function complete(state: State, agent: Agent): Promise<State> {
     agent.history.push(response);
     if (response.tool_calls) {
         for (const tool_call of response.tool_calls) {
-            state.event_queue.push({
+            state.eventQueue.push({
                 id: tool_call.id || nanoid(10),
                 to_agent_id: agent.id,
                 event_type: 'tool_call',

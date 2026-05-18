@@ -1,8 +1,12 @@
+export type { State } from "./state";
+
 import { nanoid } from "nanoid";
 import { Chat } from "@/domain/chat/model";
 import { MessageEvent } from "@/domain/event/model";
-import { stepUntilIdle } from "./step";
+import { step, stepUntilIdle } from "./step";
 import { State } from "./state";
+
+export { step, stepUntilIdle };
 
 export async function onUserMessage(state: State, chat: Chat, content: string): Promise<State> {
     const userMessageEvent: MessageEvent = {

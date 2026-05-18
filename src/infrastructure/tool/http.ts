@@ -36,7 +36,7 @@ export interface HttpResponse {
     savedTo: string;
 }
 
-class HttpRequest implements Tool<z.infer<typeof HttpRequestInputSchema>, HttpResponse, string> {
+export class HttpRequest implements Tool<z.infer<typeof HttpRequestInputSchema>, HttpResponse, string> {
     name: string = "http_request";
     description: string = "Make an HTTP request to a URL, the response will be saved to a file.";
     inputSchema = HttpRequestInputSchema;
@@ -59,7 +59,7 @@ class HttpRequest implements Tool<z.infer<typeof HttpRequestInputSchema>, HttpRe
             const responseBody = await response.text();
             const bodyHash = xxhash3(responseBody);
             const savedFile = `http/${bodyHash}.bin`;
-            await state.file_system.writeFile(savedFile, responseBody);
+            await state.fileSystem.writeFile(savedFile, responseBody);
             return ok({
                 status: response.status,
                 statusText: response.statusText,
