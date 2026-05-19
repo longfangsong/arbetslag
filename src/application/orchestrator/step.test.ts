@@ -2,9 +2,12 @@ import { describe, it, expect } from "vitest";
 import { step } from "./step";
 import { createMockState } from "./state.mock";
 import { Agent } from "@/domain/agent/model";
-import { AgentMessageEvent } from "@/domain/event/model";
+import { AgentMessageEvent, MessageEvent } from "@/domain/event/model";
 import { Template } from "@/domain/agent/template/model";
 import { AIProvider, CompletionResult } from "@/domain/aiProvider/model";
+import { OutputHandlerRegistry } from "@/domain/outputHandler/model";
+import { TestUserOutputHandler } from "@/domain/outputHandler/model.mock";
+import { TempUserOutputHandler } from "./step";
 
 function makeTemplate(overrides?: Partial<Template>): Template {
     return {
@@ -65,5 +68,104 @@ describe("step() — agent_message routing", () => {
         };
 
         await expect(step(state, event)).rejects.toThrow("Agent with ID nonexistent not found");
+    });
+});
+
+describe("step() — message event with output handler registry", () => {
+    it("uses registered handler from registry when available", async () => {
+        const mockProvider: AIProvider = {
+            name: "test",
+            complete: async (): Promise<CompletionResult> => ({ role: "assistant", content: "done" }),
+        };
+        const registry = new OutputHandlerRegistry();
+        const registeredHandler = new TestUserOutputHandler("telegram", "chat-123");
+        registry.register("telegram", "chat-123", registeredHandler);
+
+        const state = createMockState({ aiProviders: [mockProvider], output_handler_registry: registry });
+        const template = makeTemplate();
+        await state.agentTemplateRepository.add(template);
+
+        const event: MessageEvent = {
+            id: "msg-1",
+            chat_id: "chat-123",
+            adapter: "telegram",
+            event_type: "message",
+            payload: { content: "Hello from Telegram" },
+        };
+
+        await step(state, event);
+
+        // The registered handler should be attached to the created agent
+        const agent = await state.agentRepository.getById((await state.chatRepository.getById("chat-123"))!.entry_agent_id);
+        expect(agent).not.toBeNull();
+        expect(agent!.outputHandler).toBe(registeredHandler);
+    });
+
+    it("creates TempUserOutputHandler fallback when no handler is registered", async () => {
+        const mockProvider: AIProvider = {
+            name: "test",
+            complete: async (): Promise<CompletionResult> => ({ role: "assistant", content: "done" }),
+        };
+        const registry = new OutputHandlerRegistry();
+        const state = createMockState({ aiProviders: [mockProvider], output_handler_registry: registry });
+        const template = makeTemplate();
+        await state.agentTemplateRepository.add(template);
+
+        const event: MessageEvent = {
+            id: "msg-2",
+            chat_id: "chat-456",
+            adapter: "unknown",
+            event_type: "message",
+            payload: { content: "Hello from unknown adapter" },
+        };
+
+        await step(state, event);
+
+        // A handler should still be created (TempUserOutputHandler fallback)
+        const agent = await state.agentRepository.getById((await state.chatRepository.getById("chat-456"))!.entry_agent_id);
+        expect(agent).not.toBeNull();
+        expect(agent!.outputHandler.tag).toBe("user");
+        expect(agent!.outputHandler).toBeInstanceOf(TempUserOutputHandler);
+    });
+
+    it("reuses existing agent and handler for subsequent messages to same chat", async () => {
+        const mockProvider: AIProvider = {
+            name: "test",
+            complete: async (): Promise<CompletionResult> => ({ role: "assistant", content: "done" }),
+        };
+        const registry = new OutputHandlerRegistry();
+        const handler1 = new TestUserOutputHandler("telegram", "chat-789");
+        registry.register("telegram", "chat-789", handler1);
+
+        const state = createMockState({ aiProviders: [mockProvider], output_handler_registry: registry });
+        const template = makeTemplate();
+        await state.agentTemplateRepository.add(template);
+
+        // First message creates the agent
+        const event1: MessageEvent = {
+            id: "msg-3a",
+            chat_id: "chat-789",
+            adapter: "telegram",
+            event_type: "message",
+            payload: { content: "First message" },
+        };
+        await step(state, event1);
+
+        const agent1 = await state.agentRepository.getById((await state.chatRepository.getById("chat-789"))!.entry_agent_id);
+
+        // Second message reuses the same agent
+        const event2: MessageEvent = {
+            id: "msg-3b",
+            chat_id: "chat-789",
+            adapter: "telegram",
+            event_type: "message",
+            payload: { content: "Second message" },
+        };
+        await step(state, event2);
+
+        const agent2 = await state.agentRepository.getById((await state.chatRepository.getById("chat-789"))!.entry_agent_id);
+        expect(agent2!.id).toBe(agent1!.id);
+        // Same handler instance should be attached
+        expect(agent2!.outputHandler).toBe(handler1);
     });
 });

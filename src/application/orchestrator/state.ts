@@ -7,13 +7,15 @@ import { Repository as AgentTemplateRepository } from "@/domain/agent/template/r
 import { Repository as ChatRepository } from "@/domain/chat/repository";
 import { SerializedAgent } from "@/domain/agent/model";
 import { Chat } from "@/domain/chat/model";
+import { OutputHandlerRegistry } from "@/domain/outputHandler/model";
 
 export interface StaticConfig {
     aiProviders: Array<AIProvider>;
     agentTemplateRepository: AgentTemplateRepository;
     toolRepository: ToolRepository;
     config: Record<string, any>;
-    fileSystem: FileSystem,
+    fileSystem: FileSystem;
+    output_handler_registry: OutputHandlerRegistry;
 }
 
 interface SerializedState {
