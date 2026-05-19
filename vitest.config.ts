@@ -4,9 +4,9 @@ import { defineConfig } from "vitest/config";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 
 export default defineConfig({
-  resolve: {
-    alias: {
-      "@": `${__dirname}src`,
-    },
-  },
+	resolve: {
+		alias: {
+			"@": `${__dirname}src`,
+		},
+	},
 });

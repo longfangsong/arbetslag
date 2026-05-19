@@ -6,7 +6,7 @@ import { OutputHandler, UserOutputHandler } from "./model";
  * Concrete UserOutputHandler for tests.
  */
 export class TestUserOutputHandler extends UserOutputHandler {
-    async handle(state: State, _agent: Agent, _content: string): Promise<State> {
-        return state;
-    }
+	async handle(state: State, _agent: Agent, _content: string): Promise<State> {
+		return state;
+	}
 }

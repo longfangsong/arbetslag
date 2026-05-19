@@ -7,17 +7,17 @@ import { Repository as ChatRepository } from "@/domain/chat/repository";
 import { OutputHandlerRegistry } from "@/domain/outputHandler/model";
 
 export function createMockState(overrides?: Partial<State>): State {
-    return {
-        aiProviders: [],
-        agentRepository: new AgentRepository(),
-        agentTemplateRepository: new AgentTemplateRepository(),
-        toolRepository: new ToolRepository(),
-        chatRepository: new ChatRepository(),
-        eventQueue: [],
-        fileSystem: new InMemoryFileSystem(),
-        config: {},
-        toolState: {},
-        output_handler_registry: new OutputHandlerRegistry(),
-        ...overrides,
-    };
+	return {
+		aiProviders: [],
+		agentRepository: new AgentRepository(),
+		agentTemplateRepository: new AgentTemplateRepository(),
+		toolRepository: new ToolRepository(),
+		chatRepository: new ChatRepository(),
+		eventQueue: [],
+		fileSystem: new InMemoryFileSystem(),
+		config: {},
+		toolState: {},
+		output_handler_registry: new OutputHandlerRegistry(),
+		...overrides,
+	};
 }
