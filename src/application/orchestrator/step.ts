@@ -2,8 +2,18 @@ import { createAgent } from "@/domain/agent/template/model";
 import { State } from "./state";
 import { Event, MessageEvent, ToolCallEvent, ToolResponseEvent } from "@/domain/event/model";
 import { nanoid } from "nanoid";
-import { UserOutputHandler } from "@/domain/outputHandler/model";
+import { OutputHandlerRegistry, UserOutputHandler } from "@/domain/outputHandler/model";
 import { Agent } from "@/domain/agent/model";
+
+function resolveOutputHandler(
+    registry: OutputHandlerRegistry,
+    adapter: string,
+    chat_id: string,
+): UserOutputHandler {
+    const existing = registry.get(adapter, chat_id);
+    if (existing) return existing;
+    return new TempUserOutputHandler(adapter, chat_id);
+}
 
 // todo: remove in later PR after wiring up real output handlers for user messages. This is just a placeholder to allow testing the full flow of incoming messages -> agent handling -> outgoing events.
 export class TempUserOutputHandler extends UserOutputHandler {
@@ -44,7 +54,7 @@ export async function step(state: State, event: Event): Promise<State> {
             let chat = await state.chatRepository.getById(msgEvent.chat_id);
             if (!chat) {
                 const defaultTemplate = await state.agentTemplateRepository.default();
-                const outputHandler = new TempUserOutputHandler(msgEvent.adapter, msgEvent.chat_id);
+                const outputHandler = resolveOutputHandler(state.output_handler_registry, msgEvent.adapter, msgEvent.chat_id);
                 const newAgent = createAgent(defaultTemplate, undefined, outputHandler);
                 chat = {
                     id: msgEvent.chat_id,

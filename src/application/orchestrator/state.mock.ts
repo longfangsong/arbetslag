@@ -4,6 +4,7 @@ import { Repository as AgentRepository } from "@/domain/agent/repository";
 import { Repository as AgentTemplateRepository } from "@/domain/agent/template/repository";
 import { Repository as ToolRepository } from "@/domain/tool/repository";
 import { Repository as ChatRepository } from "@/domain/chat/repository";
+import { OutputHandlerRegistry } from "@/domain/outputHandler/model";
 
 export function createMockState(overrides?: Partial<State>): State {
     return {
@@ -16,6 +17,7 @@ export function createMockState(overrides?: Partial<State>): State {
         fileSystem: new InMemoryFileSystem(),
         config: {},
         toolState: {},
+        output_handler_registry: new OutputHandlerRegistry(),
         ...overrides,
     };
 }
