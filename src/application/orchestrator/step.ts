@@ -1,8 +1,8 @@
 import { createAgent } from "@/domain/agent/template/model";
 import { State } from "./state";
-import { Event, MessageEvent, AgentMessageEvent, ToolCallEvent, ToolResponseEvent } from "@/domain/event/model";
+import { Event, MessageEvent, ToolCallEvent, ToolResponseEvent } from "@/domain/event/model";
 import { nanoid } from "nanoid";
-import { UserOutputHandler, ToParentOutputHandler } from "@/domain/outputHandler/model";
+import { UserOutputHandler } from "@/domain/outputHandler/model";
 import { Agent } from "@/domain/agent/model";
 
 // todo: remove in later PR after wiring up real output handlers for user messages. This is just a placeholder to allow testing the full flow of incoming messages -> agent handling -> outgoing events.
@@ -56,18 +56,7 @@ export async function step(state: State, event: Event): Promise<State> {
             const agent = await state.agentRepository.getById(chat.entry_agent_id);
             return await agent!.handleEvent(state, msgEvent);
         }
-        case 'agent_message': {
-            const agentMsg = event as AgentMessageEvent;
-            if (!event.to_agent_id) {
-                throw new Error('agent_message event is missing target agent ID');
-            }
-            const agent = await state.agentRepository.getById(event.to_agent_id);
-            if (!agent) {
-                throw new Error(`Agent with ID ${event.to_agent_id} not found`);
-            }
-            agent.history.push({ role: 'user', content: agentMsg.payload.content });
-            return state;
-        }
+        case 'agent_message':
         case 'tool_response':
         case 'api_callback': {
             if (!event.to_agent_id) {
