@@ -1,0 +1,101 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { TelegramOutputHandler } from "./telegram";
+import { State } from "@/application/orchestrator";
+import { Agent } from "@/domain/agent/model";
+import { Template } from "@/domain/agent/template/model";
+import { InMemoryFileSystem } from "@/infrastructure/filesystem/inMemory";
+import { Repository as AgentRepository } from "@/domain/agent/repository";
+import { Repository as AgentTemplateRepository } from "@/domain/agent/template/repository";
+import { Repository as ToolRepository } from "@/domain/tool/repository";
+import { Repository as ChatRepository } from "@/domain/chat/repository";
+import { OutputHandlerRegistry } from "@/domain/outputHandler/model";
+
+function makeMockState(): State {
+    return {
+        aiProviders: [],
+        agentRepository: new AgentRepository(),
+        agentTemplateRepository: new AgentTemplateRepository(),
+        toolRepository: new ToolRepository(),
+        chatRepository: new ChatRepository(),
+        eventQueue: [],
+        fileSystem: new InMemoryFileSystem(),
+        config: {},
+        toolState: {},
+        output_handler_registry: new OutputHandlerRegistry(),
+    };
+}
+
+function makeTemplate(overrides?: Partial<Template>): Template {
+    return {
+        name: "test",
+        description: "A test template",
+        ai_provider: "test",
+        model: "test-model",
+        systemPrompt: "You are a test agent.",
+        allowedTools: [],
+        ...overrides,
+    };
+}
+
+describe("TelegramOutputHandler", () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it("sends message via Telegram Bot API on success", async () => {
+        const mockResponse = { ok: true, result: { message_id: 42 } };
+        const fetchMock = vi.fn().mockResolvedValue({
+            json: async () => mockResponse,
+        });
+        vi.stubGlobal("fetch", fetchMock);
+
+        const handler = new TelegramOutputHandler("telegram", "12345", "fake-token");
+        const state = makeMockState();
+        const template = makeTemplate();
+        const agent = Agent.create(template, handler);
+
+        await handler.handle(state, agent, "Hello from agent");
+
+        expect(fetchMock).toHaveBeenCalledWith(
+            "https://api.telegram.org/botfake-token/sendMessage",
+            expect.objectContaining({
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ chat_id: "12345", text: "Hello from agent" }),
+            }),
+        );
+    });
+
+    it("throws on Telegram API error", async () => {
+        const mockResponse = { ok: false, description: "Chat not found" };
+        const fetchMock = vi.fn().mockResolvedValue({
+            json: async () => mockResponse,
+        });
+        vi.stubGlobal("fetch", fetchMock);
+
+        const handler = new TelegramOutputHandler("telegram", "99999", "fake-token");
+        const state = makeMockState();
+        const template = makeTemplate();
+        const agent = Agent.create(template, handler);
+
+        await expect(handler.handle(state, agent, "Hello")).rejects.toThrow(
+            "Telegram API error: Chat not found",
+        );
+    });
+
+    it("returns state unchanged on success", async () => {
+        const fetchMock = vi.fn().mockResolvedValue({
+            json: async () => ({ ok: true, result: { message_id: 1 } }),
+        });
+        vi.stubGlobal("fetch", fetchMock);
+
+        const handler = new TelegramOutputHandler("telegram", "12345", "fake-token");
+        const state = makeMockState();
+        const template = makeTemplate();
+        const agent = Agent.create(template, handler);
+
+        const result = await handler.handle(state, agent, "test");
+
+        expect(result).toBe(state);
+    });
+});
