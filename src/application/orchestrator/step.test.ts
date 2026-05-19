@@ -5,7 +5,7 @@ import { Agent } from "@/domain/agent/model";
 import { AgentMessageEvent, MessageEvent } from "@/domain/event/model";
 import { Template } from "@/domain/agent/template/model";
 import { AIProvider, CompletionResult } from "@/domain/aiProvider/model";
-import { OutputHandlerRegistry } from "@/domain/outputHandler/model";
+import { OutputHandlerRegistry, ToParentOutputHandler } from "@/domain/outputHandler/model";
 import { TestUserOutputHandler } from "@/domain/outputHandler/model.mock";
 import { TempUserOutputHandler } from "./step";
 
@@ -167,5 +167,78 @@ describe("step() — message event with output handler registry", () => {
         expect(agent2!.id).toBe(agent1!.id);
         // Same handler instance should be attached
         expect(agent2!.outputHandler).toBe(handler1);
+    });
+});
+
+describe("complete() — routes content through outputHandler", () => {
+    it("routes agent text response through ToParentOutputHandler", async () => {
+        const mockProvider: AIProvider = {
+            name: "test",
+            complete: async (): Promise<CompletionResult> => ({ role: "assistant", content: "I can help with that" }),
+        };
+        const registry = new OutputHandlerRegistry();
+        const state = createMockState({ aiProviders: [mockProvider], output_handler_registry: registry });
+        const template = makeTemplate();
+        const parentAgent = Agent.create(template);
+        await state.agentRepository.add(parentAgent);
+
+        // Create a sub-agent with ToParentOutputHandler
+        const subAgent = Agent.create(template, new ToParentOutputHandler(parentAgent.id));
+        subAgent.history.push({ role: "user", content: "What is 2+2?" });
+        await state.agentRepository.add(subAgent);
+
+        // Process the sub-agent's event (which triggers complete())
+        const event: AgentMessageEvent = {
+            id: "evt-complete-1",
+            to_agent_id: subAgent.id,
+            event_type: "agent_message",
+            payload: { content: "What is 2+2?" },
+        };
+        await step(state, event);
+
+        // Agent should have received the user message and the assistant response in history
+        expect(subAgent.history).toContainEqual({ role: "user", content: "What is 2+2?" });
+        expect(subAgent.history).toContainEqual({ role: "assistant", content: "I can help with that" });
+        // ToParentOutputHandler should have queued an agent_message event targeting the parent
+        const queuedEvent = state.eventQueue.find(e => e.event_type === "agent_message") as AgentMessageEvent | undefined;
+        expect(queuedEvent).toBeDefined();
+        expect(queuedEvent!.to_agent_id).toBe(parentAgent.id);
+        expect(queuedEvent!.payload.content).toBe("I can help with that");
+    });
+
+    it("routes content even when tool calls are also present", async () => {
+        const mockProvider: AIProvider = {
+            name: "test",
+            complete: async (): Promise<CompletionResult> => ({
+                role: "assistant",
+                content: "Let me check that for you",
+                tool_calls: [{ id: "tc-1", tool_name: "search", arguments: { query: "answer" } }],
+            }),
+        };
+        const registry = new OutputHandlerRegistry();
+        const state2 = createMockState({ aiProviders: [mockProvider], output_handler_registry: registry });
+        const template = makeTemplate();
+        const parentAgent = Agent.create(template);
+        await state2.agentRepository.add(parentAgent);
+
+        const subAgent = Agent.create(template, new ToParentOutputHandler(parentAgent.id));
+        subAgent.history.push({ role: "user", content: "Search for X" });
+        await state2.agentRepository.add(subAgent);
+
+        const event: AgentMessageEvent = {
+            id: "evt-complete-2",
+            to_agent_id: subAgent.id,
+            event_type: "agent_message",
+            payload: { content: "Search for X" },
+        };
+        await step(state2, event);
+
+        // Both content and tool_call events should be queued
+        const contentEvent = state2.eventQueue.find(e => e.event_type === "agent_message");
+        const toolCallEvent = state2.eventQueue.find(e => e.event_type === "tool_call");
+        expect(contentEvent).toBeDefined();
+        expect((contentEvent as AgentMessageEvent).payload.content).toBe("Let me check that for you");
+        expect(toolCallEvent).toBeDefined();
+        expect((toolCallEvent as any).payload.tool_name).toBe("search");
     });
 });

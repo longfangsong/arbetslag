@@ -49,6 +49,9 @@ export async function complete(state: State, agent: Agent): Promise<State> {
         allowedTools,
     );
     agent.history.push(response);
+    if (response.content) {
+        state = await agent.outputHandler.handle(state, agent, response.content);
+    }
     if (response.tool_calls) {
         for (const tool_call of response.tool_calls) {
             state.eventQueue.push({
