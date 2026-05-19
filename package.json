@@ -34,7 +34,8 @@
 		"lint:check": "biome lint src tests",
 		"format": "biome format --write src tests",
 		"format:check": "biome format --check src tests",
-		"type-check": "tsc --noEmit"
+		"type-check": "tsc --noEmit",
+		"demo:telegram": "tsx demo/telegram-bot.ts"
 	},
 	"type": "module",
 	"devDependencies": {

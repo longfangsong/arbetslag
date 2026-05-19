@@ -33,59 +33,10 @@ export class TempUserOutputHandler extends UserOutputHandler {
 
 export async function step(state: State, event: Event): Promise<State> {
 	switch (event.event_type) {
-		case "tool_call": {
-			const toolCallEvent = event as ToolCallEvent;
-			const agent = await state.agentRepository.getById(
-				toolCallEvent.to_agent_id,
-			);
-			if (!agent) {
-				throw new Error(`Agent with ID ${toolCallEvent.to_agent_id} not found`);
-			}
-			const tool = await state.toolRepository.getByName(
-				toolCallEvent.payload.tool_name,
-			);
-			if (!tool) {
-				throw new Error(`Tool "${toolCallEvent.payload.tool_name}" not found`);
-			}
-			const result = await tool.call(
-				state,
-				agent,
-				toolCallEvent.payload.arguments,
-			);
-			state.eventQueue.push({
-				id: nanoid(10),
-				to_agent_id: toolCallEvent.to_agent_id,
-				event_type: "tool_response",
-				payload: {
-					tool_call_id: toolCallEvent.payload.id,
-					name: toolCallEvent.payload.tool_name,
-					content: result.isOk()
-						? JSON.stringify(result.value)
-						: String(result.error),
-				},
-			} as ToolResponseEvent);
-			return state;
-		}
+		case "tool_call":
+			return await handleToolCall(state, event);
 		case "message": {
-			const msgEvent = event as MessageEvent;
-			let chat = await state.chatRepository.getById(msgEvent.chat_id);
-			if (!chat) {
-				const defaultTemplate = await state.agentTemplateRepository.default();
-				const outputHandler = resolveOutputHandler(
-					state.output_handler_registry,
-					msgEvent.adapter,
-					msgEvent.chat_id,
-				);
-				const newAgent = createAgent(defaultTemplate, undefined, outputHandler);
-				chat = {
-					id: msgEvent.chat_id,
-					entry_agent_id: newAgent.id,
-				};
-				await state.agentRepository.add(newAgent);
-				state.chatRepository.chats.push(chat);
-			}
-			const agent = await state.agentRepository.getById(chat.entry_agent_id);
-			return await agent!.handleEvent(state, msgEvent);
+			return await handleMessage(state, event);
 		}
 		case "agent_message":
 		case "tool_response":
@@ -100,6 +51,56 @@ export async function step(state: State, event: Event): Promise<State> {
 			return await agent.handleEvent(state, event);
 		}
 	}
+}
+
+async function handleMessage(state: State, event: MessageEvent) {
+	const msgEvent = event as MessageEvent;
+	let chat = await state.chatRepository.getById(msgEvent.chat_id);
+	if (!chat) {
+		const defaultTemplate = await state.agentTemplateRepository.default();
+		const outputHandler = resolveOutputHandler(
+			state.output_handler_registry,
+			msgEvent.adapter,
+			msgEvent.chat_id
+		);
+		const newAgent = createAgent(defaultTemplate, undefined, outputHandler);
+		chat = {
+			id: msgEvent.chat_id,
+			entry_agent_id: newAgent.id,
+		};
+		await state.agentRepository.add(newAgent);
+		state.chatRepository.chats.push(chat);
+	}
+	const agent = await state.agentRepository.getById(chat.entry_agent_id);
+	return await agent!.handleEvent(state, msgEvent);
+}
+
+async function handleToolCall(
+	state: State,
+	event: ToolCallEvent,
+): Promise<State> {
+	const agent = await state.agentRepository.getById(event.to_agent_id);
+	if (!agent) {
+		throw new Error(`Agent with ID ${event.to_agent_id} not found`);
+	}
+	const tool = await state.toolRepository.getByName(event.payload.tool_name);
+	if (!tool) {
+		throw new Error(`Tool "${event.payload.tool_name}" not found`);
+	}
+	const result = await tool.call(state, agent, event.payload.arguments);
+	state.eventQueue.push({
+		id: nanoid(10),
+		to_agent_id: event.to_agent_id,
+		event_type: "tool_response",
+		payload: {
+			tool_call_id: event.payload.id,
+			name: event.payload.tool_name,
+			content: result.isOk()
+				? JSON.stringify(result.value)
+				: String(result.error),
+		},
+	} as ToolResponseEvent);
+	return state;
 }
 
 export async function stepUntilIdle(state: State): Promise<State> {

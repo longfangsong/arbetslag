@@ -13,7 +13,7 @@ export {
 	deserializeOutputHandler,
 } from "@/domain/outputHandler/model";
 export { TelegramOutputHandler } from "@/infrastructure/outputHandler/telegram";
-export { type Template, createAgent } from "@/domain/agent/template/model";
+export { type Template } from "@/domain/agent/template/model";
 export {
 	type Event,
 	type MessageEvent,
@@ -42,7 +42,28 @@ export {
 } from "@/application/orchestrator/state";
 
 // Input adopters
-export { convertTelegramUpdateToMessageEvent } from "@/application/inputAdopter/telegram";
+export {
+	convertTelegramUpdateToMessageEvent,
+	type Update,
+} from "@/application/inputAdopter/telegram";
+
+// Infrastructure
+export { InMemoryFileSystem } from "@/infrastructure/filesystem/inMemory";
+export { OpenAIProvider } from "@/infrastructure/aiProvider/openai";
+
+// Repositories
+export {
+	Repository as AgentRepository,
+} from "@/domain/agent/repository";
+export {
+	Repository as AgentTemplateRepository,
+} from "@/domain/agent/template/repository";
+export {
+	Repository as ChatRepository,
+} from "@/domain/chat/repository";
+export {
+	Repository as ToolRepository,
+} from "@/domain/tool/repository";
 
 // Tools
 export { GetTime } from "@/infrastructure/tool/getTime";
@@ -54,3 +75,6 @@ export {
 export { SendTelegramMessage } from "@/infrastructure/tool/telegram";
 export { ListTemplates } from "@/infrastructure/tool/subagent/list";
 export { Spawn } from "@/infrastructure/tool/subagent/spawn";
+
+// State helpers
+export { createAgent } from "@/domain/agent/template/model";

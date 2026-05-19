@@ -3,7 +3,7 @@ import { nanoid } from "nanoid";
 
 // Minimal Telegram Bot API types — only fields we use.
 // Full spec: https://core.telegram.org/bots/api#update
-interface TelegramChat {
+export interface TelegramChat {
 	id: number | string;
 	type?: string;
 	title?: string;
@@ -13,7 +13,7 @@ interface TelegramChat {
 	is_bot?: boolean;
 }
 
-interface TelegramMessage {
+export interface TelegramMessage {
 	message_id: number;
 	date: number;
 	chat: TelegramChat;
@@ -27,36 +27,50 @@ interface TelegramMessage {
 	// Other fields omitted — we only need chat.id and text.
 }
 
-interface BaseUpdate {
+export interface Update {
 	update_id: number;
-}
-
-interface WithMessage extends BaseUpdate {
 	message?: TelegramMessage;
 	edited_message?: TelegramMessage;
 	channel_post?: TelegramMessage;
 	edited_channel_post?: TelegramMessage;
 }
 
-type Update = BaseUpdate & WithMessage;
-
 /**
  * Convert a Telegram Bot API Update to a MessageEvent.
  *
  * Handles: message, edited_message, channel_post, edited_channel_post.
  * Returns null for unsupported update types (reactions, polls, etc.).
+ *
+ * Accepts `unknown` — callers should pass the raw JSON from Telegram.
  */
 export function convertTelegramUpdateToMessageEvent(
-	update: Update,
+	update: unknown,
 ): MessageEvent | null {
+	if (
+		!update ||
+		typeof update !== "object" ||
+		!("update_id" in update) ||
+		typeof (update as Record<string, unknown>).update_id !== "number"
+	) {
+		return null;
+	}
+
+	const typed = update as Update;
+
 	// Extract the message-like object from whichever payload is present
 	const msg =
-		update.message ??
-		update.edited_message ??
-		update.channel_post ??
-		update.edited_channel_post;
+		typed.message ??
+		typed.edited_message ??
+		typed.channel_post ??
+		typed.edited_channel_post;
 
-	if (!msg || !msg.chat?.id || !msg.text) {
+	if (
+		!msg ||
+		typeof msg !== "object" ||
+		!msg.chat ||
+		typeof msg.chat !== "object" ||
+		!msg.text
+	) {
 		return null;
 	}
 
