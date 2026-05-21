@@ -1,27 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { TelegramOutputHandler } from "./telegram";
-import { State } from "@/application/orchestrator";
+import { MutableState } from "@/application/orchestrator";
 import { Agent } from "@/domain/agent/model";
 import { Template } from "@/domain/agent/template/model";
-import { InMemoryFileSystem } from "@/infrastructure/filesystem/inMemory";
 import { Repository as AgentRepository } from "@/domain/agent/repository";
-import { Repository as AgentTemplateRepository } from "@/domain/agent/template/repository";
-import { Repository as ToolRepository } from "@/domain/tool/repository";
 import { Repository as ChatRepository } from "@/domain/chat/repository";
-import { OutputHandlerRegistry } from "@/domain/outputHandler/model";
 
-function makeMockState(): State {
+function makeMockState(): MutableState {
 	return {
-		aiProviders: [],
 		agentRepository: new AgentRepository(),
-		agentTemplateRepository: new AgentTemplateRepository(),
-		toolRepository: new ToolRepository(),
 		chatRepository: new ChatRepository(),
 		eventQueue: [],
-		fileSystem: new InMemoryFileSystem(),
-		config: {},
 		toolState: {},
-		output_handler_registry: new OutputHandlerRegistry(),
 	};
 }
 

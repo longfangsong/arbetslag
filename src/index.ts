@@ -22,7 +22,12 @@ export {
 	type ToolResponseEvent,
 	type ApiCallbackEvent,
 } from "@/domain/event/model";
-export { type State } from "@/application/orchestrator";
+export {
+	type Config,
+	type ToolContext,
+	type ToolExecutionContext,
+	type MutableState,
+} from "@/application/orchestrator";
 export {
 	type AIProvider,
 	type HistoryEntry,
@@ -38,14 +43,15 @@ export { onUserMessage, step, stepUntilIdle } from "@/application/orchestrator";
 export {
 	serialize,
 	deserialize as deserializeState,
-	type StaticConfig,
+	type Config as StaticConfig,
 } from "@/application/orchestrator/state";
 
 // Input adopters
 export {
-	convertTelegramUpdateToMessageEvent,
-	type Update,
-} from "@/application/inputAdopter/telegram";
+	type InputAdopter,
+	InputAdopterRegistry,
+} from "@/domain/inputAdopter/model";
+export { TelegramInputAdopter, type Update } from "@/infrastructure/inputAdopter/telegram";
 
 // Infrastructure
 export { InMemoryFileSystem } from "@/infrastructure/filesystem/inMemory";

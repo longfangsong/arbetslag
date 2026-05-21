@@ -9,13 +9,26 @@ import { SerializedAgent } from "@/domain/agent/model";
 import { Chat } from "@/domain/chat/model";
 import { OutputHandlerRegistry } from "@/domain/outputHandler/model";
 
-export interface StaticConfig {
+/**
+ * Immutable configuration and dependencies that don't change during execution.
+ */
+export interface Config {
 	aiProviders: Array<AIProvider>;
 	agentTemplateRepository: AgentTemplateRepository;
 	toolRepository: ToolRepository;
 	config: Record<string, any>;
 	fileSystem: FileSystem;
-	output_handler_registry: OutputHandlerRegistry;
+	outputHandlerRegistry: OutputHandlerRegistry;
+}
+
+/**
+ * Mutable runtime state that changes during agent execution.
+ */
+export interface State {
+	agentRepository: AgentRepository;
+	chatRepository: ChatRepository;
+	eventQueue: Array<Event>;
+	toolState: Record<string, any>;
 }
 
 interface SerializedState {
@@ -25,30 +38,26 @@ interface SerializedState {
 	toolState: Record<string, any>;
 }
 
-export interface State extends StaticConfig {
-	agentRepository: AgentRepository;
-	chatRepository: ChatRepository;
-	eventQueue: Array<Event>;
-	toolState: Record<string, any>;
-}
 
 export async function deserialize(
 	serialized: SerializedState,
-	staticConfig: StaticConfig,
+	config: Config,
 ): Promise<State> {
 	return {
 		agentRepository: await AgentRepository.deserialize(
 			serialized.agentRepository,
-			staticConfig.agentTemplateRepository,
+			config.agentTemplateRepository,
 		),
 		chatRepository: new ChatRepository(serialized.chatRepository),
 		eventQueue: serialized.eventQueue,
 		toolState: serialized.toolState,
-		...staticConfig,
 	};
 }
 
-export async function serialize(state: State): Promise<void> {
+export async function serialize(
+	config: Config,
+	state: State,
+): Promise<void> {
 	const payload: SerializedState = {
 		agentRepository: state.agentRepository.serialize(),
 		chatRepository: state.chatRepository.chats,
@@ -56,5 +65,25 @@ export async function serialize(state: State): Promise<void> {
 		toolState: state.toolState,
 	};
 
-	await state.fileSystem.writeFile(`run/state.json`, JSON.stringify(payload));
+	await config.fileSystem.writeFile(`run/state.json`, JSON.stringify(payload));
+}
+
+/**
+ * Minimal context needed by tools that only read config and write files.
+ * Used by: HttpRequest, GetTime, SendTelegramMessage.
+ */
+export interface ToolContext {
+	config: Record<string, any>;
+	fileSystem: FileSystem;
+}
+
+/**
+ * Full context needed by tools that also need to interact with agents/events.
+ * Used by: Spawn, ListTemplates.
+ */
+export interface ToolExecutionContext extends ToolContext {
+	agentTemplateRepository: AgentTemplateRepository;
+	agentRepository: AgentRepository;
+	eventQueue: Array<Event>;
+	toolState: Record<string, any>;
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { step } from "./step";
-import { createMockState } from "./state.mock";
+import { createMockConfig, createMockState } from "./state.mock";
 import { Agent } from "@/domain/agent/model";
 import { AgentMessageEvent, MessageEvent } from "@/domain/event/model";
 import { Template } from "@/domain/agent/template/model";
@@ -33,7 +33,8 @@ describe("step() — agent_message routing", () => {
 				content: "done",
 			}),
 		};
-		const state = createMockState({ aiProviders: [mockProvider] });
+		const config = createMockConfig({ aiProviders: [mockProvider] });
+		const state = createMockState();
 		const template = makeTemplate();
 		const agent = Agent.create(template);
 		await state.agentRepository.add(agent);
@@ -45,7 +46,7 @@ describe("step() — agent_message routing", () => {
 			payload: { content: "Hello from parent" },
 		};
 
-		await step(state, event);
+		await step(config, state, event);
 
 		// Agent should have received the message in its history (handleEvent was called)
 		expect(agent.history).toContainEqual({
@@ -60,6 +61,7 @@ describe("step() — agent_message routing", () => {
 	});
 
 	it("throws when agent_message is missing to_agent_id", async () => {
+		const config = createMockConfig();
 		const state = createMockState();
 		const badEvent = {
 			id: "evt-2",
@@ -67,12 +69,13 @@ describe("step() — agent_message routing", () => {
 			payload: { content: "no target" },
 		} as unknown as AgentMessageEvent;
 
-		await expect(step(state, badEvent)).rejects.toThrow(
+		await expect(step(config, state, badEvent)).rejects.toThrow(
 			"agent_message event is missing target agent ID",
 		);
 	});
 
 	it("throws when target agent does not exist", async () => {
+		const config = createMockConfig();
 		const state = createMockState();
 		const event: AgentMessageEvent = {
 			id: "evt-3",
@@ -81,7 +84,7 @@ describe("step() — agent_message routing", () => {
 			payload: { content: "ghost agent" },
 		};
 
-		await expect(step(state, event)).rejects.toThrow(
+		await expect(step(config, state, event)).rejects.toThrow(
 			"Agent with ID nonexistent not found",
 		);
 	});
@@ -100,12 +103,13 @@ describe("step() — message event with output handler registry", () => {
 		const registeredHandler = new TestUserOutputHandler("telegram", "chat-123");
 		registry.register("telegram", "chat-123", registeredHandler);
 
-		const state = createMockState({
+		const config = createMockConfig({
 			aiProviders: [mockProvider],
-			output_handler_registry: registry,
+			outputHandlerRegistry: registry,
 		});
+		const state = createMockState();
 		const template = makeTemplate();
-		await state.agentTemplateRepository.add(template);
+		await config.agentTemplateRepository.add(template);
 
 		const event: MessageEvent = {
 			id: "msg-1",
@@ -115,7 +119,7 @@ describe("step() — message event with output handler registry", () => {
 			payload: { content: "Hello from Telegram" },
 		};
 
-		await step(state, event);
+		await step(config, state, event);
 
 		// The registered handler should be attached to the created agent
 		const agent = await state.agentRepository.getById(
@@ -134,12 +138,13 @@ describe("step() — message event with output handler registry", () => {
 			}),
 		};
 		const registry = new OutputHandlerRegistry();
-		const state = createMockState({
+		const config = createMockConfig({
 			aiProviders: [mockProvider],
-			output_handler_registry: registry,
+			outputHandlerRegistry: registry,
 		});
+		const state = createMockState();
 		const template = makeTemplate();
-		await state.agentTemplateRepository.add(template);
+		await config.agentTemplateRepository.add(template);
 
 		const event: MessageEvent = {
 			id: "msg-2",
@@ -149,7 +154,7 @@ describe("step() — message event with output handler registry", () => {
 			payload: { content: "Hello from unknown adapter" },
 		};
 
-		await step(state, event);
+		await step(config, state, event);
 
 		// A handler should still be created (TempUserOutputHandler fallback)
 		const agent = await state.agentRepository.getById(
@@ -172,12 +177,13 @@ describe("step() — message event with output handler registry", () => {
 		const handler1 = new TestUserOutputHandler("telegram", "chat-789");
 		registry.register("telegram", "chat-789", handler1);
 
-		const state = createMockState({
+		const config = createMockConfig({
 			aiProviders: [mockProvider],
-			output_handler_registry: registry,
+			outputHandlerRegistry: registry,
 		});
+		const state = createMockState();
 		const template = makeTemplate();
-		await state.agentTemplateRepository.add(template);
+		await config.agentTemplateRepository.add(template);
 
 		// First message creates the agent
 		const event1: MessageEvent = {
@@ -187,7 +193,7 @@ describe("step() — message event with output handler registry", () => {
 			event_type: "message",
 			payload: { content: "First message" },
 		};
-		await step(state, event1);
+		await step(config, state, event1);
 
 		const agent1 = await state.agentRepository.getById(
 			(await state.chatRepository.getById("chat-789"))!.entry_agent_id,
@@ -201,7 +207,7 @@ describe("step() — message event with output handler registry", () => {
 			event_type: "message",
 			payload: { content: "Second message" },
 		};
-		await step(state, event2);
+		await step(config, state, event2);
 
 		const agent2 = await state.agentRepository.getById(
 			(await state.chatRepository.getById("chat-789"))!.entry_agent_id,
@@ -222,10 +228,11 @@ describe("complete() — routes content through outputHandler", () => {
 			}),
 		};
 		const registry = new OutputHandlerRegistry();
-		const state = createMockState({
+		const config = createMockConfig({
 			aiProviders: [mockProvider],
-			output_handler_registry: registry,
+			outputHandlerRegistry: registry,
 		});
+		const state = createMockState();
 		const template = makeTemplate();
 		const parentAgent = Agent.create(template);
 		await state.agentRepository.add(parentAgent);
@@ -245,7 +252,7 @@ describe("complete() — routes content through outputHandler", () => {
 			event_type: "agent_message",
 			payload: { content: "What is 2+2?" },
 		};
-		await step(state, event);
+		await step(config, state, event);
 
 		// Agent should have received the user message and the assistant response in history
 		expect(subAgent.history).toContainEqual({
@@ -277,20 +284,21 @@ describe("complete() — routes content through outputHandler", () => {
 			}),
 		};
 		const registry = new OutputHandlerRegistry();
-		const state2 = createMockState({
+		const config = createMockConfig({
 			aiProviders: [mockProvider],
-			output_handler_registry: registry,
+			outputHandlerRegistry: registry,
 		});
+		const state = createMockState();
 		const template = makeTemplate();
 		const parentAgent = Agent.create(template);
-		await state2.agentRepository.add(parentAgent);
+		await state.agentRepository.add(parentAgent);
 
 		const subAgent = Agent.create(
 			template,
 			new ToParentOutputHandler(parentAgent.id),
 		);
 		subAgent.history.push({ role: "user", content: "Search for X" });
-		await state2.agentRepository.add(subAgent);
+		await state.agentRepository.add(subAgent);
 
 		const event: AgentMessageEvent = {
 			id: "evt-complete-2",
@@ -298,13 +306,13 @@ describe("complete() — routes content through outputHandler", () => {
 			event_type: "agent_message",
 			payload: { content: "Search for X" },
 		};
-		await step(state2, event);
+		await step(config, state, event);
 
 		// Both content and tool_call events should be queued
-		const contentEvent = state2.eventQueue.find(
+		const contentEvent = state.eventQueue.find(
 			(e) => e.event_type === "agent_message",
 		);
-		const toolCallEvent = state2.eventQueue.find(
+		const toolCallEvent = state.eventQueue.find(
 			(e) => e.event_type === "tool_call",
 		);
 		expect(contentEvent).toBeDefined();

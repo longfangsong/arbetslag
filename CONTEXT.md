@@ -22,11 +22,11 @@ A recipe for creating agents. Specifies which AI provider and model to use, the 
 
 An abstraction over an LLM service. Takes a message history and a list of tools, returns a completion result (text + optional tool calls).
 
-**Multi-provider**: Support for OpenAI, Anthropic, Google, local models, etc. A single `State` can contain multiple AI providers — different agents can use different providers.
+**Multi-provider**: Support for OpenAI, Anthropic, Google, local models, etc. A single `Context` can contain multiple AI providers — different agents can use different providers.
 
 ## Tool
 
-A callable capability an agent can use. Has a name, description, input schema (Zod), and a `call` method that executes against the shared `State`.
+A callable capability an agent can use. Has a name, description, input schema (Zod), and a `call` method that executes against the shared `Context`.
 
 Tools can have side effects — pushing events, writing files, spawning agents. They are the agent's primary interaction mechanism with the world.
 
@@ -51,15 +51,23 @@ Events flow through a queue and are processed one at a time.
 
 A component that converts external service updates (Telegram, Slack, HTTP webhooks, etc.) into framework `Event` objects. Supports a generic adapter pattern — any external service can be adapted.
 
+## Context
+
+The full runtime environment passed to every tool and agent method. Formed by combining `Config` (immutable infrastructure) and `State` (mutable runtime data).
+
+**Host-controlled lifecycle**: The host program creates the Context, feeds events, calls `stepUntilIdle`, and handles checkpointing. The framework does not own the processing loop.
+
+## Config
+
+The immutable infrastructure layer of the Context. Contains AI providers, repositories (agent templates, tools), user config (API keys, bot tokens), file system, and output handler registry. Set when the Context is created and never changes during execution.
+
 ## State
 
-The shared runtime context. Contains all AI providers, repositories, the event queue, file system, config, and per-tool state. Passed to every tool and agent method.
+The mutable runtime data that changes during agent execution. Contains agent repositories, chat repositories, the event queue, and per-tool state.
 
-**Host-controlled lifecycle**: The host program creates the State, feeds events, calls `stepUntilIdle`, and handles checkpointing. The framework does not own the processing loop.
+**Mutable**: Unlike `Config`, the `State` is modified as agents process events — agents are spawned, chats evolve, events are consumed. The framework handles serialization and checkpointing of the `State`.
 
-- `config`: Global, read-only user settings (API keys, bot tokens, etc.)
-- `tool_state`: Per-tool mutable state for persistence across invocations
-- `file_system`: Abstracted filesystem. Multiple implementations planned (in-memory + others for persistence).
+- `toolState`: Per-tool mutable state for persistence across invocations. Each tool manages its own data independently.
 
 ## Orchestrator
 

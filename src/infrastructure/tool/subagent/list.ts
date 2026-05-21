@@ -1,4 +1,4 @@
-import { State } from "@/application/orchestrator";
+import { ToolExecutionContext } from "@/application/orchestrator";
 import { Agent } from "@/domain/agent/model";
 import { Tool } from "@/domain/tool/model";
 import { ok, Result } from "neverthrow";
@@ -16,7 +16,7 @@ export class ListTemplates
 	inputSchema = ListTemplatesInputSchema;
 
 	call(
-		state: State,
+		state: ToolExecutionContext,
 		caller: Agent,
 		input: Record<string, never>,
 	): Promise<Result<Output, never>> {

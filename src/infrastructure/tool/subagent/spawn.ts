@@ -1,4 +1,4 @@
-import { State } from "@/application/orchestrator";
+import { ToolExecutionContext } from "@/application/orchestrator";
 import { Agent } from "@/domain/agent/model";
 
 import { Tool } from "@/domain/tool/model";
@@ -23,7 +23,7 @@ export class Spawn
 	inputSchema = SpawnInputSchema;
 
 	async call(
-		state: State,
+		state: ToolExecutionContext,
 		caller: Agent,
 		input: z.infer<typeof SpawnInputSchema>,
 	): Promise<Result<string, string>> {

@@ -1,4 +1,4 @@
-import { State } from "@/application/orchestrator";
+import { MutableState } from "@/application/orchestrator";
 import { Agent } from "../agent/model";
 import { nanoid } from "nanoid";
 
@@ -8,7 +8,7 @@ export type SerializedOutputHandler =
 
 export interface OutputHandler {
 	readonly tag: string;
-	handle(state: State, agent: Agent, content: string): Promise<State>;
+	handle(state: MutableState, agent: Agent, content: string): Promise<MutableState>;
 }
 
 export abstract class UserOutputHandler implements OutputHandler {
@@ -20,10 +20,10 @@ export abstract class UserOutputHandler implements OutputHandler {
 	) {}
 
 	abstract handle(
-		state: State,
+		state: MutableState,
 		_agent: Agent,
 		_content: string,
-	): Promise<State>;
+	): Promise<MutableState>;
 }
 
 export class ToParentOutputHandler implements OutputHandler {
@@ -31,7 +31,7 @@ export class ToParentOutputHandler implements OutputHandler {
 
 	constructor(readonly parent_agent_id: string) {}
 
-	async handle(state: State, _agent: Agent, content: string): Promise<State> {
+	async handle(state: MutableState, _agent: Agent, content: string): Promise<MutableState> {
 		// Push a message event targeting the parent agent
 		state.eventQueue.push({
 			id: nanoid(10),

@@ -1,4 +1,4 @@
-import { State } from "@/application/orchestrator/state";
+import { Config, State } from "@/application/orchestrator/state";
 import { InMemoryFileSystem } from "@/infrastructure/filesystem/inMemory";
 import { Repository as AgentRepository } from "@/domain/agent/repository";
 import { Repository as AgentTemplateRepository } from "@/domain/agent/template/repository";
@@ -6,18 +6,24 @@ import { Repository as ToolRepository } from "@/domain/tool/repository";
 import { Repository as ChatRepository } from "@/domain/chat/repository";
 import { OutputHandlerRegistry } from "@/domain/outputHandler/model";
 
-export function createMockState(overrides?: Partial<State>): State {
+export function createMockConfig(overrides?: Partial<Config>): Config {
 	return {
 		aiProviders: [],
-		agentRepository: new AgentRepository(),
 		agentTemplateRepository: new AgentTemplateRepository(),
 		toolRepository: new ToolRepository(),
+		config: {},
+		fileSystem: new InMemoryFileSystem(),
+		outputHandlerRegistry: new OutputHandlerRegistry(),
+		...overrides,
+	};
+}
+
+export function createMockState(overrides?: Partial<State>): State {
+	return {
+		agentRepository: new AgentRepository(),
 		chatRepository: new ChatRepository(),
 		eventQueue: [],
-		fileSystem: new InMemoryFileSystem(),
-		config: {},
 		toolState: {},
-		output_handler_registry: new OutputHandlerRegistry(),
 		...overrides,
 	};
 }

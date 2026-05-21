@@ -1,4 +1,4 @@
-import { State } from "@/application/orchestrator";
+import { MutableState } from "@/application/orchestrator";
 import { Agent } from "@/domain/agent/model";
 import { UserOutputHandler } from "@/domain/outputHandler/model";
 
@@ -10,7 +10,7 @@ export class TelegramOutputHandler extends UserOutputHandler {
 		this.botToken = botToken;
 	}
 
-	async handle(state: State, _agent: Agent, content: string): Promise<State> {
+	async handle(state: MutableState, _agent: Agent, content: string): Promise<MutableState> {
 		const response = await fetch(
 			`https://api.telegram.org/bot${this.botToken}/sendMessage`,
 			{

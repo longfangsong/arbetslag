@@ -23,7 +23,6 @@ import {
 	OutputHandlerRegistry,
 	ToolRepository,
 	TelegramOutputHandler,
-	convertTelegramUpdateToMessageEvent,
 	onUserMessage,
 	serialize,
 	GetTime,
@@ -32,8 +31,10 @@ import {
 	ListTemplates,
 	Spawn,
 	type Update,
-	type State,
+	type Config,
+	type MutableState as State,
 	type Template,
+	TelegramInputAdopter,
 } from "arbetslag";
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -60,7 +61,7 @@ if (!WEBHOOK_URL) {
 	process.exit(1);
 }
 
-// ── Build State ─────────────────────────────────────────────────────────────
+// ── Build Config ────────────────────────────────────────────────────────────
 
 const fileSystem = new InMemoryFileSystem();
 const agentTemplateRepository = new AgentTemplateRepository();
@@ -93,16 +94,21 @@ const defaultTemplate: Template = {
 };
 await agentTemplateRepository.add(defaultTemplate);
 
-const state: State = {
+const config: Config = {
 	aiProviders: [aiProvider],
-	agentRepository: new AgentRepository(),
 	agentTemplateRepository,
 	toolRepository,
 	config: {
 		telegram_bot_token: TELEGRAM_BOT_TOKEN,
 	},
 	fileSystem,
-	output_handler_registry: outputHandlerRegistry,
+	outputHandlerRegistry,
+};
+
+// ── Build State ─────────────────────────────────────────────────────────────
+
+let state: State = {
+	agentRepository: new AgentRepository(),
 	chatRepository: new ChatRepository(),
 	eventQueue: [],
 	toolState: {},
@@ -143,7 +149,8 @@ async function deleteWebhook(): Promise<void> {
 }
 
 async function processUpdate(update: Update): Promise<void> {
-	const messageEvent = convertTelegramUpdateToMessageEvent(update);
+	const adopter = new TelegramInputAdopter();
+	const messageEvent = adopter.convert(update);
 	console.log(`📨 Received update: ${JSON.stringify(messageEvent)}`);
 	if (!messageEvent) return;
 
@@ -165,12 +172,11 @@ async function processUpdate(update: Update): Promise<void> {
 
 	// Process the message through the orchestrator
 	try {
-		await onUserMessage(
-			state,
-			{ id: messageEvent.chat_id, entry_agent_id: "" },
-			messageEvent.payload.content,
-			messageEvent.adapter,
-		);
+		const chat = {
+			id: messageEvent.chat_id,
+			entry_agent_id: "",
+		};
+		await onUserMessage(config, state, chat, messageEvent.payload.content, messageEvent.adapter);
 	} catch (err) {
 		console.error(
 			`Error processing message from ${messageEvent.chat_id}:`,
@@ -222,7 +228,7 @@ process.on("SIGINT", async () => {
 	console.log("\n🗑️  Deleting webhook and shutting down...");
 	await deleteWebhook();
 	console.log("📦 Serializing state...");
-	await serialize(state);
+	await serialize(config, state);
 	process.exit(0);
 });
 

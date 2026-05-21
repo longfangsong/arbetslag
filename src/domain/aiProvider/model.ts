@@ -1,4 +1,4 @@
-import { State } from "@/application/orchestrator";
+import { Config, MutableState as State, ToolExecutionContext } from "@/application/orchestrator";
 import { Agent } from "../agent/model";
 import { Tool } from "../tool/model";
 import { nanoid } from "nanoid";
@@ -40,14 +40,18 @@ export interface AIProvider {
 	): Promise<CompletionResult>;
 }
 
-export async function complete(state: State, agent: Agent): Promise<State> {
-	const provider = state.aiProviders.find(
+export async function complete(
+	config: Config,
+	state: State,
+	agent: Agent,
+): Promise<State> {
+	const provider = config.aiProviders.find(
 		(p) => p.name === agent.template.ai_provider,
 	);
 	if (!provider) {
 		throw new Error(`AI provider ${agent.template.ai_provider} not found`);
 	}
-	const allowedTools = state.toolRepository.tools.filter(
+	const allowedTools = config.toolRepository.tools.filter(
 		(tool: Tool<unknown, unknown, unknown>) =>
 			agent.template.allowedTools.includes(tool.name),
 	);
@@ -58,7 +62,7 @@ export async function complete(state: State, agent: Agent): Promise<State> {
 	);
 	agent.history.push(response);
 	if (response.content) {
-		state = await agent.outputHandler.handle(state, agent, response.content);
+		await agent.outputHandler.handle(state, agent, response.content);
 	}
 	if (response.tool_calls) {
 		for (const tool_call of response.tool_calls) {
@@ -71,4 +75,22 @@ export async function complete(state: State, agent: Agent): Promise<State> {
 		}
 	}
 	return state;
+}
+
+/**
+ * Extract the subset of State that tools need.
+ * This enforces the invariant that tools only see what they need.
+ */
+export function toToolExecutionContext(
+	config: Config,
+	state: State,
+): ToolExecutionContext {
+	return {
+		config: config.config,
+		fileSystem: config.fileSystem,
+		agentTemplateRepository: config.agentTemplateRepository,
+		agentRepository: state.agentRepository,
+		eventQueue: state.eventQueue,
+		toolState: state.toolState,
+	};
 }

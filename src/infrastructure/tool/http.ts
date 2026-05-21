@@ -1,4 +1,4 @@
-import { State } from "@/application/orchestrator";
+import { ToolExecutionContext } from "@/application/orchestrator";
 import { Agent } from "@/domain/agent/model";
 import { Tool } from "@/domain/tool/model";
 import { xxhash3 } from "hash-wasm";
@@ -47,7 +47,7 @@ export class HttpRequest
 	inputSchema = HttpRequestInputSchema;
 
 	async call(
-		state: State,
+		state: ToolExecutionContext,
 		caller: Agent,
 		input: z.infer<typeof HttpRequestInputSchema>,
 	): Promise<Result<HttpResponse, string>> {

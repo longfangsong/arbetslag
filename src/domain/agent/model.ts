@@ -1,4 +1,4 @@
-import { State } from "@/application/orchestrator";
+import { Config, MutableState as State } from "@/application/orchestrator";
 import { nanoid } from "nanoid";
 import { Template } from "./template/model";
 import { complete, HistoryEntry } from "../aiProvider/model";
@@ -74,7 +74,7 @@ export class Agent {
 		return new Agent(data.id, template, outputHandler, data.history);
 	}
 
-	async handleEvent(state: State, event: Event): Promise<State> {
+	async handleEvent(config: Config, state: State, event: Event): Promise<State> {
 		switch (event.event_type) {
 			case "tool_call":
 				throw new Error(
@@ -117,7 +117,7 @@ export class Agent {
 				});
 			}
 		}
-		return complete(state, this);
+		return complete(config, state, this);
 	}
 
 	serialize(): SerializedAgent {

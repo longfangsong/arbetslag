@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Result, ok } from "neverthrow";
+import { ToolExecutionContext } from "@/application/orchestrator";
 import { Tool } from "@/domain/tool/model";
-import { State } from "@/application/orchestrator";
 import { Agent } from "@/domain/agent/model";
 
 export const GetTimeInputSchema = z
@@ -17,7 +17,7 @@ export class GetTime
 	inputSchema = GetTimeInputSchema;
 
 	call(
-		state: State,
+		_state: ToolExecutionContext,
 		caller: Agent,
 		input: Record<string, never>,
 	): Promise<Result<string, string>> {

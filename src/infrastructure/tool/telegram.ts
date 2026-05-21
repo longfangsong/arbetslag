@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Result, ok, err } from "neverthrow";
+import { ToolExecutionContext } from "@/application/orchestrator";
 import { Tool } from "@/domain/tool/model";
-import { State } from "@/application/orchestrator";
 import { Agent } from "@/domain/agent/model";
 
 export const SendTelegramMessageInputSchema = z
@@ -26,7 +26,7 @@ export class SendTelegramMessage
 	inputSchema = SendTelegramMessageInputSchema;
 
 	async call(
-		state: State,
+		state: ToolExecutionContext,
 		caller: Agent,
 		input: z.infer<typeof SendTelegramMessageInputSchema>,
 	): Promise<Result<{ message_id: number }, string>> {
