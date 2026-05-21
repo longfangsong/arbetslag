@@ -6,13 +6,13 @@ The `OpenAI` client should be created lazily on first `complete()` call so that 
 
 ## Acceptance criteria
 
-- [ ] `OpenAIProvider` has a zero-argument constructor
-- [ ] Provider reads `OPENAI_API_KEY` from `process.env`
-- [ ] Provider reads `OPENAI_BASE_URL` from `process.env`
-- [ ] Provider `name` defaults to `"openai"`
-- [ ] `OpenAI` client is created lazily on first `complete()` call
-- [ ] Existing tests pass with the new constructor
-- [ ] `pnpm type-check` passes
+- [x] `OpenAIProvider` has a zero-argument constructor
+- [x] Provider reads `OPENAI_API_KEY` from `process.env`
+- [x] Provider reads `OPENAI_BASE_URL` from `process.env`
+- [x] Provider `name` defaults to `"openai"`
+- [x] `OpenAI` client is created lazily on first `complete()` call
+- [x] Existing tests pass with the new constructor
+- [x] `pnpm type-check` passes
 
 ## Blocked by
 

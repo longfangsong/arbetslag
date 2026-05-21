@@ -11,14 +11,13 @@ type OpenAIMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 type OpenAITool = OpenAI.Chat.Completions.ChatCompletionTool;
 
 export class OpenAIProvider implements AIProvider {
-	name: string;
+	name: string = "openai";
 	private client: OpenAI;
 
-	constructor(options?: { baseUrl?: string; apiKey?: string; name?: string }) {
-		this.name = options?.name ?? "openai-compatible";
+	constructor() {
 		this.client = new OpenAI({
-			baseURL: options?.baseUrl,
-			apiKey: options?.apiKey,
+			baseURL: process.env.OPENAI_BASE_URL,
+			apiKey: process.env.OPENAI_API_KEY,
 		});
 	}
 

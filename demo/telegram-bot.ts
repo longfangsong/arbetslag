@@ -75,12 +75,8 @@ toolRepository.tools.push(new SendTelegramMessage());
 toolRepository.tools.push(new ListTemplates());
 toolRepository.tools.push(new Spawn());
 
-// Register AI provider
-const aiProvider = new OpenAIProvider({
-	baseUrl: OPENAI_BASE_URL,
-	apiKey: OPENAI_API_KEY,
-	name: "openai-compatible",
-});
+// Register AI provider (reads OPENAI_API_KEY and OPENAI_BASE_URL from process.env)
+const aiProvider = new OpenAIProvider();
 
 // Register default template
 const defaultTemplate: Template = {
