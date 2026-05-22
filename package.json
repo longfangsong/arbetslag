@@ -50,6 +50,7 @@
 		"vitest": "^4.1.4"
 	},
 	"dependencies": {
+		"@iarna/toml": "^2.2.5",
 		"date-fns": "^4.1.0",
 		"es-toolkit": "^1.46.1",
 		"hash-wasm": "^4.12.0",
@@ -57,6 +58,7 @@
 		"neverthrow": "^8.2.0",
 		"ollama": "^0.6.3",
 		"openai": "^6.37.0",
+		"yaml": "^2.9.0",
 		"zod": "^4.4.3"
 	}
 }

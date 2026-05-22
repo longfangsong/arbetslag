@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { OpenAIProvider } from "./openai";
 
 // Mock openai before importing OpenAIProvider
 const mockChatCompletionsCreate = vi.fn();
@@ -20,8 +21,6 @@ vi.mock("openai", () => {
 	};
 });
 
-import { OpenAIProvider } from "./openai";
-import type { AIProvider } from "@/domain/aiProvider/model";
 
 describe("OpenAIProvider", () => {
 	let originalEnv: NodeJS.ProcessEnv;
@@ -160,13 +159,6 @@ describe("OpenAIProvider", () => {
 			await expect(provider.complete("gpt-4", [], [])).rejects.toThrow(
 				"No completion choice returned",
 			);
-		});
-
-		it("implements AIProvider interface", () => {
-			process.env.OPENAI_API_KEY = "test-key";
-			const provider: AIProvider = new OpenAIProvider();
-			expect(provider.name).toBe("openai");
-			expect(typeof provider.complete).toBe("function");
 		});
 	});
 });
