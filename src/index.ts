@@ -56,6 +56,7 @@ export { TelegramInputAdopter, type Update } from "@/infrastructure/inputAdopter
 // Infrastructure
 export { InMemoryFileSystem } from "@/infrastructure/filesystem/inMemory";
 export { OpenAIProvider } from "@/infrastructure/aiProvider/openai";
+export { loadConfig, registerProvider, registerTool } from "@/infrastructure/config/load";
 
 // Repositories
 export {

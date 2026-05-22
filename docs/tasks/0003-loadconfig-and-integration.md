@@ -20,16 +20,16 @@ Write an integration test that creates a config file on disk (JSON), calls `load
 
 ## Acceptance criteria
 
-- [ ] `loadConfig` parses and validates a config file end-to-end
-- [ ] `loadConfig` returns `Partial<Config>` with correctly populated providers, tools, and templates
-- [ ] `loadConfig` throws on unknown provider type
-- [ ] `loadConfig` throws on unknown tool type
-- [ ] `loadConfig` throws on schema validation failure
-- [ ] `loadConfig` handles empty/minimal config (all fields optional)
-- [ ] `loadConfig`, `registerProvider`, and `registerTool` are exported from `src/index.ts`
-- [ ] Integration test loads a real config file and verifies all three entity types
-- [ ] `pnpm test` passes
-- [ ] `pnpm type-check` passes
+- [x] `loadConfig` parses and validates a config file end-to-end
+- [x] `loadConfig` returns `Partial<Config>` with correctly populated providers, tools, and templates
+- [x] `loadConfig` throws on unknown provider type
+- [x] `loadConfig` throws on unknown tool type
+- [x] `loadConfig` throws on schema validation failure
+- [x] `loadConfig` handles empty/minimal config (all fields optional)
+- [x] `loadConfig`, `registerProvider`, and `registerTool` are exported from `src/index.ts`
+- [x] Integration test loads a real config file and verifies all three entity types
+- [x] `pnpm test` passes
+- [x] `pnpm type-check` passes
 
 ## Blocked by
 
