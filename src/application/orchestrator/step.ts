@@ -13,6 +13,7 @@ import {
 } from "@/domain/outputHandler/model";
 import { Agent } from "@/domain/agent/model";
 import { toToolExecutionContext } from "@/domain/aiProvider/model";
+import { Tool } from "@/domain/tool/model";
 
 function resolveOutputHandler(
 	registry: OutputHandlerRegistry,
@@ -30,6 +31,43 @@ export class TempUserOutputHandler extends UserOutputHandler {
 		// Default no-op — concrete adapters override this
 		return state;
 	}
+}
+
+export async function completeAgent(
+	config: Config,
+	state: State,
+	agent: Agent,
+): Promise<State> {
+	const provider = config.aiProviders.find(
+		(p) => p.name === agent.template.ai_provider,
+	);
+	if (!provider) {
+		throw new Error(`AI provider ${agent.template.ai_provider} not found`);
+	}
+	const allowedTools = config.toolRepository.tools.filter(
+		(tool: Tool<unknown, unknown, unknown>) =>
+			agent.template.allowedTools.includes(tool.name),
+	);
+	const response = await provider.complete(
+		agent.template.model,
+		[...agent.history],
+		allowedTools,
+	);
+	agent.history.push(response);
+	if (response.content) {
+		await agent.outputHandler.handle(state, agent, response.content);
+	}
+	if (response.tool_calls) {
+		for (const tool_call of response.tool_calls) {
+			state.eventQueue.push({
+				id: tool_call.id || nanoid(10),
+				to_agent_id: agent.id,
+				event_type: "tool_call",
+				payload: tool_call,
+			} as ToolCallEvent);
+		}
+	}
+	return state;
 }
 
 export async function step(

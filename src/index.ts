@@ -34,7 +34,6 @@ export {
 	type ToolCall,
 	type CompletionResult,
 	type ToolCallResult,
-	complete,
 } from "@/domain/aiProvider/model";
 export { type Tool } from "@/domain/tool/model";
 

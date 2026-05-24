@@ -1,7 +1,8 @@
 import { Config, MutableState as State } from "@/application/orchestrator";
 import { nanoid } from "nanoid";
 import { Template } from "./template/model";
-import { complete, HistoryEntry } from "../aiProvider/model";
+import { HistoryEntry } from "../aiProvider/model";
+import { completeAgent } from "@/application/orchestrator/step";
 import {
 	ApiCallbackEvent,
 	AgentMessageEvent,
@@ -121,7 +122,7 @@ export class Agent {
 				break;
 			}
 		}
-		return complete(config, state, this);
+		return completeAgent(config, state, this);
 	}
 
 	serialize(): SerializedAgent {

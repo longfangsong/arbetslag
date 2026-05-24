@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { step } from "./step";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { step, completeAgent } from "./step";
 import { createMockConfig, createMockState } from "./state.mock";
+import { Repository as ToolRepository } from "@/domain/tool/repository";
 import { Agent } from "@/domain/agent/model";
 import { AgentMessageEvent, MessageEvent } from "@/domain/event/model";
 import { Template } from "@/domain/agent/template/model";
@@ -321,5 +322,141 @@ describe("complete() — routes content through outputHandler", () => {
 		);
 		expect(toolCallEvent).toBeDefined();
 		expect((toolCallEvent as any).payload.tool_name).toBe("search");
+	});
+});
+
+describe("completeAgent()", () => {
+	let mockProvider: AIProvider;
+	let template: Template;
+	let agent: Agent;
+
+	beforeEach(() => {
+		mockProvider = {
+			name: "test-provider",
+			complete: vi.fn().mockResolvedValue({
+				role: "assistant",
+				content: "Hello from AI",
+			}),
+		};
+		template = makeTemplate({ ai_provider: "test-provider" });
+		agent = Agent.create(template);
+	});
+
+	it("resolves provider by template ai_provider name", async () => {
+		const config = createMockConfig({ aiProviders: [mockProvider] });
+		const state = createMockState();
+
+		await completeAgent(config, state, agent);
+
+		expect(mockProvider.complete).toHaveBeenCalledWith(
+			"test-model",
+			[],
+			[],
+		);
+	});
+
+	it("filters tools by template allowedTools", async () => {
+		const toolRepo = new ToolRepository();
+		const searchTool = {
+			name: "search",
+			description: "Search the web",
+			inputSchema: {} as any,
+			call: async () => ("result" as any),
+		};
+		const weatherTool = {
+			name: "weather",
+			description: "Get weather",
+			inputSchema: {} as any,
+			call: async () => ("sunny" as any),
+		};
+		toolRepo.tools.push(searchTool, weatherTool);
+
+		const toolFilteredTemplate = makeTemplate({
+			ai_provider: "test-provider",
+			allowedTools: ["search"],
+		});
+		const filteredAgent = Agent.create(toolFilteredTemplate);
+		const config = createMockConfig({
+			aiProviders: [mockProvider],
+			toolRepository: toolRepo,
+		});
+		const state = createMockState();
+
+		await completeAgent(config, state, filteredAgent);
+
+		const calledTools = ((mockProvider as any).complete.mock.calls[0][2] as any[]);
+		expect(calledTools).toHaveLength(1);
+		expect(calledTools[0].name).toBe("search");
+	});
+
+	it("routes assistant content through outputHandler", async () => {
+		const registry = new OutputHandlerRegistry();
+		const outputHandler = new TestUserOutputHandler("telegram", "chat-1");
+		const spy = vi.spyOn(outputHandler, "handle");
+		const config = createMockConfig({
+			aiProviders: [mockProvider],
+			outputHandlerRegistry: registry,
+		});
+		const state = createMockState();
+		const agentWithHandler = Agent.create(template, outputHandler);
+
+		await completeAgent(config, state, agentWithHandler);
+
+		expect(spy).toHaveBeenCalledWith(state, agentWithHandler, "Hello from AI");
+	});
+
+	it("queues tool calls as ToolCallEvent in eventQueue", async () => {
+		const toolCallProvider: AIProvider = {
+			name: "test-provider",
+			complete: vi.fn().mockResolvedValue({
+				role: "assistant",
+				content: "Let me check",
+				tool_calls: [
+					{ id: "tc-1", tool_name: "search", arguments: { q: "x" } },
+					{ tool_name: "weather", arguments: {} },
+				],
+			}),
+		};
+		const config = createMockConfig({ aiProviders: [toolCallProvider] });
+		const state = createMockState();
+		const agentWithTools = Agent.create(template);
+
+		await completeAgent(config, state, agentWithTools);
+
+		const toolCallEvents = state.eventQueue.filter(
+			(e) => e.event_type === "tool_call",
+		);
+		expect(toolCallEvents).toHaveLength(2);
+		expect(toolCallEvents[0]).toMatchObject({
+			event_type: "tool_call",
+			to_agent_id: agentWithTools.id,
+			payload: { tool_name: "search", arguments: { q: "x" } },
+		});
+		expect(toolCallEvents[1]).toMatchObject({
+			event_type: "tool_call",
+			to_agent_id: agentWithTools.id,
+			payload: { tool_name: "weather" },
+		});
+	});
+
+	it("throws when provider is not found", async () => {
+		const config = createMockConfig({ aiProviders: [] });
+		const state = createMockState();
+
+		await expect(completeAgent(config, state, agent)).rejects.toThrow(
+			"AI provider test-provider not found",
+		);
+	});
+
+	it("pushes AI response to agent history", async () => {
+		const config = createMockConfig({ aiProviders: [mockProvider] });
+		const state = createMockState();
+
+		await completeAgent(config, state, agent);
+
+		expect(agent.history).toContainEqual({
+			role: "assistant",
+			content: "Hello from AI",
+		});
 	});
 });
