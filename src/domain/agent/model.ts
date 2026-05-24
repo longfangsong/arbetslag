@@ -86,6 +86,7 @@ export class Agent {
 					role: "user",
 					content: msg.payload.content,
 				});
+				break;	
 			}
 			case "agent_message": {
 				const agentMsg = event as AgentMessageEvent;
@@ -93,6 +94,7 @@ export class Agent {
 					role: "user",
 					content: agentMsg.payload.content,
 				});
+				break;
 			}
 			case "api_callback": {
 				const apiEvent = event as ApiCallbackEvent;
@@ -106,6 +108,7 @@ export class Agent {
                         </payload>
                     </api_callback>`,
 				});
+				break;
 			}
 			case "tool_response": {
 				const resp = event as ToolResponseEvent;
@@ -115,6 +118,7 @@ export class Agent {
 					name: resp.payload.name,
 					content: resp.payload.content,
 				});
+				break;
 			}
 		}
 		return complete(config, state, this);

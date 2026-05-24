@@ -12,16 +12,12 @@
  */
 
 import "dotenv/config";
+import * as path from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import {
-	AgentRepository,
-	AgentTemplateRepository,
-	ChatRepository,
 	InMemoryFileSystem,
-	OpenAIProvider,
 	OutputHandlerRegistry,
-	ToolRepository,
 	TelegramOutputHandler,
 	onUserMessage,
 	serialize,
@@ -30,28 +26,24 @@ import {
 	SendTelegramMessage,
 	ListTemplates,
 	Spawn,
+	loadConfig,
+	registerTool,
+	createConfig,
+	createState,
 	type Update,
 	type Config,
 	type MutableState as State,
-	type Template,
 	TelegramInputAdopter,
 } from "arbetslag";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
-const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL; // optional, for Ollama etc.
 const WEBHOOK_URL = process.env.WEBHOOK_URL!;
 const PORT = Number(process.env.PORT ?? 3000);
 
-
 if (!TELEGRAM_BOT_TOKEN) {
 	console.error("❌  Set TELEGRAM_BOT_TOKEN environment variable.");
-	process.exit(1);
-}
-if (!OPENAI_API_KEY) {
-	console.error("❌  Set OPENAI_API_KEY environment variable.");
 	process.exit(1);
 }
 if (!WEBHOOK_URL) {
@@ -63,52 +55,27 @@ if (!WEBHOOK_URL) {
 
 // ── Build Config ────────────────────────────────────────────────────────────
 
+// Register tools so loadConfig can resolve them by name
+registerTool("getTime", () => new GetTime());
+registerTool("httpRequest", () => new HttpRequest());
+registerTool("sendTelegramMessage", () => new SendTelegramMessage());
+registerTool("listTemplates", () => new ListTemplates());
+registerTool("spawn", () => new Spawn());
+
+// Load providers, tools, and templates from config file
+const configPath = path.join(path.dirname(new URL(import.meta.url).pathname), "arbetslag.yaml");
+const loadedConfig = await loadConfig(configPath);
+
 const fileSystem = new InMemoryFileSystem();
-const agentTemplateRepository = new AgentTemplateRepository();
-const toolRepository = new ToolRepository();
 const outputHandlerRegistry = new OutputHandlerRegistry();
 
-// Register tools
-toolRepository.tools.push(new GetTime());
-toolRepository.tools.push(new HttpRequest());
-toolRepository.tools.push(new SendTelegramMessage());
-toolRepository.tools.push(new ListTemplates());
-toolRepository.tools.push(new Spawn());
-
-// Register AI provider (reads OPENAI_API_KEY and OPENAI_BASE_URL from process.env)
-const aiProvider = new OpenAIProvider();
-
-// Register default template
-const defaultTemplate: Template = {
-	name: "default",
-	description: "General-purpose assistant",
-	ai_provider: "openai-compatible",
-	model: process.env.MODEL_NAME ?? "gpt-4o",
-	systemPrompt:
-		"You are a helpful assistant. Answer the user's questions concisely and accurately.",
-	allowedTools: ["getTime", "httpRequest", "sendTelegramMessage"],
-};
-await agentTemplateRepository.add(defaultTemplate);
-
-const config: Config = {
-	aiProviders: [aiProvider],
-	agentTemplateRepository,
-	toolRepository,
-	config: {
-		telegram_bot_token: TELEGRAM_BOT_TOKEN,
-	},
-	fileSystem,
-	outputHandlerRegistry,
-};
+const config: Config = createConfig(loadedConfig, fileSystem, outputHandlerRegistry, {
+	telegram_bot_token: TELEGRAM_BOT_TOKEN,
+});
 
 // ── Build State ─────────────────────────────────────────────────────────────
 
-let state: State = {
-	agentRepository: new AgentRepository(),
-	chatRepository: new ChatRepository(),
-	eventQueue: [],
-	toolState: {},
-};
+let state: State = createState();
 
 // ── Webhook helpers ─────────────────────────────────────────────────────────
 
@@ -212,8 +179,7 @@ async function start(): Promise<void> {
 	// Start HTTP server
 	serve({ fetch: app.fetch, port: PORT }, (info) => {
 		console.log("🤖 arbetslag Telegram bot starting...");
-		console.log(`   Model: ${process.env.MODEL_NAME ?? "gpt-4o"}`);
-		if (OPENAI_BASE_URL) console.log(`   Base URL: ${OPENAI_BASE_URL}`);
+		console.log(`   Config: ${configPath}`);
 		console.log(`   Webhook: ${WEBHOOK_URL}`);
 		console.log(`   Listening on port ${info.port}\n`);
 	});

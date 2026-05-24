@@ -69,6 +69,43 @@ export async function serialize(
 }
 
 /**
+ * Build a complete Config from a loaded config file, file system, and output
+ * handler registry.
+ *
+ * @param loadedConfig - Partial<Config> from loadConfig()
+ * @param fileSystem - FileSystem implementation
+ * @param outputHandlerRegistry - OutputHandlerRegistry instance
+ * @param configOverrides - Optional overrides merged into the config record
+ */
+export function createConfig(
+	loadedConfig: Partial<Config>,
+	fileSystem: FileSystem,
+	outputHandlerRegistry: OutputHandlerRegistry,
+	configOverrides: Record<string, any> = {},
+): Config {
+	return {
+		aiProviders: loadedConfig.aiProviders ?? [],
+		agentTemplateRepository: loadedConfig.agentTemplateRepository!,
+		toolRepository: loadedConfig.toolRepository!,
+		config: { ...(loadedConfig.config ?? {}), ...configOverrides },
+		fileSystem,
+		outputHandlerRegistry,
+	};
+}
+
+/**
+ * Create an empty MutableState for a fresh host run.
+ */
+export function createState(): State {
+	return {
+		agentRepository: new AgentRepository(),
+		chatRepository: new ChatRepository(),
+		eventQueue: [],
+		toolState: {},
+	};
+}
+
+/**
  * Minimal context needed by tools that only read config and write files.
  * Used by: HttpRequest, GetTime, SendTelegramMessage.
  */

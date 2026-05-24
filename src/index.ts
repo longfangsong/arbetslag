@@ -41,6 +41,8 @@ export { type Tool } from "@/domain/tool/model";
 // Orchestrator
 export { onUserMessage, step, stepUntilIdle } from "@/application/orchestrator";
 export {
+	createConfig,
+	createState,
 	serialize,
 	deserialize as deserializeState,
 	type Config as StaticConfig,
@@ -55,6 +57,7 @@ export { TelegramInputAdopter, type Update } from "@/infrastructure/inputAdopter
 
 // Infrastructure
 export { InMemoryFileSystem } from "@/infrastructure/filesystem/inMemory";
+export { NodeFileSystem } from "@/infrastructure/filesystem/nodeFs";
 export { OpenAIProvider } from "@/infrastructure/aiProvider/openai";
 export { loadConfig, registerProvider, registerTool } from "@/infrastructure/config/load";
 
