@@ -1,5 +1,5 @@
 import { createAgent } from "@/domain/agent/template/model";
-import { Config, State } from "./state";
+import { Config, State, toToolExecutionContext } from "./state";
 import {
 	Event,
 	MessageEvent,
@@ -12,7 +12,6 @@ import {
 	UserOutputHandler,
 } from "@/domain/outputHandler/model";
 import { Agent } from "@/domain/agent/model";
-import { toToolExecutionContext } from "@/domain/aiProvider/model";
 import { Tool } from "@/domain/tool/model";
 
 function resolveOutputHandler(
@@ -91,7 +90,9 @@ export async function step(
 			if (!agent) {
 				throw new Error(`Agent with ID ${event.to_agent_id} not found`);
 			}
-			return await agent.handleEvent(config, state, event);
+			const targetAgent = agent;
+			await targetAgent.handleEvent(config, state, event);
+			return await completeAgent(config, state, targetAgent);
 		}
 	}
 }
@@ -119,7 +120,9 @@ async function handleMessage(
 		state.chatRepository.chats.push(chat);
 	}
 	const agent = await state.agentRepository.getById(chat.entry_agent_id);
-	return await agent!.handleEvent(config, state, msgEvent);
+	const targetAgent = agent!;
+	await targetAgent.handleEvent(config, state, msgEvent);
+	return await completeAgent(config, state, targetAgent);
 }
 
 async function handleToolCall(

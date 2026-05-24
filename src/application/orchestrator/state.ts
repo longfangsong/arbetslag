@@ -8,6 +8,7 @@ import { Repository as ChatRepository } from "@/domain/chat/repository";
 import { SerializedAgent } from "@/domain/agent/model";
 import { Chat } from "@/domain/chat/model";
 import { OutputHandlerRegistry } from "@/domain/outputHandler/model";
+import { Tool } from "@/domain/tool/model";
 
 /**
  * Immutable configuration and dependencies that don't change during execution.
@@ -123,4 +124,22 @@ export interface ToolExecutionContext extends ToolContext {
 	agentRepository: AgentRepository;
 	eventQueue: Array<Event>;
 	toolState: Record<string, any>;
+}
+
+/**
+ * Build a complete ToolExecutionContext from Config + State.
+ * This enforces the invariant that tools only see what they need.
+ */
+export function toToolExecutionContext(
+	config: Config,
+	state: State,
+): ToolExecutionContext {
+	return {
+		config: config.config,
+		fileSystem: config.fileSystem,
+		agentTemplateRepository: config.agentTemplateRepository,
+		agentRepository: state.agentRepository,
+		eventQueue: state.eventQueue,
+		toolState: state.toolState,
+	};
 }

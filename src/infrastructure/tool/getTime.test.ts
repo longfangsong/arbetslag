@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { GetTime, GetTimeInputSchema } from "@/infrastructure/tool/getTime";
 import { createMockConfig, createMockState } from "@/application/orchestrator/state.mock";
-import { toToolExecutionContext } from "@/domain/aiProvider/model";
+import { toToolExecutionContext } from "@/application/orchestrator/state";
 import { createMockAgent } from "@/domain/agent/model.mock";
 
 function makeToolContext() {

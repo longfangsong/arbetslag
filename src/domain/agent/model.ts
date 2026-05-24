@@ -2,7 +2,6 @@ import { Config, MutableState as State } from "@/application/orchestrator";
 import { nanoid } from "nanoid";
 import { Template } from "./template/model";
 import { HistoryEntry } from "../aiProvider/model";
-import { completeAgent } from "@/application/orchestrator/step";
 import {
 	ApiCallbackEvent,
 	AgentMessageEvent,
@@ -75,12 +74,8 @@ export class Agent {
 		return new Agent(data.id, template, outputHandler, data.history);
 	}
 
-	async handleEvent(config: Config, state: State, event: Event): Promise<State> {
+	async handleEvent(_config: Config, state: State, event: Event): Promise<State> {
 		switch (event.event_type) {
-			case "tool_call":
-				throw new Error(
-					"Tool calls should be handled by the orchestrator, not the agent",
-				);
 			case "message": {
 				const msg = event as MessageEvent;
 				this.history.push({
@@ -122,7 +117,7 @@ export class Agent {
 				break;
 			}
 		}
-		return completeAgent(config, state, this);
+		return state;
 	}
 
 	serialize(): SerializedAgent {
