@@ -16,7 +16,7 @@ import { Hono } from "hono";
 import { parse } from "yaml";
 import { readFileSync } from "node:fs";
 
-import { processEvent } from "@/application/loop";
+import { processEvent } from "@/index";
 import { TelegramInputAdopter } from "@/implementation/inputAdopter/telegram";
 
 import { InMemoryFileSystem } from "@/implementation/filesystem/inMemory";

@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { eventLoop } from "./loop";
-import { EventBus } from "./event/bus";
+import { Orchestrator } from "./orchestrator";
 import { MessageEvent } from "./event/event";
 import { InMemoryFileSystem } from "@/implementation/filesystem/inMemory";
 import { FileSystemAgentRepository } from "@/implementation/agent/repository";
@@ -97,20 +96,18 @@ describe("event_loop", () => {
     const aiRepo = makeAiRepo(mockAiProvider());
     const outputRouter: OutputRouter = { async route() {} };
 
-    const eventBus = new EventBus();
-    eventBus.push(makeMessageEvent("chat-1", "Hi"));
-
-    await eventLoop(
-      fs,
-      agentRepo,
-      templateRepo,
-      makeToolRepo(),
-      aiRepo,
+    const orchestrator = new Orchestrator({
+      fileSystem: fs,
+      agentRepository: agentRepo,
+      templateRepository: templateRepo,
+      toolRepository: makeToolRepo(),
+      aiProviderRepository: aiRepo,
       outputRouter,
-      eventBus,
-    );
+    });
+    orchestrator.push(makeMessageEvent("chat-1", "Hi"));
+    await orchestrator.stepUntilIdle();
 
-    expect(eventBus.empty()).toBe(true);
+    expect(orchestrator.empty()).toBe(true);
 
     const list = await agentRepo.list();
     expect(list).toHaveLength(1);
@@ -134,30 +131,44 @@ describe("event_loop", () => {
     const aiRepo = makeAiRepo(mockAiProvider());
 
     // First call
-    let eventBus = new EventBus();
-    eventBus.push(makeMessageEvent("chat-x", "First"));
-    await eventLoop(
-      fs,
-      await FileSystemAgentRepository.create(fs, "test-agents/"),
-      await FileSystemTemplateRepository.create(fs, "test-templates/"),
-      makeToolRepo(),
-      aiRepo,
-      null,
-      eventBus,
-    );
+    {
+      const orchestrator = new Orchestrator({
+        fileSystem: fs,
+        agentRepository: await FileSystemAgentRepository.create(
+          fs,
+          "test-agents/",
+        ),
+        templateRepository: await FileSystemTemplateRepository.create(
+          fs,
+          "test-templates/",
+        ),
+        toolRepository: makeToolRepo(),
+        aiProviderRepository: aiRepo,
+        outputRouter: null,
+      });
+      orchestrator.push(makeMessageEvent("chat-x", "First"));
+      await orchestrator.stepUntilIdle();
+    }
 
     // Second call (reuses same agent from fs)
-    eventBus = new EventBus();
-    eventBus.push(makeMessageEvent("chat-x", "Second"));
-    await eventLoop(
-      fs,
-      await FileSystemAgentRepository.create(fs, "test-agents/"),
-      await FileSystemTemplateRepository.create(fs, "test-templates/"),
-      makeToolRepo(),
-      aiRepo,
-      null,
-      eventBus,
-    );
+    {
+      const orchestrator = new Orchestrator({
+        fileSystem: fs,
+        agentRepository: await FileSystemAgentRepository.create(
+          fs,
+          "test-agents/",
+        ),
+        templateRepository: await FileSystemTemplateRepository.create(
+          fs,
+          "test-templates/",
+        ),
+        toolRepository: makeToolRepo(),
+        aiProviderRepository: aiRepo,
+        outputRouter: null,
+      });
+      orchestrator.push(makeMessageEvent("chat-x", "Second"));
+      await orchestrator.stepUntilIdle();
+    }
 
     const agentRepo = await FileSystemAgentRepository.create(
       fs,

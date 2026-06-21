@@ -9,11 +9,13 @@ export class InMemoryAgentRepository implements Repository {
 		return new InMemoryAgentRepository();
 	}
 
-	readonly dir = "memory/";
-
 	async add(agent: Agent): Promise<Agent> {
 		this.agents.set(agent.id, agent);
 		return agent;
+	}
+
+	async save(_agent: Agent): Promise<void> {
+		// ponytail: no-op, agent is already in memory
 	}
 
 	async getById(id: string): Promise<Agent | null> {

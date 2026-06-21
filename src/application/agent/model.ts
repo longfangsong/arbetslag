@@ -9,7 +9,6 @@ import {
   ToolResponseEvent,
   Event,
 } from "@/application/event/event";
-import type { FileSystem } from "@/application/filesystem/model";
 
 export interface SerializedAgent {
   id: string;
@@ -26,9 +25,6 @@ export class Agent {
   public chatId?: string;
   private waitingForToolCallCount = 0;
 
-  private agentDir?: string;
-  private fs?: FileSystem;
-
   private constructor(
     id: string,
     template: Template,
@@ -37,11 +33,6 @@ export class Agent {
     this.id = id;
     this.template = template;
     this.history = history;
-  }
-
-  setPersistContext(fs: FileSystem, agentDir: string): void {
-    this.fs = fs;
-    this.agentDir = agentDir;
   }
 
   static create(template: Template): Agent {
@@ -65,15 +56,11 @@ export class Agent {
     };
   }
 
-  async handleMessage(event: MessageEvent): Promise<Array<Event>> {
+  handleMessage(event: MessageEvent): Array<Event> {
     this.history.push({
       role: "user",
       content: event.content,
     });
-    await this.fs?.writeFile(
-      `${this.agentDir}${this.id}.json`,
-      JSON.stringify(this.serialize()),
-    );
     return [
       {
         id: nanoid(10),
@@ -84,7 +71,7 @@ export class Agent {
     ];
   }
 
-  async handleAgentMessage(event: AgentMessageEvent): Promise<Array<Event>> {
+  handleAgentMessage(event: AgentMessageEvent): Array<Event> {
     this.history.push({
       role: "user",
       content: `<agent_message>
@@ -92,10 +79,6 @@ export class Agent {
 					<content>${event.content}</content>
 				</agent_message>`,
     });
-    await this.fs?.writeFile(
-      `${this.agentDir}${this.id}.json`,
-      JSON.stringify(this.serialize()),
-    );
     return [
       {
         id: nanoid(10),
@@ -106,7 +89,7 @@ export class Agent {
     ];
   }
 
-  async handleApiCallback(event: ApiCallbackEvent): Promise<Array<Event>> {
+  handleApiCallback(event: ApiCallbackEvent): Array<Event> {
     this.history.push({
       role: "user",
       content: `<api_callback>
@@ -117,10 +100,6 @@ export class Agent {
 					</payload>
 				</api_callback>`,
     });
-    await this.fs?.writeFile(
-      `${this.agentDir}${this.id}.json`,
-      JSON.stringify(this.serialize()),
-    );
     return [
       {
         id: nanoid(10),
@@ -131,7 +110,7 @@ export class Agent {
     ];
   }
 
-  async handleToolResponse(event: ToolResponseEvent): Promise<Array<Event>> {
+  handleToolResponse(event: ToolResponseEvent): Array<Event> {
     this.history.push({
       role: "tool",
       tool_call_id: event.tool_call_id,
@@ -139,10 +118,6 @@ export class Agent {
       content: event.content,
     });
     --this.waitingForToolCallCount;
-    await this.fs?.writeFile(
-      `${this.agentDir}${this.id}.json`,
-      JSON.stringify(this.serialize()),
-    );
     if (this.waitingForToolCallCount === 0) {
       return [
         {
@@ -156,19 +131,13 @@ export class Agent {
     return [];
   }
 
-  async handleLLMCompletionResponse(
-    event: LLMCompletionResponse,
-  ): Promise<Array<Event>> {
+  handleLLMCompletionResponse(event: LLMCompletionResponse): Array<Event> {
     this.history.push({
       role: "assistant",
       content: event.content,
       tool_calls: event.tool_calls,
     });
     this.waitingForToolCallCount = event.tool_calls ? event.tool_calls.length : 0;
-    await this.fs?.writeFile(
-      `${this.agentDir}${this.id}.json`,
-      JSON.stringify(this.serialize()),
-    );
     const events: Array<Event> = [];
     for (const toolCall of event.tool_calls || []) {
       events.push({

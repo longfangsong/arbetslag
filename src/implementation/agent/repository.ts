@@ -4,7 +4,7 @@ import { FileSystem } from "@/application/filesystem/model";
 
 export class FileSystemAgentRepository implements Repository {
 	public chatMap: Map<string, string> = new Map();
-	public readonly dir: string;
+	private readonly dir: string;
 
 	constructor(
 		private fs: FileSystem,
@@ -35,6 +35,13 @@ export class FileSystemAgentRepository implements Repository {
 			JSON.stringify(agent.serialize()),
 		);
 		return agent;
+	}
+
+	async save(agent: Agent): Promise<void> {
+		await this.fs.writeFile(
+			`${this.dir}${agent.id}.json`,
+			JSON.stringify(agent.serialize()),
+		);
 	}
 
 	async getById(id: string): Promise<Agent | null> {
