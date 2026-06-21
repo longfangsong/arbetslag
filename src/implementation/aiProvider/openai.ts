@@ -9,10 +9,10 @@ export class OpenAIProvider implements AIProvider {
 	name: string = "openai";
 	private client: OpenAI;
 
-	constructor() {
+	constructor(apiKey: string, baseUrl?: string) {
 		this.client = new OpenAI({
-			baseURL: process.env.OPENAI_BASE_URL,
-			apiKey: process.env.OPENAI_API_KEY,
+			baseURL: baseUrl ?? process.env.OPENAI_BASE_URL,
+			apiKey,
 		});
 	}
 
@@ -29,6 +29,20 @@ export class OpenAIProvider implements AIProvider {
 					role: "tool" as const,
 					tool_call_id: entry.tool_call_id ?? "",
 					content: entry.content,
+				};
+			}
+			if (entry.role === "assistant" && "tool_calls" in entry && entry.tool_calls) {
+				return {
+					role: "assistant" as const,
+					content: entry.content,
+					tool_calls: entry.tool_calls.map((tc) => ({
+						id: tc.id ?? "",
+						type: "function" as const,
+						function: {
+							name: tc.tool_name,
+							arguments: JSON.stringify(tc.arguments),
+						},
+					})),
 				};
 			}
 			return { role: entry.role, content: entry.content };

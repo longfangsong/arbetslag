@@ -33,6 +33,10 @@ pnpm type-check     # TypeScript type checking
 
 **Tooling:** tsdown (bundler), Biome (lint/format), Vitest (tests), Zod v4 (schemas), TypeScript 6
 
+## Debug Strategy
+
+DO NOT think about how the program runs. Add log, run it and TRACE it instead.
+
 ## Migration progress
 
 `_src` is old source code. Do not look at it.

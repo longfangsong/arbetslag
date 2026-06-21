@@ -4,9 +4,10 @@ import { AIProvider } from "@/application/aiProvider/model";
 export class InMemoryAIProviderRepository implements Repository {
 	private providers: Map<string, AIProvider> = new Map();
 
-	async register(provider: AIProvider): Promise<AIProvider> {
-		this.providers.set(provider.name, provider);
-		return provider;
+	constructor(providers: Array<AIProvider> = []) {
+		for (const provider of providers) {
+			this.providers.set(provider.name, provider);
+		}
 	}
 
 	async getByName(name: string): Promise<AIProvider | null> {
