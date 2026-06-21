@@ -1,21 +1,14 @@
 providers:
   - openai
 
-tools:
-  - getTime
-  - httpRequest
-  - sendTelegramMessage
-  - listTemplates
-  - spawn
-
 templates:
   - name: default
     description: General-purpose assistant
     ai_provider: openai
-    model: unsloth/Qwen3.6-27B-MTP-GGUF:Q6_K_XL
+    model: tensorzero::model_name::gemma_4_E4B
     systemPrompt: >
       You are a helpful assistant. Answer the user's questions concisely and accurately.
     allowedTools:
-      - getTime
-      - httpRequest
-      - sendTelegramMessage
+      - get_time
+      - http_request
+      - send_telegram_message

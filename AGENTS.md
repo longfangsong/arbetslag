@@ -18,10 +18,6 @@ Do not extract separated interface/class from another interface/class unless the
 
 Please always use the terms listed in ./CONTEXT.md when talking with the user.
 
-### AI Provider
-
-An endpoint which can provide AI chatting service.
-
 ## Build & Development
 
 ```bash
@@ -36,3 +32,7 @@ pnpm type-check     # TypeScript type checking
 ```
 
 **Tooling:** tsdown (bundler), Biome (lint/format), Vitest (tests), Zod v4 (schemas), TypeScript 6
+
+## Migration progress
+
+`_src` is old source code. Do not look at it.

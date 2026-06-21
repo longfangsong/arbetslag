@@ -12,6 +12,10 @@ Agents communicate with each other via tools (e.g., `spawn`). They share the sam
 
 **Immortal**: Agents live forever once created. The `AgentRepository` is append-only — agents are never destroyed.
 
+### AI Provider
+
+An endpoint which can provide AI chatting service.
+
 ## Template
 
 A recipe for creating agents. Specifies which AI provider and model to use, the system prompt, and which tools the agent is allowed to use.
@@ -42,7 +46,7 @@ A unit of work in the system. Four kinds:
 
 - **message** — a user message into a chat
 - **tool_call** — the agent requesting a tool invocation
-- **tool_response** — the result of a tool call
+- **tool_call_response** — the result of a tool call
 - **api_callback** — an external API callback
 
 Events flow through a queue and are processed one at a time.

@@ -3,38 +3,28 @@
  * Telegram bot demo for arbetslag — webhook mode.
  *
  * Usage:
- *   TELEGRAM_BOT_TOKEN=<token> OPENAI_API_KEY=<key> WEBHOOK_URL=<url> npx tsx demo/telegram-bot.ts
+ *   TELEGRAM_BOT_TOKEN=<token> OPENAI_API_KEY=<key> WEBHOOK_URL=<url> pnpm demo:telegram
  *
  * WEBHOOK_URL is the public HTTPS URL where Telegram will send updates
- * (e.g. https://abc.ngrok.io/webhook). For local testing, use ngrok or similar.
- *
- * Optionally set OPENAI_BASE_URL for OpenAI-compatible endpoints (e.g. Ollama).
+ * (e.g. https://abc.ngrok.io/webhook).
  */
 
 import "dotenv/config";
 import * as path from "node:path";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
-import {
-	InMemoryFileSystem,
-	OutputHandlerRegistry,
-	TelegramOutputHandler,
-	onUserMessage,
-	serialize,
-	GetTime,
-	HttpRequest,
-	SendTelegramMessage,
-	ListTemplates,
-	Spawn,
-	loadConfig,
-	registerTool,
-	createConfig,
-	createState,
-	type Update,
-	type Config,
-	type MutableState as State,
-	TelegramInputAdopter,
-} from "arbetslag";
+import { parse } from "yaml";
+import { readFileSync } from "node:fs";
+
+import { processEvent } from "@/application/loop";
+import { OpenAIProvider } from "@/implementation/aiProvider/openai";
+import { TelegramInputAdopter } from "@/implementation/inputAdopter/telegram";
+import { Telegram as TelegramOutputRouter } from "@/implementation/outputRouter/telegram";
+import { InMemoryFileSystem } from "@/implementation/filesystem/inMemory";
+import { FileSystemAgentRepository } from "@/implementation/agent/repository";
+import { FileSystemTemplateRepository } from "@/implementation/agent/template/repository";
+
+import type { Update } from "@/implementation/inputAdopter/telegram";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -47,55 +37,41 @@ if (!TELEGRAM_BOT_TOKEN) {
 	process.exit(1);
 }
 if (!WEBHOOK_URL) {
-	console.error(
-		"❌  Set WEBHOOK_URL environment variable (e.g. https://abc.ngrok.io/webhook).",
-	);
+	console.error("❌  Set WEBHOOK_URL environment variable (e.g. https://abc.ngrok.io/webhook).");
 	process.exit(1);
 }
 
-// ── Build Config ────────────────────────────────────────────────────────────
+// ── Load config ─────────────────────────────────────────────────────────────
 
-// Register tools so loadConfig can resolve them by name
-registerTool("getTime", () => new GetTime());
-registerTool("httpRequest", () => new HttpRequest());
-registerTool("sendTelegramMessage", () => new SendTelegramMessage());
-registerTool("listTemplates", () => new ListTemplates());
-registerTool("spawn", () => new Spawn());
-
-// Load providers, tools, and templates from config file
 const configPath = path.join(path.dirname(new URL(import.meta.url).pathname), "arbetslag.yaml");
-const loadedConfig = await loadConfig(configPath);
+const configContent = readFileSync(configPath, "utf-8");
+const config = parse(configContent);
+
+// ── Build dependencies ──────────────────────────────────────────────────────
 
 const fileSystem = new InMemoryFileSystem();
-const outputHandlerRegistry = new OutputHandlerRegistry();
+const templateRepository = new FileSystemTemplateRepository(fileSystem);
 
-const config: Config = createConfig(loadedConfig, fileSystem, outputHandlerRegistry, {
-	telegram_bot_token: TELEGRAM_BOT_TOKEN,
-});
-
-// ── Build State ─────────────────────────────────────────────────────────────
-
-let state: State = createState();
+// Load templates from config
+for (const t of config.templates ?? []) {
+	await templateRepository.add({
+		name: t.name,
+		description: t.description,
+		ai_provider: t.ai_provider,
+		model: t.model,
+		systemPrompt: t.systemPrompt,
+		allowedTools: t.allowedTools ?? [],
+	});
+}
 
 // ── Webhook helpers ─────────────────────────────────────────────────────────
 
 async function setWebhook(url: string): Promise<void> {
-	const res = await fetch(
-		`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook`,
-		{
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				url,
-				allowed_updates: [
-					"message",
-					"edited_message",
-					"channel_post",
-					"edited_channel_post",
-				],
-			}),
-		},
-	);
+	const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ url, allowed_updates: ["message", "edited_message", "channel_post", "edited_channel_post"] }),
+	});
 	const data = (await res.json()) as { ok: boolean; description?: string };
 	if (!data.ok) {
 		throw new Error(`Failed to set webhook: ${data.description}`);
@@ -104,79 +80,59 @@ async function setWebhook(url: string): Promise<void> {
 }
 
 async function deleteWebhook(): Promise<void> {
-	await fetch(
-		`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook`,
-		{ method: "POST" },
-	);
+	await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook`, { method: "POST" });
 	console.log("🗑️  Webhook deleted.");
 }
+
+// ── Process a Telegram update ───────────────────────────────────────────────
 
 async function processUpdate(update: Update): Promise<void> {
 	const adopter = new TelegramInputAdopter();
 	const messageEvent = adopter.convert(update);
-	console.log(`📨 Received update: ${JSON.stringify(messageEvent)}`);
-	if (!messageEvent) return;
-
-	// Register output handler for this chat (re-use if already registered)
-	if (
-		!outputHandlerRegistry.get(messageEvent.adapter, messageEvent.chat_id)
-	) {
-		outputHandlerRegistry.register(
-			messageEvent.adapter,
-			messageEvent.chat_id,
-			new TelegramOutputHandler(
-				messageEvent.adapter,
-				messageEvent.chat_id,
-				TELEGRAM_BOT_TOKEN,
-			),
-		);
-		console.log(`🎯 Registered output handler for chat ${messageEvent.chat_id}`);
+	if (!messageEvent) {
+		console.log("[webhook] Converted to null, skipping");
+		return;
 	}
 
-	// Process the message through the orchestrator
-	try {
-		const chat = {
-			id: messageEvent.chat_id,
-			entry_agent_id: "",
-		};
-		await onUserMessage(config, state, chat, messageEvent.payload.content, messageEvent.adapter);
-	} catch (err) {
-		console.error(
-			`Error processing message from ${messageEvent.chat_id}:`,
-			err,
-		);
-	}
+	console.log(`[webhook] Chat ${messageEvent.chat_id}: "${messageEvent.content}"`);
+
+	await processEvent(messageEvent, {
+		fileSystem,
+		createProviders: async () => {
+			const provider = new OpenAIProvider();
+			return new Map([[provider.name, provider]]);
+		},
+		createOutputRouter: (adapter) => {
+			if (adapter === "telegram") {
+				return new TelegramOutputRouter(TELEGRAM_BOT_TOKEN, messageEvent.chat_id);
+			}
+			return null;
+		},
+	});
 }
 
 // ── HTTP Server ─────────────────────────────────────────────────────────────
 
 const app = new Hono();
 
-// Webhook endpoint — Telegram POSTs updates here
 app.post("/webhook", async (c) => {
 	const update = await c.req.json();
 	processUpdate(update as Update).catch(console.error);
-
 	return c.text("OK");
 });
 
-// Health check
 app.get("/health", (c) => c.text("OK"));
 
 // ── Start ───────────────────────────────────────────────────────────────────
 
 async function start(): Promise<void> {
-	// Set webhook with Telegram
 	try {
 		await setWebhook(WEBHOOK_URL + "/webhook");
 	} catch (err) {
 		console.error("Failed to register webhook:", err);
-		console.log(
-			"⚠️  The webhook may already be set. You can delete it with: curl -X POST https://api.telegram.org/bot<token>/deleteWebhook",
-		);
+		console.log("⚠️  Webhook may already be set.");
 	}
 
-	// Start HTTP server
 	serve({ fetch: app.fetch, port: PORT }, (info) => {
 		console.log("🤖 arbetslag Telegram bot starting...");
 		console.log(`   Config: ${configPath}`);
@@ -185,12 +141,9 @@ async function start(): Promise<void> {
 	});
 }
 
-// Handle Ctrl+C gracefully
 process.on("SIGINT", async () => {
 	console.log("\n🗑️  Deleting webhook and shutting down...");
 	await deleteWebhook();
-	console.log("📦 Serializing state...");
-	await serialize(config, state);
 	process.exit(0);
 });
 
