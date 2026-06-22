@@ -6,16 +6,16 @@ import { FileSystemTemplateRepository } from "@/implementation/agent/template/re
 import { InMemoryAIProviderRepository } from "@/implementation/aiProvider/inMemory";
 import { OpenAIProvider } from "@/implementation/aiProvider/openai";
 import { Telegram } from "@/implementation/outputRouter/telegram";
-import { InMemoryToolRepository } from "@/implementation/tool/inMemory";
-import { ReadFile } from "@/implementation/tool/readFile";
-import { WriteFile } from "@/implementation/tool/writeFile";
-import { EditFile } from "@/implementation/tool/editFile";
-import { DeleteFile } from "@/implementation/tool/deleteFile";
-import { ListFiles } from "@/implementation/tool/listFiles";
+import { InMemoryToolRepository } from "@/implementation/tool/repository";
+import { ReadFile } from "@/implementation/tool/file/readFile";
+import { WriteFile } from "@/implementation/tool/file/writeFile";
+import { EditFile } from "@/implementation/tool/file/editFile";
+import { DeleteFile } from "@/implementation/tool/file/deleteFile";
+import { ListFiles } from "@/implementation/tool/file/listFiles";
 import { HttpRequest } from "@/implementation/tool/http";
 import { GetTime } from "@/implementation/tool/getTime";
 import type { Tool } from "./application/tool/model";
-import type { FileSystem } from "./application/filesystem/model";
+import type { FileSystem } from "./application/file/model";
 
 export { Orchestrator };
 export type { OrchestratorDeps };

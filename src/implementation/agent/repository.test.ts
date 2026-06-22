@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { FileSystemAgentRepository } from "./repository";
-import { InMemoryFileSystem } from "@/implementation/filesystem/inMemory";
+import { InMemoryFileSystem } from "@/implementation/tool/file/filesystem/inMemory";
 import { Agent } from "@/application/agent/model";
 import { Template } from "@/application/agent/template/model";
 

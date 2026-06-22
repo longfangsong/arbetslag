@@ -1,6 +1,6 @@
 import { Repository } from "@/application/agent/template/repository";
 import { Template } from "@/application/agent/template/model";
-import { FileSystem } from "@/application/filesystem/model";
+import { FileSystem } from "@/application/file/model";
 
 export class FileSystemTemplateRepository implements Repository {
   constructor(

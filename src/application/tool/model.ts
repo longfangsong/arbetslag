@@ -1,7 +1,7 @@
 import { Result } from "neverthrow";
 import z from "zod";
 import { Agent } from "../agent/model";
-import { FileSystem } from "../filesystem/model";
+import { FileSystem } from "../file/model";
 
 export interface ToolExecutingContext {
 	fileSystem: FileSystem;

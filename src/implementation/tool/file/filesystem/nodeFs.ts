@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { FileSystem } from "@/application/filesystem/model";
+import { FileSystem } from "@/application/file/model";
 
 export class NodeFileSystem implements FileSystem {
 	async readFile(

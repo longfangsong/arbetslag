@@ -19,7 +19,7 @@ import { readFileSync } from "node:fs";
 import { processEvent } from "@/index";
 import { TelegramInputAdopter } from "@/implementation/inputAdopter/telegram";
 
-import { InMemoryFileSystem } from "@/implementation/filesystem/inMemory";
+import { InMemoryFileSystem } from "@/implementation/tool/file/filesystem/inMemory";
 import { FileSystemAgentRepository } from "@/implementation/agent/repository";
 import { FileSystemTemplateRepository } from "@/implementation/agent/template/repository";
 

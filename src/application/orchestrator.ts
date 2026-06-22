@@ -12,7 +12,7 @@ import {
   AgentOutput,
 } from "./event/event";
 import { Agent } from "./agent/model";
-import { FileSystem } from "./filesystem/model";
+import { FileSystem } from "./file/model";
 import type { Repository as AgentRepository } from "./agent/repository";
 import type { Repository as TemplateRepository } from "./agent/template/repository";
 import type { Repository as ToolRepository } from "./tool/repository";

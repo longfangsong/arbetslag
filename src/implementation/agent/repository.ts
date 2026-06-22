@@ -1,6 +1,6 @@
 import { Repository } from "@/application/agent/repository";
 import { Agent, SerializedAgent } from "@/application/agent/model";
-import { FileSystem } from "@/application/filesystem/model";
+import { FileSystem } from "@/application/file/model";
 
 export class FileSystemAgentRepository implements Repository {
 	public chatMap: Map<string, string> = new Map();

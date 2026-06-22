@@ -1,4 +1,4 @@
-import { FileSystem } from "@/application/filesystem/model";
+import { FileSystem } from "@/application/file/model";
 
 export class InMemoryFileSystem implements FileSystem {
 	private files: Map<string, string> = new Map();
