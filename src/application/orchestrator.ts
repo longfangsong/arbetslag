@@ -143,7 +143,7 @@ export class Orchestrator {
         const completion = await aiProvider?.complete(
           agent!.template.model,
           e.history,
-          toolRepository.tools,
+          toolRepository.getByNames(agent!.template.allowedTools),
         );
         return [
           {
