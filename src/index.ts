@@ -14,11 +14,32 @@ import { DeleteFile } from "@/implementation/tool/file/deleteFile";
 import { ListFiles } from "@/implementation/tool/file/listFiles";
 import { HttpRequest } from "@/implementation/tool/http";
 import { GetTime } from "@/implementation/tool/getTime";
+import {
+	ListEntities,
+	CreateEntity,
+	GetEntity,
+	PatchEntity,
+	DeleteEntity,
+	CreateRelationship,
+	GetRelationship,
+	GetEntityRelationships,
+} from "@/implementation/tool/ontology";
+import type { OntologyConfig } from "@/implementation/tool/ontology";
 import type { Tool } from "./application/tool/model";
 import type { FileSystem } from "./application/file/model";
 
-export { Orchestrator };
-export type { OrchestratorDeps };
+export {
+	Orchestrator,
+	ListEntities,
+	CreateEntity,
+	GetEntity,
+	PatchEntity,
+	DeleteEntity,
+	CreateRelationship,
+	GetRelationship,
+	GetEntityRelationships,
+};
+export type { OrchestratorDeps, OntologyConfig };
 
 export interface ArbetslagConfig {
   fileSystem: FileSystem;
