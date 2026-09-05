@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { z } from "zod";
 import { AIProvider } from "@/application/aiProvider/model";
-import { HistoryEntry, CompletionResult } from "@/application/aiProvider/history";
+import { HistoryEntry, CompletionResult } from "@/application/agent/history";
 import { Tool } from "@/application/tool/model";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat";
 

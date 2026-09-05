@@ -14,6 +14,7 @@ import { DeleteFile } from "@/implementation/tool/file/deleteFile";
 import { ListFiles } from "@/implementation/tool/file/listFiles";
 import { HttpRequest } from "@/implementation/tool/http";
 import { GetTime } from "@/implementation/tool/getTime";
+import { WebSearch } from "@/implementation/tool/webSearch";
 import {
 	ListEntities,
 	CreateEntity,
@@ -49,6 +50,7 @@ export interface ArbetslagConfig {
   };
   openai: { apiKey: string; baseUrl?: string };
   telegram: { botToken: string; apiBase?: string };
+  webSearch?: { searxngUrl: string; timeoutMs?: number; maxResults?: number };
   customTools?: Array<Tool<unknown, unknown, unknown>>;
 }
 
@@ -67,7 +69,7 @@ export async function processEvent(
       config.directories?.templates ?? "config/templates/",
     ),
     toolRepository: new InMemoryToolRepository([
-      ...createBuiltInTools(),
+      ...createBuiltInTools(config.webSearch),
       ...(config.customTools ?? []),
     ]),
     aiProviderRepository: new InMemoryAIProviderRepository([
@@ -87,7 +89,9 @@ export async function processEvent(
   await orchestrator.stepUntilIdle();
 }
 
-function createBuiltInTools(): Array<Tool<unknown, unknown, unknown>> {
+function createBuiltInTools(
+  webSearchConfig?: ArbetslagConfig["webSearch"],
+): Array<Tool<unknown, unknown, unknown>> {
   return [
     new ReadFile(),
     new WriteFile(),
@@ -96,5 +100,14 @@ function createBuiltInTools(): Array<Tool<unknown, unknown, unknown>> {
     new ListFiles(),
     new HttpRequest(),
     new GetTime(),
+    ...(webSearchConfig
+      ? [
+          new WebSearch(
+            webSearchConfig.searxngUrl,
+            webSearchConfig.timeoutMs,
+            webSearchConfig.maxResults,
+          ),
+        ]
+      : []),
   ];
 }

@@ -1,5 +1,5 @@
 import { Tool } from "../tool/model";
-import { CompletionResult, HistoryEntry } from "./history";
+import { CompletionResult, HistoryEntry } from "../agent/history";
 
 
 export interface AIProvider {

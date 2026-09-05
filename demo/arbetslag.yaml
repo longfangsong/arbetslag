@@ -12,3 +12,4 @@ templates:
       - get_time
       - http_request
       - send_telegram_message
+      - web_search

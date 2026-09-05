@@ -120,6 +120,9 @@ async function processUpdate(update: Update): Promise<void> {
     fileSystem,
     openai: { apiKey: process.env.OPENAI_API_KEY! },
     telegram: { botToken: TELEGRAM_BOT_TOKEN },
+    webSearch: {
+      searxngUrl: process.env.SEARXNG_URL ?? "https://searxng.longfangsong.mywire.org",
+    },
   });
 }
 
