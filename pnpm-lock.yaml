@@ -6,7 +6,37 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  apps/telegram-bot:
+    dependencies:
+      '@hono/node-server':
+        specifier: ^2.0.0
+        version: 2.0.0(hono@4.12.15)
+      arbetslag:
+        specifier: workspace:*
+        version: link:../../packages/arbetslag
+      dotenv:
+        specifier: ^17.4.2
+        version: 17.4.2
+      hono:
+        specifier: ^4.12.15
+        version: 4.12.15
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
+    devDependencies:
+      '@types/node':
+        specifier: ^25.6.0
+        version: 25.6.0
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ^6.0.2
+        version: 6.0.2
+
+  packages/arbetslag:
     dependencies:
       '@iarna/toml':
         specifier: ^2.2.5
@@ -39,27 +69,15 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
-      '@hono/node-server':
-        specifier: ^2.0.0
-        version: 2.0.0(hono@4.12.15)
       '@types/node':
         specifier: ^25.6.0
         version: 25.6.0
       biome:
         specifier: ^0.3.3
         version: 0.3.3
-      dotenv:
-        specifier: ^17.4.2
-        version: 17.4.2
-      hono:
-        specifier: ^4.12.15
-        version: 4.12.15
       tsdown:
         specifier: ^0.22.0
         version: 0.22.0(tsx@4.21.0)(typescript@6.0.2)(unrun@0.2.34(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0))
-      tsx:
-        specifier: ^4.21.0
-        version: 4.21.0
       typescript:
         specifier: ^6.0.2
         version: 6.0.2
@@ -1292,10 +1310,6 @@ packages:
   tinybench@2.9.0:
     resolution: {integrity: sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==}
 
-  tinyexec@1.1.1:
-    resolution: {integrity: sha512-VKS/ZaQhhkKFMANmAOhhXVoIfBXblQxGX1myCQ2faQrfmobMftXeJPcZGp0gS07ocvGJWDLZGyOZDadDBqYIJg==}
-    engines: {node: '>=18'}
-
   tinyexec@1.1.2:
     resolution: {integrity: sha512-dAqSqE/RabpBKI8+h26GfLq6Vb3JVXs30XYQjdMjaj/c2tS8IYYMbIzP599KtRj7c57/wYApb3QjgRgXmrCukA==}
     engines: {node: '>=18'}
@@ -1398,7 +1412,7 @@ packages:
 
   uuid@3.4.0:
     resolution: {integrity: sha512-HjSDRw6gZE5JMggctHBcjVak08+KEVhSIiDzFnT9S9aegmp85S/bReBVTb4QTFaRNptJ9kuYaNhnbNEOkbKb/A==}
-    deprecated: Please upgrade  to version 7 or higher.  Older versions may use Math.random() in certain circumstances, which is known to be problematic.  See https://v8.dev/blog/math-random for details.
+    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
 
   verror@1.10.0:
@@ -2556,8 +2570,6 @@ snapshots:
 
   tinybench@2.9.0: {}
 
-  tinyexec@1.1.1: {}
-
   tinyexec@1.1.2: {}
 
   tinyglobby@0.2.16:
@@ -2683,7 +2695,7 @@ snapshots:
       picomatch: 4.0.4
       std-env: 4.0.0
       tinybench: 2.9.0
-      tinyexec: 1.1.1
+      tinyexec: 1.1.2
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
       vite: 8.0.8(@types/node@25.6.0)(esbuild@0.27.7)(tsx@4.21.0)(yaml@2.9.0)

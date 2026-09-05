@@ -39,8 +39,14 @@ export {
 	CreateRelationship,
 	GetRelationship,
 	GetEntityRelationships,
+	// Infrastructure re-exported for library consumers (e.g. the telegram-bot app).
+	FileSystemAgentRepository,
+	FileSystemTemplateRepository,
 };
+export { TelegramInputAdopter } from "./implementation/inputAdopter/telegram";
+export { InMemoryFileSystem } from "./implementation/tool/file/filesystem/inMemory";
 export type { OrchestratorDeps, OntologyConfig };
+export type { Update } from "./implementation/inputAdopter/telegram";
 
 export interface ArbetslagConfig {
   fileSystem: FileSystem;

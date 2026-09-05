@@ -1,0 +1,59 @@
+{
+	"name": "arbetslag",
+	"version": "1.0.6",
+	"description": "A TypeScript agent framework with tool support",
+	"main": "dist/index.js",
+	"module": "dist/index.mjs",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.mjs",
+			"require": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"keywords": [
+		"agent",
+		"ai",
+		"llm",
+		"framework"
+	],
+	"author": "Fangsong Long",
+	"license": "Unlicense",
+	"packageManager": "pnpm@10.28.2",
+	"scripts": {
+		"build": "tsdown",
+		"dev": "tsdown --watch",
+		"test": "vitest",
+		"test:ui": "vitest --ui",
+		"test:coverage": "vitest --coverage",
+		"lint": "biome lint --apply src tests",
+		"lint:check": "biome lint src tests",
+		"format": "biome format --write src tests",
+		"format:check": "biome format --check src tests",
+		"type-check": "tsc --noEmit"
+	},
+	"type": "module",
+	"devDependencies": {
+		"@types/node": "^25.6.0",
+		"biome": "^0.3.3",
+		"tsdown": "^0.22.0",
+		"typescript": "^6.0.2",
+		"vitest": "^4.1.4"
+	},
+	"dependencies": {
+		"@iarna/toml": "^2.2.5",
+		"date-fns": "^4.1.0",
+		"es-toolkit": "^1.46.1",
+		"hash-wasm": "^4.12.0",
+		"nanoid": "^5.1.11",
+		"neverthrow": "^8.2.0",
+		"ollama": "^0.6.3",
+		"openai": "^6.37.0",
+		"yaml": "^2.9.0",
+		"zod": "^4.4.3"
+	}
+}

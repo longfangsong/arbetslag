@@ -1,28 +1,38 @@
-# Telegram Bot Demo
+# Telegram Bot
 
-A runnable Telegram bot powered by the arbetslag agent framework — **webhook mode**.
+A runnable Telegram bot that consumes the **arbetslag** framework library.
 
-The demo imports from the `arbetslag` npm package — all infrastructure classes are exported from the package for consumer use.
+This is a workspace app: it imports everything from the `arbetslag` package
+(`packages/arbetslag`) rather than the framework's internal source, so it is a
+real consumer of the published API.
 
 ## Quick Start
 
-1. Copy and fill in the environment variables:
+1. Build the library (the bot runs against the built `dist/`):
 
 ```bash
-cp ../.env.example .env
+pnpm --filter arbetslag run build
+```
+
+2. Copy and fill in the environment variables:
+
+```bash
+cp .env.example .env
 # Edit .env with your tokens
 ```
 
-2. Start an ngrok tunnel (or expose your server publicly):
+3. Start an ngrok tunnel (or expose your server publicly):
 
 ```bash
 ngrok http 3000
 ```
 
-3. Run the bot (replace `WEBHOOK_URL` with your ngrok HTTPS URL):
+4. Run the bot (replace `WEBHOOK_URL` with your ngrok HTTPS URL):
 
 ```bash
-TELEGRAM_BOT_TOKEN=<token> OPENAI_API_KEY=<key> WEBHOOK_URL=https://abc.ngrok.io/webhook npx tsx demo/telegram-bot.ts
+pnpm --filter telegram-bot run start
+# or, build arbetslag first in one shot:
+pnpm demo:telegram
 ```
 
 ## Environment Variables
@@ -49,13 +59,13 @@ TELEGRAM_BOT_TOKEN=<token> OPENAI_API_KEY=<key> WEBHOOK_URL=https://abc.ngrok.io
 ### Use Ollama (local LLM)
 
 ```bash
-OPENAI_API_KEY=fake OPENAI_BASE_URL=http://localhost:11434/v1 MODEL_NAME=llama3.2 WEBHOOK_URL=https://abc.ngrok.io/webhook npx tsx demo/telegram-bot.ts
+OPENAI_API_KEY=fake OPENAI_BASE_URL=http://localhost:11434/v1 MODEL_NAME=llama3.2 pnpm --filter telegram-bot run start
 ```
 
 ### Change the system prompt
 
-Edit the template in `demo/telegram-bot.ts` to customize the agent's behavior.
+Edit the template in `arbetslag.yaml` to customize the agent's behavior.
 
 ### Add more tools
 
-Register additional tools in the `toolRepository.tools` array in `demo/telegram-bot.ts`.
+Pass tools via `customTools` in `processEvent` inside `telegram-bot.ts`.

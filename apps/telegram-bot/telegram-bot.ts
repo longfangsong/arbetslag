@@ -16,14 +16,15 @@ import { Hono } from "hono";
 import { parse } from "yaml";
 import { readFileSync } from "node:fs";
 
-import { processEvent } from "@/index";
-import { TelegramInputAdopter } from "@/implementation/inputAdopter/telegram";
+import {
+	processEvent,
+	TelegramInputAdopter,
+	InMemoryFileSystem,
+	FileSystemAgentRepository,
+	FileSystemTemplateRepository,
+} from "arbetslag";
 
-import { InMemoryFileSystem } from "@/implementation/tool/file/filesystem/inMemory";
-import { FileSystemAgentRepository } from "@/implementation/agent/repository";
-import { FileSystemTemplateRepository } from "@/implementation/agent/template/repository";
-
-import type { Update } from "@/implementation/inputAdopter/telegram";
+import type { Update } from "arbetslag";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 

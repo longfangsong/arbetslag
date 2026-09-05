@@ -18,18 +18,28 @@ Do not extract separated interface/class from another interface/class unless the
 
 Please always use the terms listed in ./CONTEXT.md when talking with the user.
 
+## Workspace
+
+```text
+packages/arbetslag   # the framework library (published to npm)
+apps/telegram-bot    # a consumer app that imports the `arbetslag` package
+```
+
 ## Build & Development
 
 ```bash
 pnpm install
 
-pnpm build          # Build with tsdown (ESM + CJS, with .d.ts)
-pnpm dev            # Watch mode
-pnpm test           # Vitest
-pnpm lint           # Biome lint (auto-fix)
-pnpm format         # Biome format
-pnpm type-check     # TypeScript type checking
+pnpm build          # Build every package (tsdown: ESM + CJS + .d.ts)
+pnpm type-check     # TypeScript type checking (all packages)
+pnpm demo:telegram  # Run the Telegram bot demo (builds arbetslag first)
 ```
+
+Package-level commands use a filter, e.g.
+`pnpm --filter arbetslag test` (Vitest),
+`pnpm --filter arbetslag run dev` (tsdown watch),
+`pnpm --filter arbetslag lint|format`,
+`pnpm --filter telegram-bot run start`.
 
 **Tooling:** tsdown (bundler), Biome (lint/format), Vitest (tests), Zod v4 (schemas), TypeScript 6
 
