@@ -5,7 +5,7 @@ templates:
   - name: default
     description: General-purpose assistant
     ai_provider: openai
-    model: Qwen3.8-27B
+    model: gemma-4-E4B-it-qat-UD-Q4_K_XL
     reply_threshold: 50
     systemPrompt: >
       你是群聊里的一个成员。你会看到最近的聊天记录，需要判断：
