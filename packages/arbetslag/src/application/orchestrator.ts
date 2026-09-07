@@ -142,8 +142,12 @@ export class Orchestrator {
         );
         const completion = await aiProvider?.complete(
           agent!.template.model,
-          e.history,
+          [
+            { role: "system", content: agent!.template.systemPrompt },
+            ...e.history,
+          ],
           toolRepository.getByNames(agent!.template.allowedTools),
+          agent!.template.outputSchema,
         );
         return [
           {

@@ -20,6 +20,7 @@ export class OpenAIProvider implements AIProvider {
 		model: string,
 		history: Array<HistoryEntry>,
 		allowedTools: Array<Tool<unknown, unknown, unknown>>,
+		outputSchema?: Record<string, unknown>,
 	): Promise<CompletionResult> {
 		console.log(`[OpenAIProvider] model=${model}, messages=${history.length}, tools=${allowedTools.length}`);
 		console.log(`[OpenAIProvider] baseURL=${this.client.baseURL}, apiKey=${this.client.apiKey ? this.client.apiKey.slice(0, 8) + '...' : 'unset'}`);
@@ -65,6 +66,15 @@ export class OpenAIProvider implements AIProvider {
 			model,
 			messages,
 			tools: tools.length > 0 ? tools : undefined,
+			...(outputSchema ? {
+				response_format: {
+					type: "json_schema" as const,
+					json_schema: {
+						name: "output",
+						schema: outputSchema,
+					},
+				},
+			} : {}),
 		});
 		console.log(`[OpenAIProvider] response received, choices=${response.choices.length}`);
 

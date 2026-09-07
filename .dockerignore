@@ -1,0 +1,13 @@
+node_modules
+npm-debug.log
+.git
+.gitignore
+.pi-lens
+.DS_Store
+.env
+.env.*
+!env.example
+dist
+apps/*/dist
+nohup.out
+*.md

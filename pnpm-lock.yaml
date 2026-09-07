@@ -22,9 +22,18 @@ importers:
       hono:
         specifier: ^4.12.15
         version: 4.12.15
+      neverthrow:
+        specifier: ^8.2.0
+        version: 8.2.0
+      openai:
+        specifier: ^6.37.0
+        version: 6.37.0(zod@4.4.3)
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@types/node':
         specifier: ^25.6.0

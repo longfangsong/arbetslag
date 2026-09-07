@@ -7,4 +7,5 @@ export interface Template {
 
 	systemPrompt: string;
 	allowedTools: string[];
+	outputSchema?: Record<string, unknown>;
 }

@@ -8,5 +8,6 @@ export interface AIProvider {
 		model: string,
 		history: Array<HistoryEntry>,
 		allowedTools: Array<Tool<unknown, unknown, unknown>>,
+		outputSchema?: Record<string, unknown>,
 	): Promise<CompletionResult>;
 }
