@@ -49,7 +49,7 @@
 		"date-fns": "^4.1.0",
 		"es-toolkit": "^1.46.1",
 		"hash-wasm": "^4.12.0",
-		"nanoid": "^5.1.11",
+		"nanoid": "^5.1.16",
 		"neverthrow": "^8.2.0",
 		"ollama": "^0.6.3",
 		"openai": "^6.37.0",

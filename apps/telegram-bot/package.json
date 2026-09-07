@@ -9,9 +9,9 @@
 	},
 	"dependencies": {
 		"arbetslag": "workspace:*",
-		"@hono/node-server": "^2.0.0",
+		"@hono/node-server": "^2.0.10",
 		"dotenv": "^17.4.2",
-		"hono": "^4.12.15",
+		"hono": "^4.12.34",
 		"neverthrow": "^8.2.0",
 		"openai": "^6.37.0",
 		"yaml": "^2.9.0",
