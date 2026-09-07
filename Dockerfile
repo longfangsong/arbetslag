@@ -10,7 +10,7 @@ WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.28.2 --activate
 
 # Install first so dependency layers cache independent of source changes.
-COPY pnpm-workspace.yaml package.json ./
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY packages packages
 COPY apps apps
 RUN pnpm install --frozen-lockfile
