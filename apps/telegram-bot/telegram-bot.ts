@@ -293,6 +293,9 @@ async function processUpdate(update: Update): Promise<void> {
 
 const app = new Hono();
 
+// Telegram 在 setWebhook 时发 GET 验证 webhook 可达性，需返回 200
+app.get("/webhook", (c) => c.text("OK"));
+
 app.post("/webhook", async (c) => {
 	const update = await c.req.json();
 	processUpdate(update as Update).catch(console.error);
