@@ -20,24 +20,20 @@ import {
 	Orchestrator,
 	FileSystemAgentRepository,
 	FileSystemTemplateRepository,
-	InMemoryFileSystem,
+	NodeFileSystem,
 	TelegramInputAdopter,
+	OpenAIProvider,
+	InMemoryAIProviderRepository,
+	InMemoryToolRepository,
+	GetTime,
+	HttpRequest,
+	WebSearch,
+	type OrchestratorDeps,
+	type Template,
 	type Update,
 } from "arbetslag";
 
-// Import internal classes — we build our own orchestrator to customize
-// the Telegram OutputRouter (LLM decides whether to respond).
-// ponytail: these imports bypass the package's dist/ export boundary;
-// the built package doesn't re-export these, so we reach into src/ directly.
-import { OpenAIProvider } from "../../packages/arbetslag/src/implementation/aiProvider/openai";
-import { InMemoryAIProviderRepository } from "../../packages/arbetslag/src/implementation/aiProvider/inMemory";
-import { InMemoryToolRepository } from "../../packages/arbetslag/src/implementation/tool/repository";
-import { GetTime } from "../../packages/arbetslag/src/implementation/tool/getTime";
-import { HttpRequest } from "../../packages/arbetslag/src/implementation/tool/http";
-import { WebSearch } from "../../packages/arbetslag/src/implementation/tool/webSearch";
-
 import { MemoryTool } from "./memory";
-import type { FileSystem, ToolLike } from "./memory";
 
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -59,27 +55,17 @@ if (!WEBHOOK_URL) {
 
 // ── Load config ─────────────────────────────────────────────────────────────
 
-const configPath = path.join(
-	path.dirname(new URL(import.meta.url).pathname),
-	"arbetslag.yaml",
-);
+const APP_DIR = path.dirname(new URL(import.meta.url).pathname);
+
+const configPath = path.join(APP_DIR, "arbetslag.yaml");
 const configContent = readFileSync(configPath, "utf-8");
 const config = parse(configContent) as {
-	templates?: Array<{
-		name: string;
-		description: string;
-		ai_provider: string;
-		model: string;
-		systemPrompt: string;
-		allowedTools?: string[];
-		outputSchema?: Record<string, unknown>;
-		reply_threshold?: number;
-	}>;
+	templates?: Array<Template & { reply_threshold?: number }>;
 };
 
 // ── Build dependencies ──────────────────────────────────────────────────────
 
-const fileSystem = new InMemoryFileSystem();
+const fileSystem = new NodeFileSystem(path.join(APP_DIR, ".data"));
 const templateRepository = await FileSystemTemplateRepository.create(
 	fileSystem,
 	"config/templates/",
@@ -95,7 +81,7 @@ for (const t of config.templates ?? []) {
 		systemPrompt: t.systemPrompt,
 		allowedTools: t.allowedTools ?? [],
 		outputSchema: t.outputSchema,
-	} as any);
+	});
 }
 
 // ── Custom Telegram OutputRouter ────────────────────────────────────────────
@@ -245,8 +231,6 @@ async function processUpdate(update: Update): Promise<void> {
 	);
 
 	// Build orchestrator with custom OutputRouter.
-	// Uses `any` because internal classes from src/ have separate type
-	// instances from the built package — runtime is fine, tsc isn't.
 	const outputRouter = new SmartTelegramRouter(
 		TELEGRAM_BOT_TOKEN,
 		messageEvent.chat_id,
@@ -254,7 +238,7 @@ async function processUpdate(update: Update): Promise<void> {
 		config.templates?.[0]?.reply_threshold ?? 50,
 	);
 
-	const deps: any = {
+	const deps: OrchestratorDeps = {
 		fileSystem,
 		agentRepository: await FileSystemAgentRepository.create(
 			fileSystem,

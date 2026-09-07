@@ -45,6 +45,17 @@ export {
 };
 export { TelegramInputAdopter } from "./implementation/inputAdopter/telegram";
 export { InMemoryFileSystem } from "./implementation/tool/file/filesystem/inMemory";
+export { NodeFileSystem } from "./implementation/tool/file/filesystem/nodeFs";
+export { OpenAIProvider } from "./implementation/aiProvider/openai";
+export { InMemoryAIProviderRepository } from "./implementation/aiProvider/inMemory";
+export { InMemoryToolRepository } from "./implementation/tool/repository";
+export { GetTime } from "./implementation/tool/getTime";
+export { HttpRequest } from "./implementation/tool/http";
+export { WebSearch } from "./implementation/tool/webSearch";
+export type { Tool } from "./application/tool/model";
+export type { FileSystem } from "./application/file/model";
+export type { Template } from "./application/agent/template/model";
+export type { OutputRouter } from "./application/outputRouter/model";
 export type { OrchestratorDeps, OntologyConfig };
 export type { Update } from "./implementation/inputAdopter/telegram";
 

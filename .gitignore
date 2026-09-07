@@ -2,5 +2,6 @@ node_modules
 .DS_Store
 dist
 data
+.data
 .env
 .pi-lens

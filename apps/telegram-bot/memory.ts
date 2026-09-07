@@ -1,23 +1,8 @@
 import { z } from "zod";
 import { Result, ok, err } from "neverthrow";
+import type { FileSystem, Tool } from "arbetslag";
 
-// Local type definitions — arbetslag doesn't export these.
-export interface FileSystem {
-	readFile(path: string): Promise<string>;
-	writeFile(path: string, content: string): Promise<void>;
-	listFiles(dir: string): Promise<string[]>;
-}
-
-export interface ToolLike {
-	name: string;
-	description: string;
-	inputSchema: z.ZodType;
-	call(
-		context: { fileSystem: FileSystem },
-		caller: unknown,
-		input: unknown,
-	): Promise<Result<string, string>>;
-}
+type MemoryInput = z.infer<typeof MemoryInputSchema>;
 type ToolExecutingContext = { fileSystem: FileSystem };
 
 /**
@@ -46,7 +31,7 @@ const MemoryInputSchema = z
 	})
 	.strict();
 
-export class MemoryTool implements ToolLike {
+export class MemoryTool implements Tool<MemoryInput, string, string> {
 	name = "memory";
 	description = `Long-term memory, persisted in MEMORY.md.
 read: restore your long-term memory. ALWAYS call this at the start of a new context/session to recover who is who, ongoing topics & debates, group jokes/jargon, and member/user preferences.
@@ -56,7 +41,7 @@ update: append one durable fact to MEMORY.md. Only record stable, useful-over-ti
 	call(
 		context: ToolExecutingContext,
 		_caller: unknown,
-		input: z.infer<typeof MemoryInputSchema>,
+		input: MemoryInput,
 	): Promise<Result<string, string>> {
 		if (input.action === "read") {
 			return readMemory(context.fileSystem);
