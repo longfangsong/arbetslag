@@ -62,19 +62,22 @@ export class OpenAIProvider implements AIProvider {
 		});
 
 		console.log(`[OpenAIProvider] sending request...`);
+		// This gateway's llama.cpp backend rejects tools + response_format(json_schema) in one
+		// request (400 "failed to parse grammar"); tools + json_object works. With tools present,
+		// use json_object: content is grammar-enforced to be valid JSON, and the schema shape is
+		// already specified in the template system prompt.
 		const response = await this.client.chat.completions.create({
 			model,
 			messages,
 			tools: tools.length > 0 ? tools : undefined,
 			...(outputSchema ? {
-				response_format: {
-					type: "json_schema" as const,
-					json_schema: {
-						name: "output",
-						schema: outputSchema,
-					},
-				},
-			} : {}),
+				response_format: tools.length > 0
+					? ({ type: "json_object" } as const)
+					: ({
+						type: "json_schema" as const,
+						json_schema: { name: "output", schema: outputSchema },
+					} as const),
+				} : {}),
 		});
 		console.log(`[OpenAIProvider] response received, choices=${response.choices.length}`);
 
@@ -82,7 +85,7 @@ export class OpenAIProvider implements AIProvider {
 		if (!choice) throw new Error("No completion choice returned");
 
 		const assistantContent = choice.message.content ?? "";
-		const toolCalls = choice.message.tool_calls?.map((tc) => {
+		const tool_calls = choice.message.tool_calls?.map((tc) => {
 			if (tc.type !== "function") return null;
 			return {
 				id: tc.id,
@@ -94,7 +97,7 @@ export class OpenAIProvider implements AIProvider {
 		return {
 			role: "assistant",
 			content: assistantContent,
-			tool_calls: toolCalls,
+			tool_calls,
 		};
 	}
 }
