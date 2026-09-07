@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { nanoid } from "nanoid";
 import { EventBus } from "./event/bus";
 import {
@@ -140,6 +141,9 @@ export class Orchestrator {
         const aiProvider = await aiProviderRepository.getByName(
           agent!.template.ai_provider,
         );
+        const outputSchema = agent!.template.outputSchema
+          ? z.fromJSONSchema(agent!.template.outputSchema)
+          : undefined;
         const completion = await aiProvider?.complete(
           agent!.template.model,
           [
@@ -147,7 +151,7 @@ export class Orchestrator {
             ...e.history,
           ],
           toolRepository.getByNames(agent!.template.allowedTools),
-          agent!.template.outputSchema,
+          outputSchema,
         );
         return [
           {

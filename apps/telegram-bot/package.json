@@ -8,8 +8,9 @@
 		"type-check": "tsc --noEmit"
 	},
 	"dependencies": {
-		"arbetslag": "workspace:*",
 		"@hono/node-server": "^2.0.10",
+		"arbetslag": "workspace:*",
+		"date-fns": "^4.1.0",
 		"dotenv": "^17.4.2",
 		"hono": "^4.12.34",
 		"neverthrow": "^8.2.0",

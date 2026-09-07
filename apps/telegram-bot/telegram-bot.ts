@@ -35,13 +35,11 @@ import {
 
 import { MemoryTool } from "./memory";
 import { UpdateBatcher } from "./batcher";
+import { format } from "date-fns/format";
 
-// 消息节流：静默 3s 后把攒下的消息一次发给 LLM；6h 无新消息 → 新 context window
-const FLUSH_QUIET_MS = 3_000;
+const FLUSH_QUIET_MS = 4_000;
 const CONTEXT_IDLE_RESET_MS = 6 * 60 * 60 * 1000;
 
-
-// ── Config ──────────────────────────────────────────────────────────────────
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const WEBHOOK_URL = process.env.WEBHOOK_URL!;
@@ -60,19 +58,15 @@ if (!WEBHOOK_URL) {
 	process.exit(1);
 }
 
-// ── Load config ─────────────────────────────────────────────────────────────
-
 const APP_DIR = path.dirname(new URL(import.meta.url).pathname);
-
 const configPath = path.join(APP_DIR, "arbetslag.yaml");
 const configContent = readFileSync(configPath, "utf-8");
+
 const config = parse(configContent) as {
-	templates?: Array<Template & { reply_threshold?: number }>;
+	templates?: Array<Template>;
 };
 
-// ── Build dependencies ──────────────────────────────────────────────────────
-
-const fileSystem = new NodeFileSystem(path.join(APP_DIR, ".data"));
+const fileSystem = new NodeFileSystem(path.join(APP_DIR, "data"));
 const templateRepository = await FileSystemTemplateRepository.create(
 	fileSystem,
 	"config/templates/",
@@ -91,120 +85,59 @@ for (const t of config.templates ?? []) {
 	});
 }
 
-// ── Custom Telegram OutputRouter ────────────────────────────────────────────
-
-/**
- * Telegram OutputRouter that lets the LLM decide whether to respond.
- *
- * The LLM's content is a sum type — either {"reply": "text", "willingness": N} or {"no_reply": true}.
- * The router extracts the reply text or skips sending entirely based on willingness + threshold.
- *
- * Used in group chats so the bot only speaks when directly addressed.
- */
 class SmartTelegramRouter {
 	private readonly botToken: string;
 	private readonly chatId: string;
-	private readonly apiBase: string;
-	private readonly replyThreshold: number;
 
-	constructor(botToken: string, chatId: string, apiBase = "https://api.telegram.org", replyThreshold = 50) {
+	constructor(botToken: string, chatId: string) {
 		this.botToken = botToken;
 		this.chatId = chatId;
-		this.apiBase = apiBase;
-		this.replyThreshold = replyThreshold;
 	}
 
-	async route(event: { content?: string }): Promise<void> {
-		const result = this._parseDecision(event.content);
-		if (result === "no_reply") {
-			console.log("[SmartTelegramRouter] skipped (no_reply)");
+	async route({ content }: { content?: string }): Promise<void> {
+		if (!content) {
+			console.log(`[SmartTelegramRouter] No content to send`);
 			return;
 		}
-
-		// Extract reply text from the sum type
-		let text = event.content ?? "";
-		if (text) {
-			try {
-				const parsed = JSON.parse(text);
-				if (typeof parsed === "object" && parsed !== null && "reply" in parsed && typeof parsed.reply === "string") {
-					text = parsed.reply;
-				}
-			} catch {
-				// Not JSON — use content as-is (plain text reply)
-			}
+		let { output }: { output?: string } = JSON.parse(content);
+		if (!output) {
+			console.log(`[SmartTelegramRouter] Nothing to reply`);
+			return;
 		}
-
 		console.log(
-			`[SmartTelegramRouter] chatId=${this.chatId}, content_len=${text.length}, threshold=${this.replyThreshold}`,
-		);
-		console.log(
-			`[SmartTelegramRouter] content_preview="${text.slice(0, 200)}"`,
+			`[SmartTelegramRouter] chatId=${this.chatId}, output=${output}`,
 		);
 
 		if (TEST_MODE) {
-			console.log(`[SmartTelegramRouter] 🧪 TEST_MODE — not sending. text="${text.slice(0, 500)}"`);
 			return;
 		}
 
-		const webhookUrl = `${this.apiBase}/bot${this.botToken}/sendRichMessage`;
-		console.log(`[SmartTelegramRouter] POST ${webhookUrl}`);
+		const webhookUrl = `https://api.telegram.org/bot${this.botToken}/sendRichMessage`;
 		const res = await fetch(webhookUrl, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
 				chat_id: this.chatId,
-				rich_message: { markdown: text },
+				rich_message: { markdown: output },
 			}),
 		});
-		console.log(`[SmartTelegramRouter] response status=${res.status} url=${webhookUrl}`);
+
 		if (!res.ok) {
 			const body = await res.text();
-			console.log(`[SmartTelegramRouter] ❌ error: ${res.status} ${body}`);
+			console.log(`[SmartTelegramRouter] error: ${res.status} ${body}`);
 			throw new Error(`Telegram API error: ${res.status} ${body}`);
 		}
-		console.log(`[SmartTelegramRouter] ✅ sent OK`);
-	}
-
-	/**
-	 * Parse LLM output as a sum type from content string:
-	 *   {"reply": "text", "willingness": N}  → "reply" if willingness >= threshold
-	 *   {"no_reply": true}                   → "no_reply" (skip)
-	 *   plain text                           → "reply" (backward compat)
-	 */
-	private _parseDecision(content?: string): "reply" | "no_reply" {
-		console.log(`[SmartTelegramRouter] content="${content}"`);
-		if (!content) return "reply";
-
-		try {
-			const parsed = JSON.parse(content);
-			if (typeof parsed === "object" && parsed !== null) {
-				if ("reply" in parsed && typeof parsed.reply === "string") {
-					const reply_willingness = (parsed as { reply_willingness?: number }).reply_willingness;
-					if (reply_willingness !== undefined && reply_willingness < this.replyThreshold) {
-						console.log(`[SmartTelegramRouter] skipped (reply_willingness=${reply_willingness} < threshold=${this.replyThreshold})`);
-						return "no_reply";
-					}
-					return "reply";
-				}
-			}
-		} catch {
-			// Not JSON — treat as plain text reply
-		}
-		return "reply";
 	}
 }
 
-// ── Webhook helpers ─────────────────────────────────────────────────────────
-
-/** 格式化为 system prompt 示例约定：[HH:MM] 发送者: 内容 */
 function formatChatLine(update: Update, event: { content: string; sender?: string }): string {
 	const msg =
 		update.message ??
 		update.edited_message ??
 		update.channel_post ??
 		update.edited_channel_post;
-	const ts = new Date((msg?.date ?? Math.floor(Date.now() / 1000)) * 1000);
-	const time = `${String(ts.getHours()).padStart(2, "0")}:${String(ts.getMinutes()).padStart(2, "0")}`;
+	const ts = new Date(msg?.date!);
+	const time = format(ts, "HH:mm:ss");
 	return `[${time}] ${event.sender ?? "user"}: ${event.content}`;
 }
 
@@ -241,9 +174,6 @@ async function deleteWebhook(): Promise<void> {
 }
 
 // ── Process a Telegram update ───────────────────────────────────────────────
-
-// Webhook 只入队；静默 3s 后每个 chat 攒下的消息合并成一条消息（多行
-// "[HH:MM] sender: text"）一次性发给 LLM。串行执行，避免同 chat 并发写 agent。
 const lastActive = new Map<string, number>();
 let chain: Promise<void> = Promise.resolve();
 const batcher = new UpdateBatcher<Update>(FLUSH_QUIET_MS, (chatId, updates) => {
@@ -268,20 +198,16 @@ async function processChatBatch(
 	stale: boolean,
 ): Promise<void> {
 	const adopter = new TelegramInputAdopter();
-	// 攒下的消息拼成多行聊天日志，作为一条 user 消息入 history。
 	const event = adopter.convert(updates[0])!;
 	event.content = updates
 		.map((u) => formatChatLine(u, adopter.convert(u)!))
 		.join("\n");
 
-	console.log(
-		`[batch] Chat ${chatId}: ${updates.length} message(s), stale=${stale}: ${event.content.slice(0, 120)}`,
-	);
-
 	const agentRepository = await FileSystemAgentRepository.create(
 		fileSystem,
 		"agents/",
 	);
+
 	if (stale) {
 		const agent = await agentRepository.getByChatId(chatId);
 		if (agent && agent.history.length > 0) {
@@ -294,9 +220,7 @@ async function processChatBatch(
 	// Build orchestrator with custom OutputRouter.
 	const outputRouter = new SmartTelegramRouter(
 		TELEGRAM_BOT_TOKEN,
-		chatId,
-		undefined,
-		config.templates?.[0]?.reply_threshold ?? 50,
+		chatId
 	);
 
 	const deps: OrchestratorDeps = {
@@ -308,12 +232,12 @@ async function processChatBatch(
 			new HttpRequest(),
 			...(process.env.SEARXNG_URL
 				? [
-						new WebSearch(
-							process.env.SEARXNG_URL,
-							30000,
-							10,
-						),
-					]
+					new WebSearch(
+						process.env.SEARXNG_URL,
+						30000,
+						10,
+					),
+				]
 				: []),
 			new MemoryTool(),
 		]),
@@ -328,6 +252,7 @@ async function processChatBatch(
 
 	const orchestrator = new Orchestrator(deps);
 	orchestrator.push(event);
+	console.log(`[processChatBatch] chat ${chatId} processing ${event.content}`);
 	await orchestrator.stepUntilIdle();
 
 	if (TEST_MODE) {
@@ -349,7 +274,6 @@ async function processChatBatch(
 
 const app = new Hono();
 
-// Telegram 在 setWebhook 时发 GET 验证 webhook 可达性，需返回 200
 app.get("/webhook", (c) => c.text("OK"));
 
 app.post("/webhook", async (c) => {
@@ -359,8 +283,6 @@ app.post("/webhook", async (c) => {
 });
 
 app.get("/health", (c) => c.text("OK"));
-
-// ── Start ───────────────────────────────────────────────────────────────────
 
 async function start(): Promise<void> {
 	try {

@@ -3,7 +3,8 @@ import { z } from "zod";
 import { AIProvider } from "@/application/aiProvider/model";
 import { HistoryEntry, CompletionResult } from "@/application/agent/history";
 import { Tool } from "@/application/tool/model";
-import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat";
+import type { ChatCompletionCreateParamsNonStreaming, ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat";
+import { zodResponseFormat } from "openai/helpers/zod.js";
 
 export class OpenAIProvider implements AIProvider {
 	name: string = "openai";
@@ -20,10 +21,8 @@ export class OpenAIProvider implements AIProvider {
 		model: string,
 		history: Array<HistoryEntry>,
 		allowedTools: Array<Tool<unknown, unknown, unknown>>,
-		outputSchema?: Record<string, unknown>,
+		outputSchema?: z.ZodType,
 	): Promise<CompletionResult> {
-		console.log(`[OpenAIProvider] model=${model}, messages=${history.length}, tools=${allowedTools.length}`);
-		console.log(`[OpenAIProvider] baseURL=${this.client.baseURL}, apiKey=${this.client.apiKey ? this.client.apiKey.slice(0, 8) + '...' : 'unset'}`);
 		const messages: ChatCompletionMessageParam[] = history.map((entry) => {
 			if (entry.role === "tool") {
 				return {
@@ -60,23 +59,15 @@ export class OpenAIProvider implements AIProvider {
 				},
 			};
 		});
-
-		console.log(`[OpenAIProvider] sending request...`);
-		const response = await this.client.chat.completions.create({
+		let body: ChatCompletionCreateParamsNonStreaming = {
 			model,
 			messages,
-			tools: tools.length > 0 ? tools : undefined,
-			...(outputSchema ? {
-				response_format: {
-					type: "json_schema" as const,
-					json_schema: {
-						name: "output",
-						schema: outputSchema,
-					},
-				},
-			} : {}),
-		});
-		console.log(`[OpenAIProvider] response received, choices=${response.choices.length}`);
+			tools: tools.length > 0 ? tools : undefined
+		};
+		if (outputSchema) {
+			body["response_format"] = zodResponseFormat(outputSchema, "output");
+		}
+		const response = await this.client.chat.completions.create(body);
 
 		const choice = response.choices[0];
 		if (!choice) throw new Error("No completion choice returned");
