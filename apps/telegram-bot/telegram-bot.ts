@@ -34,6 +34,11 @@ import {
 } from "arbetslag";
 
 import { MemoryTool } from "./memory";
+import { UpdateBatcher } from "./batcher";
+
+// 消息节流：静默 3s 后把攒下的消息一次发给 LLM；6h 无新消息 → 新 context window
+const FLUSH_QUIET_MS = 3_000;
+const CONTEXT_IDLE_RESET_MS = 6 * 60 * 60 * 1000;
 
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -41,6 +46,8 @@ import { MemoryTool } from "./memory";
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const WEBHOOK_URL = process.env.WEBHOOK_URL!;
 const PORT = Number(process.env.PORT ?? 3000);
+// 测试模式：完整跑 LLM + 输出 history/log，但最后不实际发送到 Telegram
+const TEST_MODE = process.env.TEST_MODE === "1" || process.env.TEST_MODE === "true";
 
 if (!TELEGRAM_BOT_TOKEN) {
 	console.error("❌  Set TELEGRAM_BOT_TOKEN environment variable.");
@@ -134,6 +141,11 @@ class SmartTelegramRouter {
 			`[SmartTelegramRouter] content_preview="${text.slice(0, 200)}"`,
 		);
 
+		if (TEST_MODE) {
+			console.log(`[SmartTelegramRouter] 🧪 TEST_MODE — not sending. text="${text.slice(0, 500)}"`);
+			return;
+		}
+
 		const webhookUrl = `${this.apiBase}/bot${this.botToken}/sendRichMessage`;
 		console.log(`[SmartTelegramRouter] POST ${webhookUrl}`);
 		const res = await fetch(webhookUrl, {
@@ -184,6 +196,18 @@ class SmartTelegramRouter {
 
 // ── Webhook helpers ─────────────────────────────────────────────────────────
 
+/** 格式化为 system prompt 示例约定：[HH:MM] 发送者: 内容 */
+function formatChatLine(update: Update, event: { content: string; sender?: string }): string {
+	const msg =
+		update.message ??
+		update.edited_message ??
+		update.channel_post ??
+		update.edited_channel_post;
+	const ts = new Date((msg?.date ?? Math.floor(Date.now() / 1000)) * 1000);
+	const time = `${String(ts.getHours()).padStart(2, "0")}:${String(ts.getMinutes()).padStart(2, "0")}`;
+	return `[${time}] ${event.sender ?? "user"}: ${event.content}`;
+}
+
 async function setWebhook(url: string): Promise<void> {
 	const res = await fetch(
 		`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook`,
@@ -218,32 +242,66 @@ async function deleteWebhook(): Promise<void> {
 
 // ── Process a Telegram update ───────────────────────────────────────────────
 
-async function processUpdate(update: Update): Promise<void> {
+// Webhook 只入队；静默 3s 后每个 chat 攒下的消息合并成一条消息（多行
+// "[HH:MM] sender: text"）一次性发给 LLM。串行执行，避免同 chat 并发写 agent。
+const lastActive = new Map<string, number>();
+let chain: Promise<void> = Promise.resolve();
+const batcher = new UpdateBatcher<Update>(FLUSH_QUIET_MS, (chatId, updates) => {
+	const prev = lastActive.get(chatId);
+	const now = Date.now();
+	lastActive.set(chatId, now);
+	const stale = prev !== undefined && now - prev >= CONTEXT_IDLE_RESET_MS;
+	chain = chain
+		.then(() => processChatBatch(chatId, updates, stale))
+		.catch(console.error);
+});
+
+function handleUpdate(update: Update): void {
+	const event = new TelegramInputAdopter().convert(update);
+	if (!event) return;
+	batcher.enqueue(event.chat_id, update);
+}
+
+async function processChatBatch(
+	chatId: string,
+	updates: Update[],
+	stale: boolean,
+): Promise<void> {
 	const adopter = new TelegramInputAdopter();
-	const messageEvent = adopter.convert(update);
-	if (!messageEvent) {
-		console.log("[webhook] Converted to null, skipping");
-		return;
-	}
+	// 攒下的消息拼成多行聊天日志，作为一条 user 消息入 history。
+	const event = adopter.convert(updates[0])!;
+	event.content = updates
+		.map((u) => formatChatLine(u, adopter.convert(u)!))
+		.join("\n");
 
 	console.log(
-		`[webhook] Chat ${messageEvent.chat_id}: "${messageEvent.content}"`,
+		`[batch] Chat ${chatId}: ${updates.length} message(s), stale=${stale}: ${event.content.slice(0, 120)}`,
 	);
+
+	const agentRepository = await FileSystemAgentRepository.create(
+		fileSystem,
+		"agents/",
+	);
+	if (stale) {
+		const agent = await agentRepository.getByChatId(chatId);
+		if (agent && agent.history.length > 0) {
+			console.log(`[context] chat ${chatId} idle > 6h — new context window`);
+			agent.history = [];
+			await agentRepository.save(agent);
+		}
+	}
 
 	// Build orchestrator with custom OutputRouter.
 	const outputRouter = new SmartTelegramRouter(
 		TELEGRAM_BOT_TOKEN,
-		messageEvent.chat_id,
+		chatId,
 		undefined,
 		config.templates?.[0]?.reply_threshold ?? 50,
 	);
 
 	const deps: OrchestratorDeps = {
 		fileSystem,
-		agentRepository: await FileSystemAgentRepository.create(
-			fileSystem,
-			"agents/",
-		),
+		agentRepository,
 		templateRepository,
 		toolRepository: new InMemoryToolRepository([
 			new GetTime(),
@@ -269,8 +327,22 @@ async function processUpdate(update: Update): Promise<void> {
 	};
 
 	const orchestrator = new Orchestrator(deps);
-	orchestrator.push(messageEvent);
+	orchestrator.push(event);
 	await orchestrator.stepUntilIdle();
+
+	if (TEST_MODE) {
+		const agent = await agentRepository.getByChatId(chatId);
+		if (agent) {
+			console.log(`🧪 [TEST_MODE] chat ${chatId} history (${agent.history.length} entries):`);
+			for (const [i, h] of agent.history.entries()) {
+				const extra =
+					h.role === "assistant" && h.tool_calls
+						? ` tool_calls=[${h.tool_calls.map((t) => t.tool_name).join(", ")}]`
+						: "";
+				console.log(`  [${i}] ${h.role}: ${String(h.content ?? "").slice(0, 500)}${extra}`);
+			}
+		}
+	}
 }
 
 // ── HTTP Server ─────────────────────────────────────────────────────────────
@@ -282,7 +354,7 @@ app.get("/webhook", (c) => c.text("OK"));
 
 app.post("/webhook", async (c) => {
 	const update = await c.req.json();
-	processUpdate(update as Update).catch(console.error);
+	handleUpdate(update as Update);
 	return c.text("OK");
 });
 
@@ -302,12 +374,15 @@ async function start(): Promise<void> {
 		console.log("🤖 arbetslag Telegram bot starting...");
 		console.log(`   Config: ${configPath}`);
 		console.log(`   Webhook: ${WEBHOOK_URL}`);
+		console.log(`   Mode: ${TEST_MODE ? "🧪 TEST (no real sends)" : "live"}`);
 		console.log(`   Listening on port ${info.port}\n`);
 	});
 }
 
 process.on("SIGINT", async () => {
-	console.log("\n🗑️  Deleting webhook and shutting down...");
+	console.log("\n🗑️  Flushing pending messages and shutting down...");
+	batcher.flushNow();
+	await chain;
 	await deleteWebhook();
 	process.exit(0);
 });

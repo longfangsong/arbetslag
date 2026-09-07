@@ -16,19 +16,19 @@ function makeUpdate(overrides: Partial<NonNullable<Update["message"]>> = {}): Up
 }
 
 describe("TelegramInputAdopter", () => {
-  it("formats content like the system prompt example: [HH:MM] 发送者: 内容", () => {
+  it("converts content to raw message text and sender to structured field", () => {
     const event = new TelegramInputAdopter().convert(makeUpdate());
     expect(event).not.toBeNull();
-    expect(event!.content).toMatch(
-      /^【最近聊天记录】\n\[\d{2}:\d{2}\] 王五: 明天那个会议室订好了吗$/,
-    );
+    expect(event!.content).toBe("明天那个会议室订好了吗");
+    expect(event!.sender).toBe("王五");
   });
 
   it("falls back to username when first_name missing", () => {
     const event = new TelegramInputAdopter().convert(
       makeUpdate({ from: { id: 1, username: "botuser" } }),
     );
-    expect(event!.content).toContain("botuser: 明天那个会议室订好了吗");
+    expect(event!.content).toBe("明天那个会议室订好了吗");
+    expect(event!.sender).toBe("botuser");
   });
 
   it("returns null for updates without text", () => {

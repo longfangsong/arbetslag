@@ -49,18 +49,15 @@ export class TelegramInputAdopter {
 			return null;
 		}
 
-		const sender = msg.from?.first_name ?? msg.from?.username ?? "user";
-		const ts = new Date((msg.date ?? Math.floor(Date.now() / 1000)) * 1000);
-		const time = `${String(ts.getHours()).padStart(2, "0")}:${String(ts.getMinutes()).padStart(2, "0")}`;
+		const sender = msg.from?.first_name ?? msg.from?.username;
 
 		return {
 			id: nanoid(10),
 			event_type: "message",
 			chat_id: String(msg.chat.id),
 			adapter: "telegram",
-			// 与 system prompt 中 example 的输入格式一致：
-			// 【最近聊天记录】\n[HH:MM] 发送者: 内容
-			content: `【最近聊天记录】\n[${time}] ${sender}: ${msg.text}`,
+			content: msg.text,
+			sender,
 		};
 	}
 }

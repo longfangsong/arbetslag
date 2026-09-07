@@ -17,6 +17,7 @@ export interface MessageEvent {
 
 	adapter: string;
 	content: string;
+	sender?: string;
 }
 
 export interface ToolResponseEvent {
