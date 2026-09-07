@@ -148,17 +148,17 @@ class SmartTelegramRouter {
 			`[SmartTelegramRouter] content_preview="${text.slice(0, 200)}"`,
 		);
 
-		const res = await fetch(
-			`${this.apiBase}/bot${this.botToken}/sendRichMessage`,
-			{
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					chat_id: this.chatId,
-					rich_message: { markdown: text },
-				}),
-			},
-		);
+		const webhookUrl = `${this.apiBase}/bot${this.botToken}/sendRichMessage`;
+		console.log(`[SmartTelegramRouter] POST ${webhookUrl}`);
+		const res = await fetch(webhookUrl, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				chat_id: this.chatId,
+				rich_message: { markdown: text },
+			}),
+		});
+		console.log(`[SmartTelegramRouter] response status=${res.status} url=${webhookUrl}`);
 		if (!res.ok) {
 			const body = await res.text();
 			console.log(`[SmartTelegramRouter] ❌ error: ${res.status} ${body}`);
