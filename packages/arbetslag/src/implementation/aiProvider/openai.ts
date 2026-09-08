@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import util from "node:util";
 import { z } from "zod";
 import { AIProvider } from "@/application/aiProvider/model";
 import { HistoryEntry, CompletionResult } from "@/application/agent/history";
@@ -68,6 +69,11 @@ export class OpenAIProvider implements AIProvider {
 			body["response_format"] = zodResponseFormat(outputSchema, "output");
 		}
 		const response = await this.client.chat.completions.create(body);
+		try {
+			console.log("[OpenAIProvider] raw response:", util.inspect(response, { depth: null }));
+		} catch (e) {
+			console.log("[OpenAIProvider] raw response (stringify failed):", String(e));
+		}
 
 		const choice = response.choices[0];
 		if (!choice) throw new Error("No completion choice returned");

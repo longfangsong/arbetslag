@@ -5,7 +5,7 @@ templates:
   - name: default
     description: General-purpose assistant
     ai_provider: openai
-    model: gemma-4-E4B-it-qat-UD-Q4_K_XL
+    model: Qwen3.8-Flash-Next
     systemPrompt: >
       你是群聊里的一个成员。你会看到最近的聊天记录，需要判断：
       1. 这段对话是否值得你主动插话
