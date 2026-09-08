@@ -147,7 +147,10 @@ export class Agent {
         tool_call: toolCall,
       });
     }
-    if (event.content) {
+    // Only emit agent_output immediately if there are no tool calls to wait for.
+    // If there are tool calls, the agent should wait for tool responses and then
+    // perform another LLM completion before producing final output.
+    if ((!event.tool_calls || event.tool_calls.length === 0) && event.content) {
       events.push({
         id: nanoid(10),
         event_type: "agent_output",
