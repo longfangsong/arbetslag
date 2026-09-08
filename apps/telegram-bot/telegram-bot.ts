@@ -35,6 +35,8 @@ import {
 
 import { MemoryTool } from "./memory";
 import { UpdateBatcher } from "./batcher";
+import { STICKERS } from "./sticker";
+import { buildSystemPrompt } from "./prompt";
 import { format } from "date-fns/format";
 
 const FLUSH_QUIET_MS = 4_000;
@@ -59,6 +61,7 @@ if (!WEBHOOK_URL) {
 }
 
 const APP_DIR = path.dirname(new URL(import.meta.url).pathname);
+
 const configPath = path.join(APP_DIR, "arbetslag.yaml");
 const configContent = readFileSync(configPath, "utf-8");
 
@@ -72,6 +75,9 @@ const templateRepository = await FileSystemTemplateRepository.create(
 	"config/templates/",
 );
 
+// Generate the system prompt (base + sticker capability).
+const systemPrompt = buildSystemPrompt(STICKERS);
+
 // Load templates from config
 for (const t of config.templates ?? []) {
 	await templateRepository.add({
@@ -79,7 +85,7 @@ for (const t of config.templates ?? []) {
 		description: t.description,
 		ai_provider: t.ai_provider,
 		model: t.model,
-		systemPrompt: t.systemPrompt,
+		systemPrompt,
 		allowedTools: t.allowedTools ?? [],
 		outputSchema: t.outputSchema,
 	});
@@ -101,26 +107,59 @@ class SmartTelegramRouter {
 			return;
 		}
 
-		console.log(`[SmartTelegramRouter] Sending to chat ${this.chatId}: ${content}`);
+		const stickerTokens = [
+			...content.matchAll(/\[\[sticker:([a-zA-Z0-9_-]+)\]\]/g),
+		].map((m) => m[1]);
+		let text = content.replace(/\[\[sticker:[a-zA-Z0-9_-]+\]\]/g, "").trim();
+
+		if (stickerTokens.length === 0 && !text) {
+			console.log(`[SmartTelegramRouter] No content to send`);
+			return;
+		}
+
+		console.log(
+			`[SmartTelegramRouter] Sending to chat ${this.chatId}: ${text || "(sticker only)"}${stickerTokens.length ? ` + sticker(s): ${stickerTokens.join(", ")}` : ""}`,
+		);
 
 		if (TEST_MODE) {
 			return;
 		}
 
-		const webhookUrl = `https://api.telegram.org/bot${this.botToken}/sendRichMessage`;
-		const res = await fetch(webhookUrl, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				chat_id: this.chatId,
-				rich_message: { markdown: content },
-			}),
-		});
+		if (text) {
+			const webhookUrl = `https://api.telegram.org/bot${this.botToken}/sendRichMessage`;
+			const res = await fetch(webhookUrl, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					chat_id: this.chatId,
+					rich_message: { markdown: text },
+				}),
+			});
+			if (!res.ok) {
+				const body = await res.text();
+				console.log(`[SmartTelegramRouter] error: ${res.status} ${body}`);
+				throw new Error(`Telegram API error: ${res.status} ${body}`);
+			}
+		}
 
-		if (!res.ok) {
-			const body = await res.text();
-			console.log(`[SmartTelegramRouter] error: ${res.status} ${body}`);
-			throw new Error(`Telegram API error: ${res.status} ${body}`);
+		for (const id of stickerTokens) {
+			const sticker = STICKERS.find((s) => s.id === id);
+			if (!sticker) {
+				console.warn(`[SmartTelegramRouter] unknown sticker id: ${id}`);
+				continue;
+			}
+			const res = await fetch(
+				`https://api.telegram.org/bot${this.botToken}/sendSticker`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ chat_id: this.chatId, sticker: sticker.fileId }),
+				},
+			);
+			if (!res.ok) {
+				const body = await res.text();
+				console.log(`[SmartTelegramRouter] sendSticker error: ${res.status} ${body}`);
+			}
 		}
 	}
 }
