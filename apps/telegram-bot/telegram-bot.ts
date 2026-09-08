@@ -99,14 +99,8 @@ class SmartTelegramRouter {
 			console.log(`[SmartTelegramRouter] No content to send`);
 			return;
 		}
-		let { output }: { output?: string } = JSON.parse(content);
-		if (!output) {
-			console.log(`[SmartTelegramRouter] Nothing to reply`);
-			return;
-		}
-		console.log(
-			`[SmartTelegramRouter] chatId=${this.chatId}, output=${output}`,
-		);
+
+		console.log(`[SmartTelegramRouter] Sending to chat ${this.chatId}: ${content}`);
 
 		if (TEST_MODE) {
 			return;
@@ -118,7 +112,7 @@ class SmartTelegramRouter {
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({
 				chat_id: this.chatId,
-				rich_message: { markdown: output },
+				rich_message: { markdown: content },
 			}),
 		});
 
