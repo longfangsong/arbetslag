@@ -1,7 +1,6 @@
 import OpenAI from "openai";
 import util from "node:util";
 import { z } from "zod";
-import { nanoid } from "nanoid";
 import { AIProvider } from "@/application/aiProvider/model";
 import { HistoryEntry, CompletionResult } from "@/application/agent/history";
 import { Tool } from "@/application/tool/model";
@@ -80,33 +79,14 @@ export class OpenAIProvider implements AIProvider {
 		if (!choice) throw new Error("No completion choice returned");
 
 		const assistantContent = choice.message.content ?? "";
-		let toolCalls = choice.message.tool_calls?.map((tc) => {
+		const toolCalls = choice.message.tool_calls?.map((tc) => {
 			if (tc.type !== "function") return null;
 			return {
 				id: tc.id,
 				tool_name: tc.function.name,
 				arguments: JSON.parse(tc.function.arguments),
 			};
-		}).filter((tc): tc is NonNullable<typeof tc> => tc !== null) ?? [];
-
-		// If the model produced internal reasoning that indicates a tool call
-		// but didn't emit tool_calls, synthesize a tool call to ensure tools run.
-		const reasoning = (choice.message as any).reasoning_content as string | undefined;
-		if ((toolCalls.length === 0 || !toolCalls) && reasoning) {
-			// Try to extract a function name like `get_time{}` or `get_time`
-			const m = reasoning.match(/`([a-zA-Z0-9_]+)\s*\{.*?\}`/) || reasoning.match(/`([a-zA-Z0-9_]+)`/) || reasoning.match(/call the ([a-zA-Z0-9_]+) function/i);
-			if (m && m[1]) {
-				const fn = m[1];
-				console.log(`[OpenAIProvider] synthesizing tool call for function: ${fn}`);
-				toolCalls = [
-					{
-						id: nanoid(10),
-						tool_name: fn,
-						arguments: {},
-					},
-				];
-			}
-		}
+		}).filter((tc): tc is NonNullable<typeof tc> => tc !== null);
 
 		return {
 			role: "assistant",
