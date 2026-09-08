@@ -95,7 +95,8 @@ class SmartTelegramRouter {
 	}
 
 	async route({ content }: { content?: string }): Promise<void> {
-		if (!content) {
+		content = content?.trim();
+		if (!content || content === '""' || content === "''") {
 			console.log(`[SmartTelegramRouter] No content to send`);
 			return;
 		}

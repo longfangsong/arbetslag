@@ -68,34 +68,9 @@ export class OpenAIProvider implements AIProvider {
 		if (outputSchema) {
 			body["response_format"] = zodResponseFormat(outputSchema, "output");
 		}
-		console.log("[OpenAIProvider] request body:", util.inspect(body, { depth: 4 }));
 		const response = await this.client.chat.completions.create(body);
-		try {
-			console.log("[OpenAIProvider] raw response:", util.inspect(response, { depth: null }));
-		} catch (e) {
-			console.log("[OpenAIProvider] raw response (stringify failed):", String(e));
-		}
 
 		const choice = response.choices[0];
-		if (choice && choice.message) {
-			try {
-				const msg = choice.message as any;
-				console.log("[OpenAIProvider] choice.message keys:", Object.keys(msg));
-				console.log("[OpenAIProvider] possible function/tool fields:", {
-					function_call: msg.function_call ?? null,
-					tool_call: msg.tool_call ?? null,
-					tool_calls: msg.tool_calls ?? null,
-					reasoning_content: msg.reasoning_content ?? null,
-				});
-				try {
-					console.log("[OpenAIProvider] choice.message JSON:", JSON.stringify(msg, null, 2));
-				} catch (e) {
-					console.log("[OpenAIProvider] choice.message (stringify failed)");
-				}
-			} catch (e) {
-				console.log("[OpenAIProvider] error inspecting choice.message:", String(e));
-			}
-		}
 
 		if (!choice) throw new Error("No completion choice returned");
 
