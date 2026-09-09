@@ -7,6 +7,9 @@ import { Tool } from "@/application/tool/model";
 import type { ChatCompletionCreateParamsNonStreaming, ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat";
 import { zodResponseFormat } from "openai/helpers/zod.js";
 
+/** Per-request timeout for LLM API calls (20 minutes). */
+const REQUEST_TIMEOUT_MS = 20 * 60 * 1000;
+
 export class OpenAIProvider implements AIProvider {
 	name: string = "openai";
 	private client: OpenAI;
@@ -15,6 +18,7 @@ export class OpenAIProvider implements AIProvider {
 		this.client = new OpenAI({
 			baseURL: baseUrl ?? process.env.OPENAI_BASE_URL,
 			apiKey,
+			timeout: REQUEST_TIMEOUT_MS,
 		});
 	}
 

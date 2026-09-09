@@ -1,13 +1,14 @@
 /**
  * Debounced per-chat batching.
  *
- * Items are queued per chatId; once no new item arrives for `quietMs`,
- * each chat's accumulated items are delivered in one shot via `onFlush`.
- * A burst of N messages therefore produces one delivery of N items.
+ * Items are queued per chatId with an independent timer per chat; once no
+ * new item arrives for `quietMs` in a chat, that chat's accumulated items
+ * are delivered in one shot via `onFlush`. A burst of N messages therefore
+ * produces one delivery of N items, without delaying other chats.
  */
 export class UpdateBatcher<T> {
 	private pending = new Map<string, T[]>();
-	private timer: ReturnType<typeof setTimeout> | null = null;
+	private timers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	constructor(
 		private readonly quietMs: number,
@@ -22,22 +23,32 @@ export class UpdateBatcher<T> {
 		const items = this.pending.get(chatId) ?? [];
 		items.push(item);
 		this.pending.set(chatId, items);
-		if (this.timer) clearTimeout(this.timer);
-		this.timer = setTimeout(() => this.flush(), this.quietMs);
-		this.timer.unref?.();
+		const existing = this.timers.get(chatId);
+		if (existing) clearTimeout(existing);
+		const timer = setTimeout(() => this.flush(chatId), this.quietMs);
+		timer.unref?.();
+		this.timers.set(chatId, timer);
 	}
 
 	/** Deliver anything pending immediately (e.g. on shutdown). */
 	flushNow(): void {
-		if (this.timer) clearTimeout(this.timer);
-		this.flush();
-	}
-
-	private flush(): void {
-		this.timer = null;
+		for (const timer of this.timers.values()) clearTimeout(timer);
+		this.timers.clear();
 		for (const [chatId, items] of this.pending) {
 			this.pending.delete(chatId);
 			this.onFlush(chatId, items);
 		}
+	}
+
+	private flush(chatId: string): void {
+		const timer = this.timers.get(chatId);
+		if (timer) {
+			clearTimeout(timer);
+			this.timers.delete(chatId);
+		}
+		const items = this.pending.get(chatId);
+		if (!items) return;
+		this.pending.delete(chatId);
+		this.onFlush(chatId, items);
 	}
 }

@@ -210,14 +210,26 @@ async function deleteWebhook(): Promise<void> {
 // ── Process a Telegram update ───────────────────────────────────────────────
 const lastActive = new Map<string, number>();
 let chain: Promise<void> = Promise.resolve();
+let chainBusy = false;
+let shuttingDown = false;
 const batcher = new UpdateBatcher<Update>(FLUSH_QUIET_MS, (chatId, updates) => {
+	if (chainBusy && !shuttingDown) {
+		// LLM is still busy: keep buffering in the batcher (re-debounced) instead
+		// of starting another LLM request right away.
+		for (const update of updates) batcher.enqueue(chatId, update);
+		return;
+	}
 	const prev = lastActive.get(chatId);
 	const now = Date.now();
 	lastActive.set(chatId, now);
 	const stale = prev !== undefined && now - prev >= CONTEXT_IDLE_RESET_MS;
+	chainBusy = true;
 	chain = chain
 		.then(() => processChatBatch(chatId, updates, stale))
-		.catch(console.error);
+		.catch(console.error)
+		.finally(() => {
+			chainBusy = false;
+		});
 });
 
 function handleUpdate(update: Update): void {
@@ -337,6 +349,7 @@ async function start(): Promise<void> {
 
 process.on("SIGINT", async () => {
 	console.log("\n🗑️  Flushing pending messages and shutting down...");
+	shuttingDown = true;
 	batcher.flushNow();
 	await chain;
 	await deleteWebhook();

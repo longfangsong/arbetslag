@@ -32,6 +32,24 @@ async function check(): Promise<void> {
 	);
 	console.log("2. per-chat separation:", got2);
 
+	// 2b. Per-chat timers: a later message in chat y must not delay chat x's flush.
+	const got2b: Array<{ chat: string; t: number }> = [];
+	const t0 = Date.now();
+	const b2b = new UpdateBatcher<number>(60, (chat, items) =>
+		got2b.push({ chat, t: Date.now() - t0 }),
+	);
+	b2b.enqueue("x", 1);
+	await sleep(20);
+	b2b.enqueue("y", 1);
+	await sleep(200);
+	const x2b = got2b.find((e) => e.chat === "x");
+	const y2b = got2b.find((e) => e.chat === "y");
+	console.assert(
+		x2b && x2b.t >= 55 && x2b.t <= 90 && y2b && y2b.t > x2b.t,
+		`2b: expected x to flush ~60ms in, independent of y, got ${JSON.stringify(got2b)}`,
+	);
+	console.log("2b. independent per-chat timers:", JSON.stringify(got2b));
+
 	// 3. flushNow drains whatever is pending (shutdown path).
 	let got3 = 0;
 	const b3 = new UpdateBatcher<number>(10_000, (_c, items) => (got3 += items.length));
