@@ -18,7 +18,7 @@ export const STICKERS: Sticker[] = [
 		id: "gloom",
 		fileId:
 			"CAACAgUAAxkBAAFTx5VqoHDcF3HX8C1Qv-wrPQABXruVCsUAArYVAALFZJFWzhqrmoDTunQ9BA",
-		description: "当用户表达对人类未来失望时直接跟着发送",
+		description: "当用户 发送 核战争、第三次世界大战 相关信息 时直接跟着发送",
 	},
 	{
 		id: "unfair",

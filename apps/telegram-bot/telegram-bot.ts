@@ -36,6 +36,7 @@ import {
 import { MemoryTool } from "./memory";
 import { UpdateBatcher } from "./batcher";
 import { STICKERS } from "./sticker";
+import { PINS } from "./pin";
 import { buildSystemPrompt } from "./prompt";
 import { format } from "date-fns/format";
 
@@ -76,7 +77,7 @@ const templateRepository = await FileSystemTemplateRepository.create(
 );
 
 // Generate the system prompt (base + sticker capability).
-const systemPrompt = buildSystemPrompt(STICKERS);
+const systemPrompt = buildSystemPrompt(STICKERS, PINS);
 
 // Load templates from config
 for (const t of config.templates ?? []) {
@@ -110,7 +111,18 @@ class SmartTelegramRouter {
 		const stickerTokens = [
 			...content.matchAll(/\[\[sticker:([a-zA-Z0-9_-]+)\]\]/g),
 		].map((m) => m[1]);
-		let text = content.replace(/\[\[sticker:[a-zA-Z0-9_-]+\]\]/g, "").trim();
+		const pin = PINS.find((p) =>
+			content.includes(`[[pin:${p.id}]]`),
+		);
+		let text = content
+			.replace(/\[\[sticker:[a-zA-Z0-9_-]+\]\]/g, "")
+			.replace(/\[\[pin:[a-zA-Z0-9_-]+\]\]/g, "！")
+			.trim();
+		if (pin) {
+			console.log(
+				`[SmartTelegramRouter] quoting pinned message ${pin.id} (#${pin.messageId})`,
+			);
+		}
 
 		if (stickerTokens.length === 0 && !text) {
 			console.log(`[SmartTelegramRouter] No content to send`);
@@ -132,7 +144,8 @@ class SmartTelegramRouter {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					chat_id: this.chatId,
-					rich_message: { markdown: text },
+						rich_message: { markdown: text },
+					...(pin ? { reply_to_message_id: pin.messageId } : {}),
 				}),
 			});
 			if (!res.ok) {

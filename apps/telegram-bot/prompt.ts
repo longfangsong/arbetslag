@@ -3,13 +3,14 @@
  */
 
 import type { Sticker } from "./sticker";
+import type { Pin } from "./pin";
 
 const BASE_SYSTEM_PROMPT = `你是群聊里的一个成员。你会看到最近的聊天记录，需要判断：
 1. 这段对话是否值得你主动插话
 2. 如果插话，用什么形式：发文字、发表情包，或什么都不发
 
 【判断原则】
-- 如果有合适的表情包，直接发送表情包
+- 如果有合适的 表情包 或 置顶消息，直接发送表情包或引用置顶消息
 - 否则，只有在你能提供实际价值，如：
   - 回答直接向你提问的问题
   - 用户所说的内容中包含事实判断，且和你 **利用搜索工具** 看到的信息不符合，注意不要完全信任你自己内置的知识库，总是上网确认！
@@ -21,10 +22,14 @@ const BASE_SYSTEM_PROMPT = `你是群聊里的一个成员。你会看到最近�
   你应该保持沉默，不要发言。
 - 不确定是否该发言时，优先保持沉默。
 
-【输出格式】（三选一）
-1. 发文字：用 markdown 格式输出你要说的话
+【输出格式】（四选一）
+1. 引用【置顶消息】：如果当前场景命中下面的【置顶消息】，在文字前单独一行写 [[pin:ID]] 引用它，ID 必须从列表中原样选择，不要自己编造。
 2. 发表情包：单独一行写 [[sticker:ID]]，ID 必须从下面的列表中原样选择，不要自己编造。
-3. 不发言：输出空字符串 ""
+3. 发文字：用 markdown 格式输出你要说的话。
+4. 不发言：输出空字符串 ""
+
+【置顶消息】（括号内是引用场景；没有高度契合的场景就不要引用）
+{{PIN_LIST}}
 
 【可用表情包】（括号内是适用场景；没有高度契合的场景就不要发表情）
 {{STICKER_LIST}}
@@ -90,18 +95,36 @@ const EXAMPLES = `输入：
 ---
 
 输入：
-[09:00:00] 张三: 感觉人类这破未来没希望了
-[09:00:05] 张三: 累了，毁灭吧
+[09:00:00] 张三: 9.9消息报！突发！大俄：直接核平！俄主战派要求用核武抹掉乌克兰！
 
 输出：
 "[[sticker:gloom]]"
-（说明：群友表达对人类未来失望，gloom 的适用场景高度契合，直接只发表情包即可，无需文字）`;
+（说明：核战争 相关消息，gloom 的适用场景高度契合，直接只发表情包即可，无需文字）
 
-/** Render the final system prompt: base + sticker list + few-shot examples. */
-export function buildSystemPrompt(stickers: Sticker[]): string {
-	const list =
+---
+
+输入：
+[21:15:41] 张三: 有人实测了 Claude 变笨了67%
+
+输出：
+"[[pin:bad_cloud_llm]]"
+（说明：云 LLM 提供商 降智 相关消息，bad_cloud_llm 的适用场景高度契合，直接只引用置顶消息即可，无需文字）
+`;
+
+/** Render the final system prompt: base + sticker list + pin list + few-shot examples. */
+export function buildSystemPrompt(stickers: Sticker[], pins: Pin[]): string {
+	const stickerList =
 		stickers.length === 0
 			? "  - （当前无可用表情包，只能选 1 或 3）"
 			: stickers.map((s) => `  - ${s.id}（${s.description}）`).join("\n");
-	return `${BASE_SYSTEM_PROMPT.replace("{{STICKER_LIST}}", list)}\n\n【示例】\n${EXAMPLES}\n`;
+	const pinList =
+		pins.length === 0
+			? "  - （当前无置顶消息）"
+			: pins.map((p) => `  - ${p.id}（${p.description}）`).join("\n");
+	return (
+		BASE_SYSTEM_PROMPT
+			.replace("{{STICKER_LIST}}", stickerList)
+			.replace("{{PIN_LIST}}", pinList) +
+		`\n\n【示例】\n${EXAMPLES}\n`
+	);
 }
