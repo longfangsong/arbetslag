@@ -47,6 +47,16 @@ Package-level commands use a filter, e.g.
 
 DO NOT think about how the program runs. Add log, run it and TRACE it instead.
 
+## Tool Naming
+
+A tool name is `snake_case` verb-first, such that `Agent <ToolName> <parameter>` reads as one complete sentence in subject-verb-object order.
+
+- ✅ `read_file` → "agent read file a.txt"
+- ✅ `create_cron` → "agent create cron 0 9 * * 1 周一提醒 ..."
+- ❌ `file_read` / `cron_create` (noun before verb)
+
+When adding a tool, check that the sentence reads naturally; prefer an ordinary verb (read, get, list, create, update, delete, send) as the first word.
+
 ## Migration progress
 
 `_src` is old source code. Do not look at it.

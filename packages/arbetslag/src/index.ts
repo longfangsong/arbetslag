@@ -14,6 +14,8 @@ import { DeleteFile } from "@/implementation/tool/file/deleteFile";
 import { ListFiles } from "@/implementation/tool/file/listFiles";
 import { HttpRequest } from "@/implementation/tool/http";
 import { GetTime } from "@/implementation/tool/getTime";
+import { CronCreate } from "@/implementation/tool/cron/create";
+import { CronDelete } from "@/implementation/tool/cron/delete";
 import { WebSearch } from "@/implementation/tool/webSearch";
 import {
 	ListEntities,
@@ -50,9 +52,13 @@ export { OpenAIProvider } from "./implementation/aiProvider/openai";
 export { InMemoryAIProviderRepository } from "./implementation/aiProvider/inMemory";
 export { InMemoryToolRepository } from "./implementation/tool/repository";
 export { GetTime } from "./implementation/tool/getTime";
+export { CronCreate } from "./implementation/tool/cron/create";
+export { CronDelete } from "./implementation/tool/cron/delete";
 export { HttpRequest } from "./implementation/tool/http";
 export { WebSearch } from "./implementation/tool/webSearch";
 export type { Tool } from "./application/tool/model";
+export type { Agent } from "./application/agent/model";
+export type { MessageEvent } from "./application/event/event";
 export type { FileSystem } from "./application/file/model";
 export type { Template } from "./application/agent/template/model";
 export type { OutputRouter } from "./application/outputRouter/model";

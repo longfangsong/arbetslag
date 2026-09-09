@@ -1,22 +1,22 @@
-// Ponytail self-check for MemoryTool. Run: npx tsx memory.check.ts
+// Ponytail self-check for the memory tools. Run: npx tsx memory.check.ts
 import { InMemoryFileSystem } from "arbetslag";
-import { MemoryTool, MEMORY_FILE } from "./memory";
+import { MemoryRead, MemoryUpdate, MEMORY_FILE } from "./memory";
 
 async function check(): Promise<void> {
 	const fs = new InMemoryFileSystem();
-	const tool = new MemoryTool();
+	const read = new MemoryRead();
+	const update = new MemoryUpdate();
 	const ctx = { fileSystem: fs };
 
-	const read = await tool.call(ctx, null, { action: "read" });
-	console.assert(read.isOk(), "read on empty should be ok");
+	const r1 = await read.call(ctx, null as never, {});
+	console.assert(r1.isOk(), "read on empty should be ok");
 	console.assert(
-		read.isOk() && /does not exist/.test(read.value),
+		r1.isOk() && /does not exist/.test(r1.value),
 		"read on empty should say not-exist",
 	);
-	console.log("1. read (empty):", read.isOk() ? read.value : read.error);
+	console.log("1. read (empty):", r1.isOk() ? r1.value : r1.error);
 
-	const upd = await tool.call(ctx, null, {
-		action: "update",
+	const upd = await update.call(ctx, null as never, {
 		content: "- alice likes architecture debates",
 	});
 	console.assert(
@@ -25,14 +25,14 @@ async function check(): Promise<void> {
 	);
 	console.log("2. update:", upd.isOk() ? upd.value : upd.error);
 
-	const reread = await tool.call(ctx, null, { action: "read" });
+	const reread = await read.call(ctx, null as never, {});
 	console.assert(
 		reread.isOk() && reread.value.includes("alice likes architecture"),
 		"read should return the stored fact",
 	);
 	console.log("3. read (after update):", reread.isOk() ? reread.value : reread.error);
 
-	const empty = await tool.call(ctx, null, { action: "update", content: "   " });
+	const empty = await update.call(ctx, null as never, { content: "   " });
 	console.assert(!empty.isOk(), "update with blank content should error");
 	console.log("4. update (blank):", empty.isOk() ? empty.value : empty.error);
 

@@ -15,6 +15,7 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { parse } from "yaml";
 import { readFileSync } from "node:fs";
+import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 
 import {
 	Orchestrator,
@@ -25,15 +26,18 @@ import {
 	OpenAIProvider,
 	InMemoryAIProviderRepository,
 	InMemoryToolRepository,
+	type MessageEvent,
 	GetTime,
 	HttpRequest,
 	WebSearch,
+	CronCreate,
+	CronDelete,
 	type OrchestratorDeps,
 	type Template,
 	type Update,
 } from "arbetslag";
 
-import { MemoryTool } from "./memory";
+import { MemoryRead, MemoryUpdate } from "./memory";
 import { UpdateBatcher } from "./batcher";
 import { STICKERS } from "./sticker";
 import { PINS } from "./pin";
@@ -144,7 +148,7 @@ class SmartTelegramRouter {
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
 					chat_id: this.chatId,
-						rich_message: { markdown: text },
+					rich_message: { markdown: text },
 					...(pin ? { reply_to_message_id: pin.messageId } : {}),
 				}),
 			});
@@ -188,6 +192,19 @@ function formatChatLine(update: Update, event: { content: string; sender?: strin
 	return `[${time}] ${event.sender ?? "user"}: ${event.content}`;
 }
 
+/** One item queued per chat: a Telegram update, or a system callback. */
+type ChatInput =
+	| { kind: "update"; update: Update }
+	| { kind: "callback"; text: string };
+
+function formatInputLine(input: ChatInput): string {
+	if (input.kind === "callback") {
+		return `<callback>${input.text}</callback>`;
+	}
+	const event = new TelegramInputAdopter().convert(input.update)!;
+	return formatChatLine(input.update, event);
+}
+
 async function setWebhook(url: string): Promise<void> {
 	const res = await fetch(
 		`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook`,
@@ -225,11 +242,11 @@ const lastActive = new Map<string, number>();
 let chain: Promise<void> = Promise.resolve();
 let chainBusy = false;
 let shuttingDown = false;
-const batcher = new UpdateBatcher<Update>(FLUSH_QUIET_MS, (chatId, updates) => {
+const batcher = new UpdateBatcher<ChatInput>(FLUSH_QUIET_MS, (chatId, inputs) => {
 	if (chainBusy && !shuttingDown) {
 		// LLM is still busy: keep buffering in the batcher (re-debounced) instead
 		// of starting another LLM request right away.
-		for (const update of updates) batcher.enqueue(chatId, update);
+		for (const input of inputs) batcher.enqueue(chatId, input);
 		return;
 	}
 	const prev = lastActive.get(chatId);
@@ -238,7 +255,7 @@ const batcher = new UpdateBatcher<Update>(FLUSH_QUIET_MS, (chatId, updates) => {
 	const stale = prev !== undefined && now - prev >= CONTEXT_IDLE_RESET_MS;
 	chainBusy = true;
 	chain = chain
-		.then(() => processChatBatch(chatId, updates, stale))
+		.then(() => processChatBatch(chatId, inputs, stale))
 		.catch(console.error)
 		.finally(() => {
 			chainBusy = false;
@@ -248,19 +265,26 @@ const batcher = new UpdateBatcher<Update>(FLUSH_QUIET_MS, (chatId, updates) => {
 function handleUpdate(update: Update): void {
 	const event = new TelegramInputAdopter().convert(update);
 	if (!event) return;
-	batcher.enqueue(event.chat_id, update);
+	batcher.enqueue(event.chat_id, { kind: "update", update });
 }
 
 async function processChatBatch(
 	chatId: string,
-	updates: Update[],
+	inputs: ChatInput[],
 	stale: boolean,
 ): Promise<void> {
-	const adopter = new TelegramInputAdopter();
-	const event = adopter.convert(updates[0])!;
-	event.content = updates
-		.map((u) => formatChatLine(u, adopter.convert(u)!))
-		.join("\n");
+	const firstUpdate = inputs.find((i) => i.kind === "update")?.update;
+	const event: MessageEvent =
+		firstUpdate !== undefined
+			? new TelegramInputAdopter().convert(firstUpdate)!
+			: {
+				id: randomUUID(),
+				event_type: "message",
+				chat_id: chatId,
+				adapter: "system",
+				content: "",
+			};
+	event.content = inputs.map(formatInputLine).join("\n");
 
 	const agentRepository = await FileSystemAgentRepository.create(
 		fileSystem,
@@ -298,7 +322,18 @@ async function processChatBatch(
 					),
 				]
 				: []),
-			new MemoryTool(),
+			new MemoryRead(),
+			new MemoryUpdate(),
+			...(process.env.CRON_JOB_API_KEY
+				? [
+					new CronCreate(
+						process.env.CRON_JOB_API_KEY,
+						`${WEBHOOK_URL}/cron`,
+						TELEGRAM_BOT_TOKEN,
+					),
+					new CronDelete(process.env.CRON_JOB_API_KEY),
+				]
+				: []),
 		]),
 		aiProviderRepository: new InMemoryAIProviderRepository([
 			new OpenAIProvider(
@@ -334,6 +369,29 @@ async function processChatBatch(
 const app = new Hono();
 
 app.get("/webhook", (c) => c.text("OK"));
+
+// cron-job.org callback: verifies the HMAC signature, then delivers the job's
+// message to the chat the job was created in.
+app.get("/cron", async (c) => {
+	const chat = c.req.query("chat") ?? "";
+	const text = c.req.query("text")?.trim() ?? "";
+	const sig = c.req.query("sig") ?? "";
+	if (!/^\d+$/.test(chat) || !text) {
+		return c.text("bad request", 400);
+	}
+	const expected = createHmac("sha256", TELEGRAM_BOT_TOKEN)
+		.update(`${chat}|${text}`)
+		.digest();
+	const given = Buffer.from(sig, "hex");
+	if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
+		return c.text("bad signature", 401);
+	}
+	// Feed the callback through the normal pipeline as a first-class batcher
+	// item; the LLM sees it with the chat's full history and decides what to do.
+	// `text` is the payload the LLM itself chose when scheduling the job.
+	batcher.enqueue(chat, { kind: "callback", text });
+	return c.text("OK");
+});
 
 app.post("/webhook", async (c) => {
 	const update = await c.req.json();

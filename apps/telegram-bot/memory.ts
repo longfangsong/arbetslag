@@ -1,8 +1,7 @@
 import { z } from "zod";
 import { Result, ok, err } from "neverthrow";
-import type { FileSystem, Tool } from "arbetslag";
+import type { Agent, FileSystem, Tool } from "arbetslag";
 
-type MemoryInput = z.infer<typeof MemoryInputSchema>;
 type ToolExecutingContext = { fileSystem: FileSystem };
 
 /**
@@ -17,39 +16,50 @@ type ToolExecutingContext = { fileSystem: FileSystem };
  */
 export const MEMORY_FILE = "MEMORY.md";
 
-const MemoryInputSchema = z
+const ReadInputSchema = z.object({}).strict();
+const UpdateInputSchema = z
 	.object({
-		action: z
-			.enum(["read", "update"])
-			.describe(
-				"read: load long-term memory — call at the start of every new context/session. update: append one durable fact.",
-			),
 		content: z
 			.string()
-			.optional()
-			.describe("For update: the durable fact to record in MEMORY.md."),
+			.describe("The durable fact to record in MEMORY.md."),
 	})
 	.strict();
 
-export class MemoryTool implements Tool<MemoryInput, string, string> {
-	name = "memory";
-	description = `Long-term memory, persisted in MEMORY.md.
-read: restore your long-term memory. ALWAYS call this at the start of a new context/session to recover who is who, ongoing topics & debates, group jokes/jargon, and member/user preferences.
-update: append one durable fact to MEMORY.md. Only record stable, useful-over-time facts (member identities & relationships, ongoing topics & debates, group jargon, member & user preferences). Do NOT record one-off chit-chat, throwaway memes, sensitive privacy, or emotional outbursts.`;
-	inputSchema = MemoryInputSchema;
+export class MemoryRead implements Tool<
+	z.infer<typeof ReadInputSchema>,
+	string,
+	string
+> {
+	name = "read_memory";
+	description = `Load long-term memory (MEMORY.md). ALWAYS call this at the start of a new context/session to recover who is who, ongoing topics & debates, group jokes/jargon, and member/user preferences.`;
+	inputSchema = ReadInputSchema;
 
 	call(
 		context: ToolExecutingContext,
-		_caller: unknown,
-		input: MemoryInput,
+		_caller: Agent,
+		_input: z.infer<typeof ReadInputSchema>,
 	): Promise<Result<string, string>> {
-		if (input.action === "read") {
-			return readMemory(context.fileSystem);
-		}
+		return readMemory(context.fileSystem);
+	}
+}
 
+export class MemoryUpdate implements Tool<
+	z.infer<typeof UpdateInputSchema>,
+	string,
+	string
+> {
+	name = "update_memory";
+	description = `Append one durable fact to long-term memory (MEMORY.md). Only record stable, useful-over-time facts (member identities & relationships, ongoing topics & debates, group jargon, member & user preferences). Do NOT record one-off chit-chat, throwaway memes, sensitive privacy, or emotional outbursts.`;
+	inputSchema = UpdateInputSchema;
+
+	call(
+		context: ToolExecutingContext,
+		_caller: Agent,
+		input: z.infer<typeof UpdateInputSchema>,
+	): Promise<Result<string, string>> {
 		const fact = input.content?.trim();
 		if (!fact) {
-			return Promise.resolve(err("memory.update requires a non-empty 'content' fact."));
+			return Promise.resolve(err("update_memory requires a non-empty 'content' fact."));
 		}
 		return writeMemory(context.fileSystem, fact);
 	}

@@ -11,4 +11,7 @@ templates:
       - get_time
       - http_request
       - web_search
-      - memory
+      - create_cron
+      - delete_cron
+      - read_memory
+      - update_memory
