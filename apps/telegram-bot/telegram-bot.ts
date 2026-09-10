@@ -351,17 +351,15 @@ async function processChatBatch(
 	console.log(`[processChatBatch] chat ${chatId} processing ${event.content}`);
 	await orchestrator.stepUntilIdle();
 
-	if (TEST_MODE) {
-		const agent = await agentRepository.getByChatId(chatId);
-		if (agent) {
-			console.log(`🧪 [TEST_MODE] chat ${chatId} history (${agent.history.length} entries):`);
-			for (const [i, h] of agent.history.entries()) {
-				const extra =
-					h.role === "assistant" && h.tool_calls
-						? ` tool_calls=[${h.tool_calls.map((t) => t.tool_name).join(", ")}]`
-						: "";
-				console.log(`  [${i}] ${h.role}: ${String(h.content ?? "").slice(0, 500)}${extra}`);
-			}
+	const agent = await agentRepository.getByChatId(chatId);
+	if (agent) {
+		console.log(`🧪 [TEST_MODE] chat ${chatId} history (${agent.history.length} entries):`);
+		for (const [i, h] of agent.history.entries()) {
+			const extra =
+				h.role === "assistant" && h.tool_calls
+					? ` tool_calls=[${h.tool_calls.map((t) => t.tool_name).join(", ")}]`
+					: "";
+			console.log(`  [${i}] ${h.role}: ${String(h.content ?? "").slice(0, 500)}${extra}`);
 		}
 	}
 }
@@ -399,7 +397,6 @@ app.get("/cron", async (c) => {
 
 app.post("/webhook", async (c) => {
 	const update = await c.req.json();
-	console.log("update:", JSON.stringify(update));
 	handleUpdate(update as Update);
 	return c.text("OK");
 });
