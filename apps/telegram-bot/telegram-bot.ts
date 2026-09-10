@@ -187,7 +187,7 @@ function formatChatLine(update: Update, event: { content: string; sender?: strin
 		update.edited_message ??
 		update.channel_post ??
 		update.edited_channel_post;
-	const ts = new Date(msg?.date!);
+	const ts = new Date(msg?.date! * 1000);
 	const time = format(ts, "HH:mm:ss");
 	return `[${time}] ${event.sender ?? "user"}: ${event.content}`;
 }
