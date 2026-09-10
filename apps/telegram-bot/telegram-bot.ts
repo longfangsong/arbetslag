@@ -399,6 +399,7 @@ app.get("/cron", async (c) => {
 
 app.post("/webhook", async (c) => {
 	const update = await c.req.json();
+	console.log("update:", JSON.stringify(update));
 	handleUpdate(update as Update);
 	return c.text("OK");
 });
