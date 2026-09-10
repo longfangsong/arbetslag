@@ -33,7 +33,12 @@ export class FetchWebPage
 		let browser;
 		try {
 			browser = await chromium.launch({ headless: true });
-			const page = await browser.newPage();
+			// A real Chrome user agent: some sites (e.g. openai.com) 403 the
+		// default HeadlessChrome UA.
+			const page = await browser.newPage({
+				userAgent:
+					"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+			});
 			const response = await page.goto(url, { waitUntil: "load", timeout: 30_000 });
 			if (!response || response.status() >= 400) {
 				return err(`Failed to fetch web page: ${response?.status() ?? "no response"}`);
