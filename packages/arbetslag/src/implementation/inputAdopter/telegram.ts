@@ -49,7 +49,7 @@ export class TelegramInputAdopter {
 			return null;
 		}
 
-		const sender = msg.from?.first_name ?? msg.from?.username;
+		const sender = msg.from?.username ?? msg.from?.first_name;
 
 		return {
 			id: nanoid(10),
