@@ -41,7 +41,7 @@ export class CronCreate extends CronTool<
 
 	name: string = "create_cron";
 	description: string =
-		"Create a recurring cron job on cron-job.org. When due, it will GET the configured callback URL, delivering the job's payload to this chat. Returns the jobId (remember it to delete the job later).";
+		"Create a cron job on cron-job.org. When due, it will GET the configured callback URL, delivering the job's payload to this chat. For one-off (non-recurring) tasks, set schedule to the exact firing time and delete the job with delete_cron after it has fired once. Returns the jobId (remember it to delete the job later).";
 	inputSchema = CronCreateInputSchema;
 
 	constructor(
@@ -83,12 +83,6 @@ export class CronCreate extends CronTool<
 		}
 		url.searchParams.set("chat", chatId);
 		url.searchParams.set("text", input.text);
-		url.searchParams.set(
-			"sig",
-			createHmac("sha256", this.secret)
-				.update(`${chatId}|${input.text}`)
-				.digest("hex"),
-		);
 
 		try {
 			const data = (await this.request("/jobs", {
@@ -110,8 +104,23 @@ export class CronCreate extends CronTool<
 			if (data.jobId === undefined) {
 				return err("cron-job.org did not return a jobId.");
 			}
+			const jobId = data.jobId;
+			// Embed the jobId so the callback identifies which job fired (needed
+			// for delete_cron); the id only exists after creation, so update.
+			// (Updates use PATCH — PUT /jobs/:id returns 404.)
+			url.searchParams.set("job", String(jobId));
+			url.searchParams.set(
+				"sig",
+				createHmac("sha256", this.secret)
+					.update(`${chatId}|${jobId}|${input.text}`)
+					.digest("hex"),
+			);
+			await this.request(`/jobs/${jobId}`, {
+				method: "PATCH",
+				body: JSON.stringify({ job: { url: url.toString() } }),
+			});
 			return ok({
-				jobId: data.jobId,
+				jobId,
 				url: url.toString(),
 				schedule: input.schedule,
 				title: input.title,

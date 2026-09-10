@@ -85,10 +85,27 @@ export abstract class CronTool<
 				...init?.headers,
 			},
 		});
-		const data = (await res.json()) as { jobId?: number; error?: string };
+		const text = await res.text();
+		console.error(
+			`[CronTool] ${path} → HTTP ${res.status}, body: ${text.slice(0, 500)}`,
+		);
+		// cron-job.org can respond with an empty body (e.g. 204); res.json()
+		// on "" throws "Unexpected end of JSON input".
+		let data: { jobId?: number; error?: string };
+		try {
+			data =
+				text === ""
+					? {}
+					: (JSON.parse(text) as { jobId?: number; error?: string });
+		} catch (e) {
+			console.error(
+				`[CronTool] failed to parse ${path} response (HTTP ${res.status}): ${e instanceof Error ? e.message : String(e)}`,
+			);
+			throw e;
+		}
 		if (!res.ok) {
 			throw new Error(
-				`cron-job.org API error (HTTP ${res.status}): ${data.error ?? "unknown error"}`,
+				`cron-job.org API error (HTTP ${res.status}): ${data.error ?? (text || "unknown error")}`,
 			);
 		}
 		return data;

@@ -195,11 +195,11 @@ function formatChatLine(update: Update, event: { content: string; sender?: strin
 /** One item queued per chat: a Telegram update, or a system callback. */
 type ChatInput =
 	| { kind: "update"; update: Update }
-	| { kind: "callback"; text: string };
+	| { kind: "callback"; type: string; id: string; text: string };
 
 function formatInputLine(input: ChatInput): string {
 	if (input.kind === "callback") {
-		return `<callback>${input.text}</callback>`;
+		return `<callback><type>${input.type}</type><id>${input.id}</id><payload>${input.text}</payload></callback>`;
 	}
 	const event = new TelegramInputAdopter().convert(input.update)!;
 	return formatChatLine(input.update, event);
@@ -374,13 +374,14 @@ app.get("/webhook", (c) => c.text("OK"));
 // message to the chat the job was created in.
 app.get("/cron", async (c) => {
 	const chat = c.req.query("chat") ?? "";
+	const job = c.req.query("job") ?? "";
 	const text = c.req.query("text")?.trim() ?? "";
 	const sig = c.req.query("sig") ?? "";
-	if (!/^\d+$/.test(chat) || !text) {
+	if (!/^\d+$/.test(chat) || !/^\d+$/.test(job) || !text) {
 		return c.text("bad request", 400);
 	}
 	const expected = createHmac("sha256", TELEGRAM_BOT_TOKEN)
-		.update(`${chat}|${text}`)
+		.update(`${chat}|${job}|${text}`)
 		.digest();
 	const given = Buffer.from(sig, "hex");
 	if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
@@ -388,8 +389,9 @@ app.get("/cron", async (c) => {
 	}
 	// Feed the callback through the normal pipeline as a first-class batcher
 	// item; the LLM sees it with the chat's full history and decides what to do.
-	// `text` is the payload the LLM itself chose when scheduling the job.
-	batcher.enqueue(chat, { kind: "callback", text });
+	// `text` is the payload the LLM itself chose when scheduling the job,
+	// `job` is its cron-job.org ID (so it can delete one-off jobs afterwards).
+	batcher.enqueue(chat, { kind: "callback", type: "cron", id: job, text });
 	return c.text("OK");
 });
 
