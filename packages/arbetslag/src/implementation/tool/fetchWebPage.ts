@@ -5,6 +5,19 @@ import { Agent } from "@/application/agent/model";
 import { xxhash3 } from "hash-wasm";
 import { chromium } from "playwright";
 
+// x.com / twitter.com 403 headless browsers; route tweet links through the
+// fxtwitter API which returns the tweet as JSON.
+function rewriteXUrl(url: string): string {
+	try {
+		const u = new URL(url);
+		const m = u.pathname.match(/^\/([A-Za-z0-9_]+)\/status(?:es)?\/(\d+)/);
+		if (m) return `https://api.fxtwitter.com/${m[1]}/status/${m[2]}`;
+	} catch {
+		// malformed URL — leave it as-is, goto will report the error
+	}
+	return url;
+}
+
 const FetchWebPageInputSchema = z.object({
 	url: z.string().describe("URL of the web page to fetch."),
 });
@@ -13,6 +26,8 @@ export interface WebPage {
 	url: string;
 	title: string;
 	savedTo: string;
+	/** Set when the original URL was rewritten (e.g. x.com → fxtwitter). */
+	note?: string;
 }
 
 export class FetchWebPage
@@ -30,6 +45,7 @@ export class FetchWebPage
 	): Promise<Result<WebPage, string>> {
 		const { url } = input;
 		const fileSystem = context.fileSystem;
+		const fetchUrl = rewriteXUrl(url);
 		let browser;
 		try {
 			browser = await chromium.launch({ headless: true });
@@ -39,7 +55,7 @@ export class FetchWebPage
 				userAgent:
 					"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
 			});
-			const response = await page.goto(url, { waitUntil: "load", timeout: 30_000 });
+			const response = await page.goto(fetchUrl, { waitUntil: "load", timeout: 30_000 });
 			if (!response || response.status() >= 400) {
 				return err(`Failed to fetch web page: ${response?.status() ?? "no response"}`);
 			}
@@ -51,6 +67,10 @@ export class FetchWebPage
 				url: page.url(),
 				title,
 				savedTo: savedFile,
+				note:
+					fetchUrl !== url
+						? `original URL ${url} blocked x.com (403), fetched via ${fetchUrl}`
+						: undefined,
 			});
 		} catch (error) {
 			return err(
