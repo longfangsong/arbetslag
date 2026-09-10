@@ -28,6 +28,7 @@ import {
 	InMemoryToolRepository,
 	type MessageEvent,
 	GetTime,
+	ReadFile,
 	FetchWebPage,
 	WebSearch,
 	CronCreate,
@@ -39,8 +40,8 @@ import {
 
 import { MemoryRead, MemoryUpdate } from "./memory";
 import { UpdateBatcher } from "./batcher";
-import { STICKERS } from "./sticker";
-import { PINS } from "./pin";
+import { STICKERS } from "./prompt/sticker";
+import { PINS } from "./prompt/pin";
 import { buildSystemPrompt } from "./prompt";
 import { format } from "date-fns/format";
 
@@ -312,6 +313,7 @@ async function processChatBatch(
 		templateRepository,
 		toolRepository: new InMemoryToolRepository([
 			new GetTime(),
+			new ReadFile(),
 			new FetchWebPage(),
 			...(process.env.SEARXNG_URL
 				? [
