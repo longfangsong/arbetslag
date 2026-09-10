@@ -9,7 +9,7 @@ templates:
     # systemPrompt is generated in code (telegram-bot.ts: BASE_SYSTEM_PROMPT + sticker section)
     allowedTools:
       - get_time
-      - http_request
+      - fetch_web_page
       - web_search
       - create_cron
       - delete_cron

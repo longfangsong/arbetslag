@@ -63,7 +63,7 @@ export class HttpRequest
 				responseHeaders[key] = value;
 			});
 			const responseBody = await response.text();
-			const bodyHash = xxhash3(responseBody);
+			const bodyHash = await xxhash3(responseBody);
 			const savedFile = `http/${bodyHash}.bin`;
 			await fileSystem.writeFile(savedFile, responseBody);
 			return ok({

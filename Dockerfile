@@ -15,6 +15,13 @@ COPY packages packages
 COPY apps apps
 RUN pnpm install --frozen-lockfile
 
+# Playwright browser for the fetch_web_page tool. install-deps first (it can
+# upgrade glibc), then chromium — binaries land in /root/.cache/ms-playwright.
+# playwright is a dep of the arbetslag package, so exec from there.
+# Cached on the lockfile, independent of source changes.
+RUN pnpm --filter arbetslag exec playwright install-deps chromium \
+	&& pnpm --filter arbetslag exec playwright install chromium
+
 # Build workspace packages (arbetslag -> dist/) that telegram-bot imports.
 RUN pnpm build
 

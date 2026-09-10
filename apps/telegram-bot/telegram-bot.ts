@@ -28,7 +28,7 @@ import {
 	InMemoryToolRepository,
 	type MessageEvent,
 	GetTime,
-	HttpRequest,
+	FetchWebPage,
 	WebSearch,
 	CronCreate,
 	CronDelete,
@@ -312,7 +312,7 @@ async function processChatBatch(
 		templateRepository,
 		toolRepository: new InMemoryToolRepository([
 			new GetTime(),
-			new HttpRequest(),
+			new FetchWebPage(),
 			...(process.env.SEARXNG_URL
 				? [
 					new WebSearch(

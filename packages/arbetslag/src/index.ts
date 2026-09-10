@@ -13,6 +13,7 @@ import { EditFile } from "@/implementation/tool/file/editFile";
 import { DeleteFile } from "@/implementation/tool/file/deleteFile";
 import { ListFiles } from "@/implementation/tool/file/listFiles";
 import { HttpRequest } from "@/implementation/tool/http";
+import { FetchWebPage } from "@/implementation/tool/fetchWebPage";
 import { GetTime } from "@/implementation/tool/getTime";
 import { CronCreate } from "@/implementation/tool/cron/create";
 import { CronDelete } from "@/implementation/tool/cron/delete";
@@ -55,6 +56,7 @@ export { GetTime } from "./implementation/tool/getTime";
 export { CronCreate } from "./implementation/tool/cron/create";
 export { CronDelete } from "./implementation/tool/cron/delete";
 export { HttpRequest } from "./implementation/tool/http";
+export { FetchWebPage } from "./implementation/tool/fetchWebPage";
 export { WebSearch } from "./implementation/tool/webSearch";
 export type { Tool } from "./application/tool/model";
 export type { Agent } from "./application/agent/model";
@@ -122,6 +124,7 @@ function createBuiltInTools(
     new DeleteFile(),
     new ListFiles(),
     new HttpRequest(),
+    new FetchWebPage(),
     new GetTime(),
     ...(webSearchConfig
       ? [
