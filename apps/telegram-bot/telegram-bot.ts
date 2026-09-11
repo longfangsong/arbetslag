@@ -16,7 +16,6 @@ import { Hono } from "hono";
 import { parse } from "yaml";
 import { readFileSync } from "node:fs";
 import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
-
 import {
 	Orchestrator,
 	FileSystemAgentRepository,
@@ -37,23 +36,20 @@ import {
 	type Template,
 	type Update,
 } from "arbetslag";
-
-import { MemoryRead, MemoryUpdate } from "./memory";
+import { MemoryRead, MemoryUpdate } from "./tools/memory";
 import { UpdateBatcher } from "./batcher";
 import { STICKERS } from "./prompt/sticker";
 import { PINS } from "./prompt/pin";
 import { buildSystemPrompt } from "./prompt";
 import { format } from "date-fns/format";
+import { SmartTelegramRouter } from "./telegram-router";
 
-const FLUSH_QUIET_MS = 4_000;
-const CONTEXT_IDLE_RESET_MS = 6 * 60 * 60 * 1000;
-
-
+const FLUSH_QUIET_MS = 5_000;
+const CONTEXT_IDLE_RESET_MS = 4 * 60 * 60 * 1000;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const WEBHOOK_URL = process.env.WEBHOOK_URL!;
 const PORT = Number(process.env.PORT ?? 3000);
-// 测试模式：完整跑 LLM + 输出 history/log，但最后不实际发送到 Telegram
-const TEST_MODE = process.env.TEST_MODE === "1" || process.env.TEST_MODE === "true";
+const APP_DIR = path.dirname(new URL(import.meta.url).pathname);
 
 if (!TELEGRAM_BOT_TOKEN) {
 	console.error("❌  Set TELEGRAM_BOT_TOKEN environment variable.");
@@ -66,11 +62,8 @@ if (!WEBHOOK_URL) {
 	process.exit(1);
 }
 
-const APP_DIR = path.dirname(new URL(import.meta.url).pathname);
-
 const configPath = path.join(APP_DIR, "arbetslag.yaml");
 const configContent = readFileSync(configPath, "utf-8");
-
 const config = parse(configContent) as {
 	templates?: Array<Template>;
 };
@@ -95,91 +88,6 @@ for (const t of config.templates ?? []) {
 		allowedTools: t.allowedTools ?? [],
 		outputSchema: t.outputSchema,
 	});
-}
-
-class SmartTelegramRouter {
-	private readonly botToken: string;
-	private readonly chatId: string;
-
-	constructor(botToken: string, chatId: string) {
-		this.botToken = botToken;
-		this.chatId = chatId;
-	}
-
-	async route({ content }: { content?: string }): Promise<void> {
-		content = content?.trim();
-		if (!content || content === '""' || content === "''") {
-			console.log(`[SmartTelegramRouter] No content to send`);
-			return;
-		}
-
-		const stickerTokens = [
-			...content.matchAll(/\[\[sticker:([a-zA-Z0-9_-]+)\]\]/g),
-		].map((m) => m[1]);
-		const pin = PINS.find((p) =>
-			content.includes(`[[pin:${p.id}]]`),
-		);
-		let text = content
-			.replace(/\[\[sticker:[a-zA-Z0-9_-]+\]\]/g, "")
-			.replace(/\[\[pin:[a-zA-Z0-9_-]+\]\]/g, "！")
-			.trim();
-		if (pin) {
-			console.log(
-				`[SmartTelegramRouter] quoting pinned message ${pin.id} (#${pin.messageId})`,
-			);
-		}
-
-		if (stickerTokens.length === 0 && !text) {
-			console.log(`[SmartTelegramRouter] No content to send`);
-			return;
-		}
-
-		console.log(
-			`[SmartTelegramRouter] Sending to chat ${this.chatId}: ${text || "(sticker only)"}${stickerTokens.length ? ` + sticker(s): ${stickerTokens.join(", ")}` : ""}`,
-		);
-
-		if (TEST_MODE) {
-			return;
-		}
-
-		if (text) {
-			const webhookUrl = `https://api.telegram.org/bot${this.botToken}/sendRichMessage`;
-			const res = await fetch(webhookUrl, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					chat_id: this.chatId,
-					rich_message: { markdown: text },
-					...(pin ? { reply_to_message_id: pin.messageId } : {}),
-				}),
-			});
-			if (!res.ok) {
-				const body = await res.text();
-				console.log(`[SmartTelegramRouter] error: ${res.status} ${body}`);
-				throw new Error(`Telegram API error: ${res.status} ${body}`);
-			}
-		}
-
-		for (const id of stickerTokens) {
-			const sticker = STICKERS.find((s) => s.id === id);
-			if (!sticker) {
-				console.warn(`[SmartTelegramRouter] unknown sticker id: ${id}`);
-				continue;
-			}
-			const res = await fetch(
-				`https://api.telegram.org/bot${this.botToken}/sendSticker`,
-				{
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ chat_id: this.chatId, sticker: sticker.fileId }),
-				},
-			);
-			if (!res.ok) {
-				const body = await res.text();
-				console.log(`[SmartTelegramRouter] sendSticker error: ${res.status} ${body}`);
-			}
-		}
-	}
 }
 
 function formatChatLine(update: Update, event: { content: string; sender?: string }): string {
@@ -240,6 +148,7 @@ async function deleteWebhook(): Promise<void> {
 
 // ── Process a Telegram update ───────────────────────────────────────────────
 const lastActive = new Map<string, number>();
+const printedHistory = new Map<string, number>();
 let chain: Promise<void> = Promise.resolve();
 let chainBusy = false;
 let shuttingDown = false;
@@ -298,6 +207,7 @@ async function processChatBatch(
 			console.log(`[context] chat ${chatId} idle > 6h — new context window`);
 			agent.history = [];
 			await agentRepository.save(agent);
+			printedHistory.set(chatId, 0);
 		}
 	}
 
@@ -307,36 +217,37 @@ async function processChatBatch(
 		chatId
 	);
 
+	const tools = [
+		new GetTime(),
+		new ReadFile(),
+		new FetchWebPage(),
+		...(process.env.SEARXNG_URL
+			? [
+				new WebSearch(
+					process.env.SEARXNG_URL,
+					30000,
+					10
+				),
+			]
+			: []),
+		new MemoryRead(),
+		new MemoryUpdate(),
+		...(process.env.CRON_JOB_API_KEY
+			? [
+				new CronCreate(
+					process.env.CRON_JOB_API_KEY,
+					`${WEBHOOK_URL}/cron`,
+					TELEGRAM_BOT_TOKEN
+				),
+				new CronDelete(process.env.CRON_JOB_API_KEY),
+			]
+			: []),
+	];
 	const deps: OrchestratorDeps = {
 		fileSystem,
 		agentRepository,
 		templateRepository,
-		toolRepository: new InMemoryToolRepository([
-			new GetTime(),
-			new ReadFile(),
-			new FetchWebPage(),
-			...(process.env.SEARXNG_URL
-				? [
-					new WebSearch(
-						process.env.SEARXNG_URL,
-						30000,
-						10,
-					),
-				]
-				: []),
-			new MemoryRead(),
-			new MemoryUpdate(),
-			...(process.env.CRON_JOB_API_KEY
-				? [
-					new CronCreate(
-						process.env.CRON_JOB_API_KEY,
-						`${WEBHOOK_URL}/cron`,
-						TELEGRAM_BOT_TOKEN,
-					),
-					new CronDelete(process.env.CRON_JOB_API_KEY),
-				]
-				: []),
-		]),
+		toolRepository: new InMemoryToolRepository(tools),
 		aiProviderRepository: new InMemoryAIProviderRepository([
 			new OpenAIProvider(
 				process.env.OPENAI_API_KEY!,
@@ -353,13 +264,17 @@ async function processChatBatch(
 
 	const agent = await agentRepository.getByChatId(chatId);
 	if (agent) {
-		console.log(`🧪 [TEST_MODE] chat ${chatId} history (${agent.history.length} entries):`);
-		for (const [i, h] of agent.history.entries()) {
-			const extra =
-				h.role === "assistant" && h.tool_calls
-					? ` tool_calls=[${h.tool_calls.map((t) => t.tool_name).join(", ")}]`
-					: "";
-			console.log(`  [${i}] ${h.role}: ${String(h.content ?? "").slice(0, 500)}${extra}`);
+		const prev = printedHistory.get(chatId) ?? 0;
+		if (agent.history.length > prev) {
+			for (const [i, h] of agent.history.entries()) {
+				if (i < prev) continue;
+				const extra =
+					h.role === "assistant" && h.tool_calls
+						? ` tool_calls=[${h.tool_calls.map((t) => t.tool_name).join(", ")}]`
+						: "";
+				console.log(`  [${i}] ${h.role}: ${String(h.content ?? "").slice(0, 500)}${extra}`);
+			}
+			printedHistory.set(chatId, agent.history.length);
 		}
 	}
 }
@@ -397,6 +312,7 @@ app.get("/cron", async (c) => {
 
 app.post("/webhook", async (c) => {
 	const update = await c.req.json();
+	console.log(`[webhook] received update: ${JSON.stringify(update)}`);
 	handleUpdate(update as Update);
 	return c.text("OK");
 });
@@ -415,7 +331,6 @@ async function start(): Promise<void> {
 		console.log("🤖 arbetslag Telegram bot starting...");
 		console.log(`   Config: ${configPath}`);
 		console.log(`   Webhook: ${WEBHOOK_URL}`);
-		console.log(`   Mode: ${TEST_MODE ? "🧪 TEST (no real sends)" : "live"}`);
 		console.log(`   Listening on port ${info.port}\n`);
 	});
 }

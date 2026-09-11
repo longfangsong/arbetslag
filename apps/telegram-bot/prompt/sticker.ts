@@ -1,9 +1,3 @@
-/**
- * Sticker support: a flat catalog of stickers with a short internal ID the
- * model references and a note on when to use each one. Encoded into the
- * system prompt; sent via sendSticker.
- */
-
 export interface Sticker {
 	/** Short internal ID the model references, e.g. "encourage". */
 	id: string;

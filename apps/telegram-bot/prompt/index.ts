@@ -1,9 +1,5 @@
-/**
- * System prompt rendering for the Telegram bot.
- */
-
 import type { Sticker } from "./sticker";
-import type { Pin } from "./pin";
+import type { PinMessage } from "./pin";
 
 const BASE_SYSTEM_PROMPT = 
 `你是群聊里的一个成员。你会看到最近的聊天记录，需要判断：
@@ -126,15 +122,9 @@ const EXAMPLES = `输入：
 `;
 
 /** Render the final system prompt: base + sticker list + pin list + few-shot examples. */
-export function buildSystemPrompt(stickers: Sticker[], pins: Pin[]): string {
-	const stickerList =
-		stickers.length === 0
-			? "  - （当前无可用表情包，只能选 1 或 3）"
-			: stickers.map((s) => `  - ${s.id}（${s.description}）`).join("\n");
-	const pinList =
-		pins.length === 0
-			? "  - （当前无置顶消息）"
-			: pins.map((p) => `  - ${p.id}（${p.description}）`).join("\n");
+export function buildSystemPrompt(stickers: Sticker[], pins: PinMessage[]): string {
+	const stickerList = stickers.map((s) => `  - ${s.id}（${s.description}）`).join("\n");
+	const pinList = pins.map((p) => `  - ${p.id}（${p.description}）`).join("\n");
 	return (
 		BASE_SYSTEM_PROMPT
 			.replace("{{STICKER_LIST}}", stickerList)

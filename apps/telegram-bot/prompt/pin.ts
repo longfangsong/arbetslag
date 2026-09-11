@@ -1,11 +1,4 @@
-/**
- * Pinned message support: a flat catalog of group messages the bot may
- * quote. Each entry has a short internal ID, the Telegram message_id to
- * reply to, and a note on when to quote it. Encoded into the system
- * prompt; sent via reply_to_message_id.
- */
-
-export interface Pin {
+export interface PinMessage {
 	/** Short internal ID the model references, e.g. "rules". */
 	id: string;
 	/** Telegram message_id to reply to. */
@@ -14,7 +7,7 @@ export interface Pin {
 	description: string;
 }
 
-export const PINS: Pin[] = [
+export const PINS: PinMessage[] = [
 	{
 		id: "bad_cloud_llm",
 		messageId: 166544,
