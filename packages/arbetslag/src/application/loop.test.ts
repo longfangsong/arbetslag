@@ -32,6 +32,7 @@ function makeMessageEvent(chatId: string, content: string): MessageEvent {
     chat_id: chatId,
     adapter: "telegram",
     content,
+    send_time: Date.now(),
   };
 }
 

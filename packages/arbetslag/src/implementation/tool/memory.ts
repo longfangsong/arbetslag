@@ -1,23 +1,12 @@
 import { z } from "zod";
 import { Result, ok, err } from "neverthrow";
-import type { Agent, FileSystem, Tool } from "arbetslag";
+import { Tool, ToolExecutingContext } from "@/application/tool/model";
+import { Agent } from "@/application/agent/model";
 
-type ToolExecutingContext = { fileSystem: FileSystem };
-
-/**
- * Long-term memory tool for the virtual group-member bot.
- *
- * MEMORY.md lives at the root of the bot's file system and is surfaced to the
- * LLM via the `read` action (see arbetslag.yaml prompt).
- *
- * ponytail: MEMORY.md grows unbounded on `update`, and `read` returns the whole
- * file into the context window. Summarise / prune MEMORY.md (e.g. on the daily
- * context reset) before this becomes a context-length problem.
- */
 export const MEMORY_FILE = "MEMORY.md";
 
-const ReadInputSchema = z.object({}).strict();
-const UpdateInputSchema = z
+const SimpleMemoryReadInputSchema = z.object({}).strict();
+const SimpleMemoryUpdateInputSchema = z
 	.object({
 		content: z
 			.string()
@@ -25,50 +14,66 @@ const UpdateInputSchema = z
 	})
 	.strict();
 
-export class MemoryRead implements Tool<
-	z.infer<typeof ReadInputSchema>,
+/**
+ * Long-term memory tools backed by a MEMORY.md file at the root of the
+ * agent's file system.
+ *
+ * ponytail: MEMORY.md grows unbounded on `update_memory`, and `read_memory`
+ * returns the whole file into the context window. Summarise / prune MEMORY.md
+ * (e.g. on the daily context reset) before this becomes a context-length problem.
+ */
+export class SimpleMemoryRead implements Tool<
+	z.infer<typeof SimpleMemoryReadInputSchema>,
 	string,
 	string
 > {
 	name = "read_memory";
 	description = `Load long-term memory (MEMORY.md). ALWAYS call this at the start of a new context/session to recover who is who, ongoing topics & debates, group jokes/jargon, and member/user preferences.`;
-	inputSchema = ReadInputSchema;
+	inputSchema = SimpleMemoryReadInputSchema;
 
 	call(
 		context: ToolExecutingContext,
 		_caller: Agent,
-		_input: z.infer<typeof ReadInputSchema>,
+		_input: z.infer<typeof SimpleMemoryReadInputSchema>,
 	): Promise<Result<string, string>> {
 		return readMemory(context.fileSystem);
 	}
 }
 
-export class MemoryUpdate implements Tool<
-	z.infer<typeof UpdateInputSchema>,
+export class SimpleMemoryUpdate implements Tool<
+	z.infer<typeof SimpleMemoryUpdateInputSchema>,
 	string,
 	string
 > {
 	name = "update_memory";
 	description = `Append one durable fact to long-term memory (MEMORY.md). Only record stable, useful-over-time facts (member identities & relationships, ongoing topics & debates, group jargon, member & user preferences). Do NOT record one-off chit-chat, throwaway memes, sensitive privacy, or emotional outbursts.`;
-	inputSchema = UpdateInputSchema;
+	inputSchema = SimpleMemoryUpdateInputSchema;
 
 	call(
 		context: ToolExecutingContext,
 		_caller: Agent,
-		input: z.infer<typeof UpdateInputSchema>,
+		input: z.infer<typeof SimpleMemoryUpdateInputSchema>,
 	): Promise<Result<string, string>> {
 		const fact = input.content?.trim();
 		if (!fact) {
-			return Promise.resolve(err("update_memory requires a non-empty 'content' fact."));
+			return Promise.resolve(
+				err("update_memory requires a non-empty 'content' fact."),
+			);
 		}
 		return writeMemory(context.fileSystem, fact);
 	}
 }
 
-async function readMemory(fileSystem: ToolExecutingContext["fileSystem"]): Promise<Result<string, string>> {
+async function readMemory(
+	fileSystem: ToolExecutingContext["fileSystem"],
+): Promise<Result<string, string>> {
 	try {
 		const content = await fileSystem.readFile(MEMORY_FILE);
-		return ok(content.trim() ? content : "(MEMORY.md is empty — no long-term memory yet.)");
+		return ok(
+			content.trim()
+				? content
+				: "(MEMORY.md is empty — no long-term memory yet.)",
+		);
 	} catch {
 		return ok("(MEMORY.md does not exist yet — no long-term memory.)");
 	}
@@ -87,7 +92,9 @@ async function writeMemory(
 		} catch {
 			existing = "";
 		}
-		const next = existing.trim() ? `${existing.trim()}\n${entry}\n` : `${entry}\n`;
+		const next = existing.trim()
+			? `${existing.trim()}\n${entry}\n`
+			: `${entry}\n`;
 		await fileSystem.writeFile(MEMORY_FILE, next);
 		return ok("Saved to MEMORY.md.");
 	} catch (error) {
@@ -96,4 +103,3 @@ async function writeMemory(
 		);
 	}
 }
-

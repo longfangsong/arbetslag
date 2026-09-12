@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ok, Result } from "neverthrow";
+import { Result } from "neverthrow";
 import { Tool, ToolExecutingContext } from "@/application/tool/model";
 import { Agent } from "@/application/agent/model";
 
@@ -85,27 +85,16 @@ export abstract class CronTool<
 				...init?.headers,
 			},
 		});
-		const text = await res.text();
-		console.error(
-			`[CronTool] ${path} → HTTP ${res.status}, body: ${text.slice(0, 500)}`,
-		);
-		// cron-job.org can respond with an empty body (e.g. 204); res.json()
-		// on "" throws "Unexpected end of JSON input".
 		let data: { jobId?: number; error?: string };
 		try {
-			data =
-				text === ""
-					? {}
-					: (JSON.parse(text) as { jobId?: number; error?: string });
-		} catch (e) {
-			console.error(
-				`[CronTool] failed to parse ${path} response (HTTP ${res.status}): ${e instanceof Error ? e.message : String(e)}`,
-			);
-			throw e;
+			data = await res.json();
+		} catch {
+			// cron-job.org can respond with an empty body (e.g. 204).
+			data = {};
 		}
 		if (!res.ok) {
 			throw new Error(
-				`cron-job.org API error (HTTP ${res.status}): ${data.error ?? (text || "unknown error")}`,
+				`cron-job.org API error (HTTP ${res.status}): ${data.error ?? "unknown error"}`,
 			);
 		}
 		return data;

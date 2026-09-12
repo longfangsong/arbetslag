@@ -1,4 +1,5 @@
 import { PINS } from "./prompt/pin";
+import { STICKERS } from "./prompt/sticker";
 
 export class SmartTelegramRouter {
 	private readonly botToken: string;

@@ -18,6 +18,7 @@ import { GetTime } from "@/implementation/tool/getTime";
 import { CronCreate } from "@/implementation/tool/cron/create";
 import { CronDelete } from "@/implementation/tool/cron/delete";
 import { WebSearch } from "@/implementation/tool/webSearch";
+import { SimpleMemoryRead, SimpleMemoryUpdate } from "@/implementation/tool/memory";
 import {
 	ListEntities,
 	CreateEntity,
@@ -63,9 +64,11 @@ export { CronDelete } from "./implementation/tool/cron/delete";
 export { HttpRequest } from "./implementation/tool/http";
 export { FetchWebPage } from "./implementation/tool/fetchWebPage";
 export { WebSearch } from "./implementation/tool/webSearch";
+export { SimpleMemoryRead, SimpleMemoryUpdate } from "./implementation/tool/memory";
+export { MEMORY_FILE } from "./implementation/tool/memory";
 export type { Tool } from "./application/tool/model";
 export type { Agent } from "./application/agent/model";
-export type { MessageEvent } from "./application/event/event";
+export type { MessageEvent, ApiCallbackEvent } from "./application/event/event";
 export type { FileSystem } from "./application/file/model";
 export type { Template } from "./application/agent/template/model";
 export type { OutputRouter } from "./application/outputRouter/model";

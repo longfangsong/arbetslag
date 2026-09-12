@@ -17,6 +17,7 @@ export interface MessageEvent {
 
 	adapter: string;
 	content: string;
+	send_time: number; // epoch ms
 	sender?: string;
 }
 

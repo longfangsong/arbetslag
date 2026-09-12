@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { createHmac } from "node:crypto";
-import { parseCronExpression } from "../cron";
+import { parseCronExpression } from ".";
 import { CronCreate } from "./create";
 
 describe("parseCronExpression", () => {

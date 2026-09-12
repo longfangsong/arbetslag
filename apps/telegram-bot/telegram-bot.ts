@@ -26,17 +26,19 @@ import {
 	InMemoryAIProviderRepository,
 	InMemoryToolRepository,
 	type MessageEvent,
+	type ApiCallbackEvent,
 	GetTime,
 	ReadFile,
 	FetchWebPage,
 	WebSearch,
 	CronCreate,
 	CronDelete,
+	SimpleMemoryRead,
+	SimpleMemoryUpdate,
 	type OrchestratorDeps,
 	type Template,
 	type Update,
 } from "arbetslag";
-import { MemoryRead, MemoryUpdate } from "./tools/memory";
 import { UpdateBatcher } from "./batcher";
 import { STICKERS } from "./prompt/sticker";
 import { PINS } from "./prompt/pin";
@@ -90,28 +92,16 @@ for (const t of config.templates ?? []) {
 	});
 }
 
-function formatChatLine(update: Update, event: { content: string; sender?: string }): string {
-	const msg =
-		update.message ??
-		update.edited_message ??
-		update.channel_post ??
-		update.edited_channel_post;
-	const ts = new Date(msg?.date! * 1000);
-	const time = format(ts, "HH:mm:ss");
-	return `[${time}] ${event.sender ?? "user"}: ${event.content}`;
-}
-
-/** One item queued per chat: a Telegram update, or a system callback. */
-type ChatInput =
-	| { kind: "update"; update: Update }
-	| { kind: "callback"; type: string; id: string; text: string };
+/** One item queued per chat: everything is a domain event. */
+type ChatInput = MessageEvent | ApiCallbackEvent;
 
 function formatInputLine(input: ChatInput): string {
-	if (input.kind === "callback") {
-		return `<callback><type>${input.type}</type><id>${input.id}</id><payload>${input.text}</payload></callback>`;
+	if (input.event_type === "api_callback") {
+		return `<api_callback>\n<id>${input.id}</id>\n<api_name>${input.api_name}</api_name>\n<payload>\n${input.content}\n</payload>\n</api_callback>`;
+	} else {
+		const time = format(new Date(input.send_time), "HH:mm:ss");
+		return `[${time}] ${input.sender ?? "user"}: ${input.content}`;
 	}
-	const event = new TelegramInputAdopter().convert(input.update)!;
-	return formatChatLine(input.update, event);
 }
 
 async function setWebhook(url: string): Promise<void> {
@@ -175,7 +165,7 @@ const batcher = new UpdateBatcher<ChatInput>(FLUSH_QUIET_MS, (chatId, inputs) =>
 function handleUpdate(update: Update): void {
 	const event = new TelegramInputAdopter().convert(update);
 	if (!event) return;
-	batcher.enqueue(event.chat_id, { kind: "update", update });
+	batcher.enqueue(event.chat_id, event);
 }
 
 async function processChatBatch(
@@ -183,32 +173,42 @@ async function processChatBatch(
 	inputs: ChatInput[],
 	stale: boolean,
 ): Promise<void> {
-	const firstUpdate = inputs.find((i) => i.kind === "update")?.update;
-	const event: MessageEvent =
-		firstUpdate !== undefined
-			? new TelegramInputAdopter().convert(firstUpdate)!
-			: {
-				id: randomUUID(),
-				event_type: "message",
-				chat_id: chatId,
-				adapter: "system",
-				content: "",
-			};
-	event.content = inputs.map(formatInputLine).join("\n");
-
 	const agentRepository = await FileSystemAgentRepository.create(
 		fileSystem,
 		"agents/",
 	);
+	const agent = await agentRepository.getByChatId(chatId);
 
-	if (stale) {
-		const agent = await agentRepository.getByChatId(chatId);
-		if (agent && agent.history.length > 0) {
-			console.log(`[context] chat ${chatId} idle > 6h — new context window`);
-			agent.history = [];
-			await agentRepository.save(agent);
-			printedHistory.set(chatId, 0);
-		}
+	if (stale && agent && agent.history.length > 0) {
+		console.log(`[context] chat ${chatId} idle > 4h — new context window`);
+		agent.history = [];
+		await agentRepository.save(agent);
+		printedHistory.set(chatId, 0);
+	}
+
+	// Callbacks ride the bus as api_callback events (Agent.handleApiCallback
+	// renders them into history, jobId in <id> for delete_cron). If no agent
+	// exists yet they fall back to text lines in the message, whose dispatch
+	// creates the default agent.
+	const callbacks = inputs.filter((i): i is ApiCallbackEvent => i.event_type === "api_callback");
+	const messageInputs = agent
+		? inputs.filter((i): i is MessageEvent => i.event_type === "message")
+		: inputs;
+	const firstMessage = inputs.find((i): i is MessageEvent => i.event_type === "message");
+	let event: MessageEvent | null = null;
+	if (messageInputs.length > 0) {
+		event =
+			firstMessage !== undefined
+				? firstMessage
+				: {
+					id: randomUUID(),
+					event_type: "message",
+					chat_id: chatId,
+					adapter: "system",
+					content: "",
+					send_time: Date.now(),
+				};
+		event.content = messageInputs.map(formatInputLine).join("\n");
 	}
 
 	// Build orchestrator with custom OutputRouter.
@@ -230,8 +230,8 @@ async function processChatBatch(
 				),
 			]
 			: []),
-		new MemoryRead(),
-		new MemoryUpdate(),
+		new SimpleMemoryRead(),
+		new SimpleMemoryUpdate(),
 		...(process.env.CRON_JOB_API_KEY
 			? [
 				new CronCreate(
@@ -258,15 +258,22 @@ async function processChatBatch(
 	};
 
 	const orchestrator = new Orchestrator(deps);
-	orchestrator.push(event);
-	console.log(`[processChatBatch] chat ${chatId} processing ${event.content}`);
+	if (event) orchestrator.push(event);
+	if (agent) {
+		for (const cb of callbacks) {
+			orchestrator.push({ ...cb, to_agent_id: agent.id });
+		}
+	}
+	console.log(
+		`[processChatBatch] chat ${chatId} processing ${event ? JSON.stringify(event.content) : ""} callbacks=[${callbacks.map((c) => c.id).join(",")}]`,
+	);
 	await orchestrator.stepUntilIdle();
 
-	const agent = await agentRepository.getByChatId(chatId);
-	if (agent) {
+	const updatedAgent = await agentRepository.getByChatId(chatId);
+	if (updatedAgent) {
 		const prev = printedHistory.get(chatId) ?? 0;
-		if (agent.history.length > prev) {
-			for (const [i, h] of agent.history.entries()) {
+		if (updatedAgent.history.length > prev) {
+			for (const [i, h] of updatedAgent.history.entries()) {
 				if (i < prev) continue;
 				const extra =
 					h.role === "assistant" && h.tool_calls
@@ -274,7 +281,7 @@ async function processChatBatch(
 						: "";
 				console.log(`  [${i}] ${h.role}: ${String(h.content ?? "").slice(0, 500)}${extra}`);
 			}
-			printedHistory.set(chatId, agent.history.length);
+			printedHistory.set(chatId, updatedAgent.history.length);
 		}
 	}
 }
@@ -306,7 +313,7 @@ app.get("/cron", async (c) => {
 	// item; the LLM sees it with the chat's full history and decides what to do.
 	// `text` is the payload the LLM itself chose when scheduling the job,
 	// `job` is its cron-job.org ID (so it can delete one-off jobs afterwards).
-	batcher.enqueue(chat, { kind: "callback", type: "cron", id: job, text });
+	batcher.enqueue(chat, { id: job, event_type: "api_callback", api_name: "cron", content: text });
 	return c.text("OK");
 });
 

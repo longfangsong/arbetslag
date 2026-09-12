@@ -57,6 +57,7 @@ export class TelegramInputAdopter {
 			chat_id: String(msg.chat.id),
 			adapter: "telegram",
 			content: msg.text,
+			send_time: msg.date ? msg.date * 1000 : Date.now(),
 			sender,
 		};
 	}
