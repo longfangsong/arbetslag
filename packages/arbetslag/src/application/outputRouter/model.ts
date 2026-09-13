@@ -1,3 +1,4 @@
+import { Result } from "neverthrow";
 import { AgentOutput } from "../event/event";
 
 /**
@@ -15,5 +16,5 @@ export interface SystemNotice {
 }
 
 export interface OutputRouter {
-    route(event: AgentOutput | SystemNotice): Promise<void>;
+	route(event: AgentOutput | SystemNotice): Promise<Result<void, string>>;
 }

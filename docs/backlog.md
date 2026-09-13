@@ -33,8 +33,8 @@
   - **已知边界**：某次调用未返回 `usage` 时（`usage?` 可选，接口弹性），锚点停在旧调用而最后 assistant 已前移，推导版会漏估旧 assistant 到它之间的内容——OpenAI 恒返回 usage，接受此边界。
   - **状态**：Actionable，改动小。
 
-- **[TODO] 全库统一 Result 风格错误处理（框架层从 throw 迁移）**
+- **[done] 全库统一 Result 风格错误处理（框架层从 throw 迁移）**
   - **问题**：目前两层风格并存——工具层已是 `Result<T, string>`（17 个 tool），框架层（openai.ts、repository、router、compact.ts、orchestrator）全是 `throw new Error`。用户希望全库统一 Result。
   - **改动**：框架层函数返回 `Result<T, E>`；顶层（orchestrator dispatch / app 入口）作为唯一 throw/log 边界；工具层保持现状。涉及文件：`implementation/aiProvider/openai.ts`、`implementation/agent/*`、`implementation/template/*`、`implementation/outputRouter/telegram.ts`、`application/agent/compact.ts`（两个 throw）、`application/orchestrator.ts`，及全部相关测试。
   - **顺序依赖**：与上面几条 compact 改动有交叉（compact.ts 的 throw 会被改两次）——建议先做完 compact 相关条目再做本条，或本条实施时一并覆盖 compact.ts。
-  - **状态**：Needs discussion——需先定：错误载体用 `Error` 还是 `string`；`Result` 类型统一定义放哪；部分失败场景（如 provider.complete 网络错误）的包装粒度。
+  - **状态**：已实施。定案：① 错误载体 `string`（与工具层一致）；② 直接用 neverthrow 的 `Result`，不新造类型，`src/index.ts` 导出 `Result` 供 app 用；③ 数据流路径全 Result 化——`AIProvider.complete` / `compactAgent` / `OutputRouter.route` / `TemplateRepository.default` 均返回 `Result<_, string>`，orchestrator 的 `dispatch`/`step`/`stepUntilIdle` 全链路传播错误；④ throw 只用作崩溃——配置错误（`TemplateRepository.default()` 的 "No templates found"、template 指向不存在的 provider）在 orchestrator 的 `unwrap()` helper 处 throw，运行时错误在 app 边界（telegram-bot `processChatBatch`）log + throw。

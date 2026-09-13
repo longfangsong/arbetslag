@@ -1,5 +1,6 @@
 import { Orchestrator } from "./application/orchestrator";
 import type { OrchestratorDeps } from "./application/orchestrator";
+export type { Result } from "neverthrow";
 import { MessageEvent } from "./application/event/event";
 import { FileSystemAgentRepository } from "@/implementation/agent/repository";
 import { FileSystemTemplateRepository } from "@/implementation/agent/template/repository";

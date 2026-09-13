@@ -1,4 +1,12 @@
 import { describe, it, expect } from "vitest";
+import { ok, Result } from "neverthrow";
+
+// Unwrap a Result; the test setups are valid, so a failure here is a real bug.
+function unwrap<T>(r: Result<T, string>): T {
+  return r.match((v) => v, (e) => {
+    throw new Error(e);
+  });
+}
 import { Orchestrator } from "./orchestrator";
 import { Agent } from "./agent/model";
 import type { HistoryEntry } from "./agent/history";
@@ -73,11 +81,11 @@ function mockAiProvider(): AIProvider {
   return {
     name: "openai",
     async complete() {
-      return {
+      return ok({
         role: "assistant",
         content: "Hello from mock AI",
         tool_calls: [],
-      };
+      });
     },
   };
 }
@@ -97,7 +105,7 @@ describe("event_loop", () => {
     await templateRepo.add(sampleTemplate);
 
     const aiRepo = makeAiRepo(mockAiProvider());
-    const outputRouter: OutputRouter = { async route() {} };
+    const outputRouter: OutputRouter = { async route() { return ok(undefined); } };
 
     const orchestrator = new Orchestrator({
       fileSystem: fs,
@@ -108,7 +116,7 @@ describe("event_loop", () => {
       outputRouter,
     });
     orchestrator.push(makeMessageEvent("chat-1", "Hi"));
-    await orchestrator.stepUntilIdle();
+    unwrap(await orchestrator.stepUntilIdle());
 
     expect(orchestrator.empty()).toBe(true);
 
@@ -150,7 +158,7 @@ describe("event_loop", () => {
         outputRouter: null,
       });
       orchestrator.push(makeMessageEvent("chat-x", "First"));
-      await orchestrator.stepUntilIdle();
+      unwrap(await orchestrator.stepUntilIdle());
     }
 
     // Second call (reuses same agent from fs)
@@ -170,7 +178,7 @@ describe("event_loop", () => {
         outputRouter: null,
       });
       orchestrator.push(makeMessageEvent("chat-x", "Second"));
-      await orchestrator.stepUntilIdle();
+      unwrap(await orchestrator.stepUntilIdle());
     }
 
     const agentRepo = await FileSystemAgentRepository.create(
@@ -246,6 +254,7 @@ describe("compact", () => {
         outputRouter: {
           async route(event) {
             if ("kind" in event) notices.push(event.content);
+            return ok(undefined);
           },
         },
       }),
@@ -260,7 +269,7 @@ describe("compact", () => {
       name: "openai",
       async complete(_model, history) {
         seenByProvider.push(history);
-        return { role: "assistant", content: "ok", tool_calls: [] };
+        return ok({ role: "assistant", content: "ok", tool_calls: [] });
       },
     };
     const { agentRepo, templateRepo, orchestrator } = await makeOrchestrator(
@@ -283,7 +292,7 @@ describe("compact", () => {
     await agentRepo.setEntryAgent("chat-1", agent);
 
     orchestrator.push(makeMessageEvent("chat-1", "hi"));
-    await orchestrator.stepUntilIdle();
+    unwrap(await orchestrator.stepUntilIdle());
 
     // Provider received system prompt + compacted history + the new message.
     expect(seenByProvider).toHaveLength(1);
@@ -325,9 +334,9 @@ describe("compact", () => {
           history[0].role === "system" &&
           history[0].content.includes("CUSTOM")
         ) {
-          return { role: "assistant", content: "SUMMARY TEXT", tool_calls: [] };
+          return ok({ role: "assistant", content: "SUMMARY TEXT", tool_calls: [] });
         }
-        return { role: "assistant", content: "ok", tool_calls: [] };
+        return ok({ role: "assistant", content: "ok", tool_calls: [] });
       },
     };
     const { agentRepo, templateRepo, orchestrator } = await makeOrchestrator(
@@ -351,7 +360,7 @@ describe("compact", () => {
     await agentRepo.setEntryAgent("chat-1", agent);
 
     orchestrator.push(makeMessageEvent("chat-1", "hi"));
-    await orchestrator.stepUntilIdle();
+    unwrap(await orchestrator.stepUntilIdle());
 
     // 1st call = summarization; 2nd call = the real completion.
     expect(seenByProvider).toHaveLength(2);
@@ -395,7 +404,7 @@ describe("compact", () => {
     await agentRepo.setEntryAgent("chat-1", agent);
 
     orchestrator.push({ id: "c1", event_type: "compact_request", chat_id: "chat-1" });
-    await orchestrator.stepUntilIdle();
+    unwrap(await orchestrator.stepUntilIdle());
 
     // retainRounds=1 -> rounds 1-2 stubbed, round 3 intact
     const saved = (await agentRepo.getByChatId("chat-1"))!;
@@ -408,7 +417,7 @@ describe("compact", () => {
     expect(notices[0]).toMatch(/^📦 Compacted history:/);
 
     orchestrator.push({ id: "c2", event_type: "compact_request", chat_id: "nope" });
-    await orchestrator.stepUntilIdle();
+    unwrap(await orchestrator.stepUntilIdle());
     // No agent for "nope" yet -> one is created (default template), and an
     // empty history has nothing to compact.
     expect(await agentRepo.getByChatId("nope")).not.toBeNull();

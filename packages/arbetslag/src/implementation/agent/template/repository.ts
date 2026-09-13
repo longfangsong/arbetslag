@@ -1,6 +1,7 @@
 import { Repository } from "@/application/agent/template/repository";
 import { Template } from "@/application/agent/template/model";
 import { FileSystem } from "@/application/file/model";
+import { Result, ok, err } from "neverthrow";
 
 export class FileSystemTemplateRepository implements Repository {
   constructor(
@@ -39,12 +40,12 @@ export class FileSystemTemplateRepository implements Repository {
     return files.map((c) => JSON.parse(c) as Template);
   }
 
-  async default(): Promise<Template> {
+  async default(): Promise<Result<Template, string>> {
     // todo: we should have a better way to determine the default template, maybe a config file or a specific name
     const templates = await this.list();
     if (templates.length === 0) {
-      throw new Error("No templates found");
+      return err("No templates found");
     }
-    return templates[0];
+    return ok(templates[0]);
   }
 }

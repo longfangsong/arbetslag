@@ -1,6 +1,7 @@
 import { PINS } from "./prompt/pin";
 import { STICKERS } from "./prompt/sticker";
 import type { AgentOutput, SystemNotice } from "arbetslag";
+import { Result, ok, err } from "neverthrow";
 
 export class SmartTelegramRouter {
 	private readonly botToken: string;
@@ -12,7 +13,7 @@ export class SmartTelegramRouter {
 		this.chatId = chatId;
 	}
 
-	async route(event: AgentOutput | SystemNotice): Promise<void> {
+	async route(event: AgentOutput | SystemNotice): Promise<Result<void, string>> {
 		// System notices (e.g. history compaction) render as an italic aside.
 		if ("kind" in event) {
 			const detail =
@@ -25,7 +26,7 @@ export class SmartTelegramRouter {
 		content = content?.trim();
 		if (!content || content === '""' || content === "''") {
 			console.log(`[SmartTelegramRouter] No content to send`);
-			return;
+			return ok(undefined);
 		}
 
 		const stickerTokens = [
@@ -46,7 +47,7 @@ export class SmartTelegramRouter {
 
 		if (stickerTokens.length === 0 && !text) {
 			console.log(`[SmartTelegramRouter] No content to send`);
-			return;
+			return ok(undefined);
 		}
 
 		console.log(
@@ -54,7 +55,7 @@ export class SmartTelegramRouter {
 		);
 
 		if (this.TEST_MODE) {
-			return;
+			return ok(undefined);
 		}
 
 		if (text) {
@@ -71,7 +72,7 @@ export class SmartTelegramRouter {
 			if (!res.ok) {
 				const body = await res.text();
 				console.log(`[SmartTelegramRouter] error: ${res.status} ${body}`);
-				throw new Error(`Telegram API error: ${res.status} ${body}`);
+				return err(`Telegram API error: ${res.status} ${body}`);
 			}
 		}
 
@@ -94,5 +95,6 @@ export class SmartTelegramRouter {
 				console.log(`[SmartTelegramRouter] sendSticker error: ${res.status} ${body}`);
 			}
 		}
+		return ok(undefined);
 	}
 }

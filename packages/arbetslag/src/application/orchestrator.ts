@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { nanoid } from "nanoid";
+import { Result, ok, err } from "neverthrow";
 import { EventBus } from "./event/bus";
 import {
   Event,
@@ -54,34 +55,51 @@ export class Orchestrator {
     return this.bus.empty();
   }
 
-  async step(): Promise<void> {
+  /**
+   * Unwrap a Result, throwing on failure. The framework only throws to crash
+   * on configuration errors — runtime data-flow failures travel as Result
+   * errors and surface at the app boundary.
+   */
+  private unwrap<T>(result: Result<T, string>): T {
+    return result.match(
+      (v) => v,
+      (e) => {
+        throw new Error(e);
+      },
+    );
+  }
+
+  async step(): Promise<Result<Array<Event>, string>> {
     const event = this.bus.pop();
-    if (!event) return;
-    const newEvents = await this.dispatch(event);
-    for (const e of newEvents) {
+    if (!event) return ok([]);
+    const result = await this.dispatch(event);
+    if (result.isErr()) return result;
+    for (const e of result.value) {
       this.bus.push(e);
     }
+    return ok([]);
   }
 
-  async stepUntilIdle(maxIterations = 1024): Promise<void> {
+  async stepUntilIdle(maxIterations = 1024): Promise<Result<void, string>> {
     let iterations = 0;
     while (!this.bus.empty() && iterations < maxIterations) {
-      await this.step();
+      const result = await this.step();
+      if (result.isErr()) return err(result.error);
       iterations++;
     }
+    return ok(undefined);
   }
 
-  private notifyCompact(result: CompactResult): Promise<void> {
-    return this.deps.outputRouter
-      ? this.deps.outputRouter.route({
-          kind: "history_compacted",
-          content: result.compacted
-            ? formatCompactNotice(result.beforeTokens, result.afterTokens)
-            : NOTHING_TO_COMPACT,
-          beforeTokens: result.compacted ? result.beforeTokens : undefined,
-          afterTokens: result.compacted ? result.afterTokens : undefined,
-        })
-      : Promise.resolve();
+  private notifyCompact(result: CompactResult): Promise<Result<void, string>> {
+    if (!this.deps.outputRouter) return Promise.resolve(ok(undefined));
+    return this.deps.outputRouter.route({
+      kind: "history_compacted",
+      content: result.compacted
+        ? formatCompactNotice(result.beforeTokens, result.afterTokens)
+        : NOTHING_TO_COMPACT,
+      beforeTokens: result.compacted ? result.beforeTokens : undefined,
+      afterTokens: result.compacted ? result.afterTokens : undefined,
+    });
   }
 
   /**
@@ -93,7 +111,7 @@ export class Orchestrator {
   private async compactIfNeeded(
     agent: Agent,
     provider: AIProvider | null,
-  ): Promise<void> {
+  ): Promise<Result<void, string>> {
     const { agentRepository } = this.deps;
     const template = agent.template;
     const threshold =
@@ -116,7 +134,7 @@ export class Orchestrator {
         ? agent.lastPromptTokens + estimateHistoryTokens(agent.history.slice(anchorCursor))
         : estimateTokens(template.systemPrompt) +
           estimateHistoryTokens(agent.history);
-    if (meteredTokens < threshold) return;
+    if (meteredTokens < threshold) return ok(undefined);
     const result = await compactAgent({
       agent,
       provider,
@@ -124,13 +142,16 @@ export class Orchestrator {
       retainRounds,
       summaryPrompt: template.compactSummaryPrompt,
     });
+    if (result.isErr()) return err(result.error);
     await agentRepository.save(agent);
-    if (result.compacted) {
-      await this.notifyCompact(result);
+    if (result.value.compacted) {
+      const notice = await this.notifyCompact(result.value);
+      if (notice.isErr()) return err(notice.error);
     }
+    return ok(undefined);
   }
 
-  private async dispatch(event: Event): Promise<Array<Event>> {
+  private async dispatch(event: Event): Promise<Result<Array<Event>, string>> {
     const {
       agentRepository,
       templateRepository,
@@ -145,14 +166,16 @@ export class Orchestrator {
         const e = event as MessageEvent;
         let agent = await agentRepository.getByChatId(e.chat_id);
         if (!agent) {
-          const template = await templateRepository.default();
+          // unwrap: a missing default template is a configuration error —
+          // the one place we still throw (crash, don't silently misroute).
+          const template = this.unwrap(await templateRepository.default());
           agent = Agent.create(template);
           agent.chatId = e.chat_id;
           await agentRepository.setEntryAgent(e.chat_id, agent);
         }
         const events = agent.handleMessage(e);
         await agentRepository.save(agent);
-        return events;
+        return ok(events);
       }
 
       case "api_callback": {
@@ -160,7 +183,7 @@ export class Orchestrator {
         const agent = await agentRepository.getById(e.to_agent_id!);
         const events = agent?.handleApiCallback(e);
         if (agent) await agentRepository.save(agent);
-        return events ?? [];
+        return ok(events ?? []);
       }
 
       case "tool_call_request": {
@@ -178,7 +201,7 @@ export class Orchestrator {
             : result.isOk()
               ? JSON.stringify(result.value)
               : JSON.stringify(result.error);
-        return [
+        return ok([
           {
             id: nanoid(10),
             event_type: "tool_call_response" as const,
@@ -187,7 +210,7 @@ export class Orchestrator {
             name: tool!.name,
             content,
           },
-        ];
+        ]);
       }
 
       case "tool_call_response": {
@@ -195,7 +218,7 @@ export class Orchestrator {
         const agent = await agentRepository.getById(e.to_agent_id);
         const events = agent?.handleToolResponse(e);
         if (agent) await agentRepository.save(agent);
-        return events ?? [];
+        return ok(events ?? []);
       }
 
       case "agent_message": {
@@ -203,7 +226,7 @@ export class Orchestrator {
         const agent = await agentRepository.getById(e.to_agent_id);
         const events = agent?.handleAgentMessage(e);
         if (agent) await agentRepository.save(agent);
-        return events ?? [];
+        return ok(events ?? []);
       }
 
       case "llm_completion_request": {
@@ -213,26 +236,34 @@ export class Orchestrator {
         const aiProvider = await aiProviderRepository.getByName(
           template.ai_provider,
         );
-        await this.compactIfNeeded(agent!, aiProvider);
+        if (!aiProvider) {
+          // Configuration error: the template names a provider we don't have.
+          throw new Error(
+            `AI provider not found: ${template.ai_provider}`,
+          );
+        }
+        const compactResult = await this.compactIfNeeded(agent!, aiProvider);
+        if (compactResult.isErr()) return err(compactResult.error);
         const outputSchema = template.outputSchema
           ? z.fromJSONSchema(template.outputSchema)
           : undefined;
-        const completion = await aiProvider?.complete(
+        const completion = await aiProvider.complete(
           template.model,
           agent!.history,
           toolRepository.getByNames(template.allowedTools),
           outputSchema,
         );
-        return [
+        if (completion.isErr()) return err(completion.error);
+        return ok([
           {
             id: nanoid(10),
             event_type: "llm_completion_response" as const,
             to_agent_id: agent!.id,
-            content: completion!.content,
-            tool_calls: completion!.tool_calls,
-            usage: completion!.usage,
+            content: completion.value.content,
+            tool_calls: completion.value.tool_calls,
+            usage: completion.value.usage,
           },
-        ];
+        ]);
       }
 
       case "compact_request": {
@@ -242,7 +273,7 @@ export class Orchestrator {
           // First message in the chat is /compact: create the agent the same
           // way the "message" flow does, then compact (empty history ->
           // nothing to compact, but the agent now exists for the user).
-          const template = await templateRepository.default();
+          const template = this.unwrap(await templateRepository.default());
           agent = Agent.create(template);
           agent.chatId = e.chat_id;
           await agentRepository.setEntryAgent(e.chat_id, agent);
@@ -259,9 +290,11 @@ export class Orchestrator {
             DEFAULT_COMPACT_RETAIN_ROUNDS,
           summaryPrompt: agent.template.compactSummaryPrompt,
         });
+        if (result.isErr()) return err(result.error);
         await agentRepository.save(agent);
-        await this.notifyCompact(result);
-        return [];
+        const notice = await this.notifyCompact(result.value);
+        if (notice.isErr()) return err(notice.error);
+        return ok([]);
       }
 
       case "llm_completion_response": {
@@ -269,13 +302,16 @@ export class Orchestrator {
         const agent = await agentRepository.getById(e.to_agent_id);
         const events = agent?.handleLLMCompletionResponse(e);
         if (agent) await agentRepository.save(agent);
-        return events ?? [];
+        return ok(events ?? []);
       }
 
       case "agent_output": {
         const e = event as AgentOutput;
-        if (outputRouter) await outputRouter.route(e);
-        return [];
+        if (outputRouter) {
+          const routed = await outputRouter.route(e);
+          if (routed.isErr()) return err(routed.error);
+        }
+        return ok([]);
       }
     }
   }

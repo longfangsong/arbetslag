@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import util from "node:util";
 import { z } from "zod";
+import { Result, ok, err } from "neverthrow";
 import { AIProvider } from "@/application/aiProvider/model";
 import { HistoryEntry, CompletionResult } from "@/application/agent/history";
 import { Tool } from "@/application/tool/model";
@@ -27,7 +28,7 @@ export class OpenAIProvider implements AIProvider {
 		history: Array<HistoryEntry>,
 		allowedTools: Array<Tool<unknown, unknown, unknown>>,
 		outputSchema?: z.ZodType,
-	): Promise<CompletionResult> {
+	): Promise<Result<CompletionResult, string>> {
 		const messages: ChatCompletionMessageParam[] = history.map((entry) => {
 			if (entry.role === "tool") {
 				return {
@@ -76,7 +77,7 @@ export class OpenAIProvider implements AIProvider {
 
 		const choice = response.choices[0];
 
-		if (!choice) throw new Error("No completion choice returned");
+		if (!choice) return err("No completion choice returned");
 
 		const assistantContent = choice.message.content ?? "";
 		const toolCalls = choice.message.tool_calls?.map((tc) => {
@@ -88,7 +89,7 @@ export class OpenAIProvider implements AIProvider {
 			};
 		}).filter((tc): tc is NonNullable<typeof tc> => tc !== null);
 
-		return {
+		return ok({
 			role: "assistant",
 			content: assistantContent,
 			tool_calls: toolCalls,
@@ -96,6 +97,6 @@ export class OpenAIProvider implements AIProvider {
 				response.usage?.prompt_tokens != null
 					? { prompt_tokens: response.usage.prompt_tokens }
 					: undefined,
-		};
+		});
 	}
 }

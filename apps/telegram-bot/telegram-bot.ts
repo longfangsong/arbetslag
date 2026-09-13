@@ -307,7 +307,16 @@ async function processChatBatch(
 	console.log(
 		`[processChatBatch] chat ${chatId} processing ${event ? JSON.stringify(event.content) : ""} callbacks=[${callbacks.map((c) => c.id).join(",")}]`,
 	);
-	await orchestrator.stepUntilIdle();
+	const result = await orchestrator.stepUntilIdle();
+	result.match(
+		() => undefined,
+		(e) => {
+			// Fail fast at the app boundary: state is already checkpointed on
+			// disk, so a crash here loses nothing and a restart resumes.
+			console.error(`[Orchestrator] ${e}`);
+			throw new Error(`Orchestrator failed: ${e}`);
+		},
+	);
 
 	const updatedAgent = await agentRepository.getByChatId(chatId);
 	if (updatedAgent) {

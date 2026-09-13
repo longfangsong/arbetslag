@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { Result } from "neverthrow";
 import { Tool } from "../tool/model";
 import { CompletionResult, HistoryEntry } from "../agent/history";
 
@@ -10,5 +11,5 @@ export interface AIProvider {
 		history: Array<HistoryEntry>,
 		allowedTools: Array<Tool<unknown, unknown, unknown>>,
 		outputSchema?: z.ZodType,
-	): Promise<CompletionResult>;
+	): Promise<Result<CompletionResult, string>>;
 }

@@ -1,4 +1,12 @@
 import { describe, it, expect, vi } from "vitest";
+import { ok, Result } from "neverthrow";
+
+// Unwrap a Result; the test setups are valid, so a failure here is a real bug.
+function unwrap<T>(r: Result<T, string>): T {
+  return r.match((v) => v, (e) => {
+    throw new Error(e);
+  });
+}
 import {
   estimateTokens,
   findWaterline,
@@ -34,11 +42,11 @@ function makeProvider(
       calls.push({ model, history });
       if (failOnCall) failOnCall();
       const r = responses[Math.min(i++, responses.length - 1)] ?? {};
-      return {
+      return ok({
         role: "assistant",
         content: r.content ?? "",
         tool_calls: r.tool_calls,
-      };
+      });
     },
   };
   return { provider, calls };
@@ -212,12 +220,12 @@ describe("compactAgent", () => {
     const { provider, calls } = makeProvider([], () => {
       throw new Error("provider should not be called");
     });
-    const result = await compactAgent({
+    const result = unwrap(await compactAgent({
       agent,
       provider,
       threshold: 100,
       retainRounds: 1,
-    });
+    }));
 
     expect(calls).toHaveLength(0);
     expect(result.compacted).toBe(true);
@@ -251,12 +259,12 @@ describe("compactAgent", () => {
 
     const { provider, calls } = makeProvider([{ content: "SUMMARY TEXT" }]);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const result = await compactAgent({
+    const result = unwrap(await compactAgent({
       agent,
       provider,
       threshold: 1000,
       retainRounds: 2,
-    });
+    }));
     warn.mockRestore();
 
     expect(result.compacted).toBe(true);
@@ -295,13 +303,13 @@ describe("compactAgent", () => {
     ];
 
     const { provider, calls } = makeProvider([{ content: "SUMMARY" }]);
-    await compactAgent({
+    unwrap(await compactAgent({
       agent,
       provider,
       threshold: 1000,
       retainRounds: 1,
       summaryPrompt: "CUSTOM: summarize briefly in one line",
-    });
+    }));
 
     expect(calls).toHaveLength(1);
     expect(calls[0].history[0].role).toBe("system");
@@ -325,7 +333,7 @@ describe("compactAgent", () => {
     ];
 
     const { provider, calls } = makeProvider([{ content: "NEW SUMMARY" }]);
-    await compactAgent({ agent, provider, threshold: 500, retainRounds: 1 });
+    unwrap(await compactAgent({ agent, provider, threshold: 500, retainRounds: 1 }));
 
     const serialized = calls[0].history[1].role === "user" ? calls[0].history[1].content : "";
     // previous summary is re-fed explicitly; the segment itself is pure rounds
@@ -345,12 +353,12 @@ describe("compactAgent", () => {
     const agent = Agent.create(template);
     agent.history = [{ role: "user", content: "u".repeat(5000) }];
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const result = await compactAgent({
+    const result = unwrap(await compactAgent({
       agent,
       provider: null,
       threshold: 100,
       retainRounds: 4,
-    });
+    }));
 
     expect(result.compacted).toBe(false);
     expect(agent.history).toHaveLength(1);
@@ -364,12 +372,12 @@ describe("compactAgent", () => {
     const { provider, calls } = makeProvider([], () => {
       throw new Error("provider should not be called");
     });
-    const result = await compactAgent({
+    const result = unwrap(await compactAgent({
       agent,
       provider,
       threshold: 100,
       retainRounds: 4,
-    });
+    }));
     expect(result.compacted).toBe(false);
     expect(calls).toHaveLength(0);
   });

@@ -1,3 +1,4 @@
+import { Result, ok, err } from "neverthrow";
 import { AIProvider } from "@/application/aiProvider/model";
 import { Agent } from "./model";
 import { HistoryEntry } from "./history";
@@ -201,7 +202,7 @@ export async function compactAgent({
   threshold,
   retainRounds,
   summaryPrompt,
-}: CompactDeps): Promise<CompactResult> {
+}: CompactDeps): Promise<Result<CompactResult, string>> {
   const systemPrompt = agent.template.systemPrompt;
   const beforeTokens =
     estimateTokens(systemPrompt) + estimateHistoryTokens(agent.history);
@@ -223,7 +224,7 @@ export async function compactAgent({
     // summary); the summarizable segment always starts at index 1.
     const segment = agent.history.slice(1, waterline);
     if (segment.length > 0) {
-      if (!provider) throw new Error("LLM-based compaction needs an AI provider");
+      if (!provider) return err("LLM-based compaction needs an AI provider");
       // Rolling summary: the previous summary (if any) lives in history[0]
       // below the "History summary" heading and is re-fed to the summarizer.
       let previousSummary: string | undefined;
@@ -238,7 +239,7 @@ export async function compactAgent({
             content.slice(idx + marker.length);
         }
       }
-      const completion = await provider.complete(
+      const completionResult = await provider.complete(
         agent.template.model,
         [
           { role: "system", content: summaryPrompt ?? SUMMARY_SYSTEM_PROMPT },
@@ -256,8 +257,9 @@ export async function compactAgent({
         ],
         [],
       );
-      const summary = completion.content.trim();
-      if (!summary) throw new Error("Compaction summary came back empty");
+      if (completionResult.isErr()) return err(completionResult.error);
+      const summary = completionResult.value.content.trim();
+      if (!summary) return err("Compaction summary came back empty");
       const retained = agent.history.slice(waterline);
       agent.history = [
         {
@@ -278,5 +280,5 @@ export async function compactAgent({
   }
 
   if (compacted) agent.invalidateAnchor();
-  return { compacted, beforeTokens, afterTokens };
+  return ok({ compacted, beforeTokens, afterTokens });
 }

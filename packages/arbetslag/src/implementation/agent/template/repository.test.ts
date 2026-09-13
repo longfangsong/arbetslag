@@ -47,11 +47,14 @@ describe("FileSystemTemplateRepository", () => {
   it("returns the first template as default", async () => {
     await repo.add(sampleTemplate);
     const result = await repo.default();
-    expect(result).toEqual(sampleTemplate);
+    expect(result.isOk()).toBe(true);
+    if (result.isOk()) expect(result.value).toEqual(sampleTemplate);
   });
 
-  it("throws when no templates exist for default", async () => {
-    await expect(repo.default()).rejects.toThrow("No templates found");
+  it("reports an error when no templates exist for default", async () => {
+    const result = await repo.default();
+    expect(result.isErr()).toBe(true);
+    if (result.isErr()) expect(result.error).toBe("No templates found");
   });
 
   it("stores multiple templates and lists them all", async () => {
