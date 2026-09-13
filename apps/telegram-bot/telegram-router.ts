@@ -1,5 +1,6 @@
 import { PINS } from "./prompt/pin";
 import { STICKERS } from "./prompt/sticker";
+import type { AgentOutput, SystemNotice } from "arbetslag";
 
 export class SmartTelegramRouter {
 	private readonly botToken: string;
@@ -11,7 +12,16 @@ export class SmartTelegramRouter {
 		this.chatId = chatId;
 	}
 
-	async route({ content }: { content?: string }): Promise<void> {
+	async route(event: AgentOutput | SystemNotice): Promise<void> {
+		// System notices (e.g. history compaction) render as an italic aside.
+		if ("kind" in event) {
+			const detail =
+				typeof event.beforeTokens === "number"
+				? ` ${event.beforeTokens} -> ${event.afterTokens} tokens`
+				: "";
+			console.log(`[SmartTelegramRouter] ${event.kind} (${event.content})${detail}`);
+		}
+		let content: string | undefined = "kind" in event ? `*${event.content}*` : event.content;
 		content = content?.trim();
 		if (!content || content === '""' || content === "''") {
 			console.log(`[SmartTelegramRouter] No content to send`);

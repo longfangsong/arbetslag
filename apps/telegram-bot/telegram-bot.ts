@@ -27,6 +27,7 @@ import {
 	InMemoryToolRepository,
 	type MessageEvent,
 	type ApiCallbackEvent,
+	type CompactRequest,
 	GetTime,
 	ReadFile,
 	FetchWebPage,
@@ -128,6 +129,29 @@ async function setWebhook(url: string): Promise<void> {
 	console.log(`✅ Webhook registered: ${url}`);
 }
 
+async function setMyCommands(): Promise<void> {
+	const res = await fetch(
+		`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setMyCommands`,
+		{
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				commands: [
+					{
+						command: "compact",
+						description: "Compress this chat's history to free context",
+					},
+				],
+			}),
+		},
+	);
+	const data = (await res.json()) as { ok: boolean; description?: string };
+	if (!data.ok) {
+		throw new Error(`Failed to set commands: ${data.description}`);
+	}
+	console.log("✅ Commands registered: /compact");
+}
+
 async function deleteWebhook(): Promise<void> {
 	await fetch(
 		`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook`,
@@ -191,10 +215,19 @@ async function processChatBatch(
 	// exists yet they fall back to text lines in the message, whose dispatch
 	// creates the default agent.
 	const callbacks = inputs.filter((i): i is ApiCallbackEvent => i.event_type === "api_callback");
-	const messageInputs = agent
-		? inputs.filter((i): i is MessageEvent => i.event_type === "message")
-		: inputs;
-	const firstMessage = inputs.find((i): i is MessageEvent => i.event_type === "message");
+	// /compact is a user command, not LLM input: route it as compact_request.
+	const isCompactCommand = (i: ChatInput) =>
+		i.event_type === "message" && i.content.trim() === "/compact";
+	const hasCompactCommand = inputs.some(isCompactCommand);
+	let messageInputs: Array<MessageEvent> | Array<ChatInput> = agent
+		? inputs.filter(
+				(i): i is MessageEvent =>
+					i.event_type === "message" && !isCompactCommand(i),
+			)
+		: inputs.filter((i): i is ChatInput => !isCompactCommand(i));
+	const firstMessage = messageInputs.find(
+		(i): i is MessageEvent => i.event_type === "message",
+	);
 	let event: MessageEvent | null = null;
 	if (messageInputs.length > 0) {
 		event =
@@ -259,6 +292,13 @@ async function processChatBatch(
 
 	const orchestrator = new Orchestrator(deps);
 	if (event) orchestrator.push(event);
+	if (hasCompactCommand) {
+		orchestrator.push({
+			id: randomUUID(),
+			event_type: "compact_request",
+			chat_id: chatId,
+		});
+	}
 	if (agent) {
 		for (const cb of callbacks) {
 			orchestrator.push({ ...cb, to_agent_id: agent.id });
@@ -329,6 +369,7 @@ app.get("/health", (c) => c.text("OK"));
 async function start(): Promise<void> {
 	try {
 		await setWebhook(WEBHOOK_URL + "/webhook");
+		await setMyCommands();
 	} catch (err) {
 		console.error("Failed to register webhook:", err);
 		console.log("⚠️  Webhook may already be set.");

@@ -68,10 +68,10 @@ export { SimpleMemoryRead, SimpleMemoryUpdate } from "./implementation/tool/memo
 export { MEMORY_FILE } from "./implementation/tool/memory";
 export type { Tool } from "./application/tool/model";
 export type { Agent } from "./application/agent/model";
-export type { MessageEvent, ApiCallbackEvent } from "./application/event/event";
+export type { MessageEvent, ApiCallbackEvent, CompactRequest, AgentOutput } from "./application/event/event";
 export type { FileSystem } from "./application/file/model";
 export type { Template } from "./application/agent/template/model";
-export type { OutputRouter } from "./application/outputRouter/model";
+export type { OutputRouter, SystemNotice } from "./application/outputRouter/model";
 export type { OrchestratorDeps, OntologyConfig };
 export type { Update } from "./implementation/inputAdopter/telegram";
 

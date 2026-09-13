@@ -92,6 +92,10 @@ export class OpenAIProvider implements AIProvider {
 			role: "assistant",
 			content: assistantContent,
 			tool_calls: toolCalls,
+			usage:
+				response.usage?.prompt_tokens != null
+					? { prompt_tokens: response.usage.prompt_tokens }
+					: undefined,
 		};
 	}
 }

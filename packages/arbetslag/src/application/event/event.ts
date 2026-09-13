@@ -69,6 +69,14 @@ export interface LLMCompletionResponse {
 	
 	content: string;
 	tool_calls?: Array<ToolCall>;
+	usage?: { prompt_tokens: number };
+}
+
+export interface CompactRequest {
+	id: string;
+	event_type: "compact_request";
+	
+	chat_id: string;
 }
 
 export interface AgentOutput {
@@ -87,4 +95,5 @@ export type Event =
 	| ApiCallbackEvent
 	| LLMCompletionRequest
 	| LLMCompletionResponse
+	| CompactRequest
 	| AgentOutput;

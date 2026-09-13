@@ -29,7 +29,9 @@ describe("FileSystemAgentRepository", () => {
     expect(retrieved).not.toBeNull();
     expect(retrieved!.id).toBe(agent.id);
     expect(retrieved!.template).toEqual(sampleTemplate);
-    expect(retrieved!.history).toEqual([]);
+    expect(retrieved!.history).toEqual([
+      { role: "system", content: "You are a test agent." },
+    ]);
     expect(result).toBe(agent);
   });
 
@@ -66,8 +68,8 @@ describe("FileSystemAgentRepository", () => {
     agent.history.push({ role: "user", content: "Hello" });
     await repo.add(agent);
     const retrieved = await repo.getById(agent.id);
-    expect(retrieved!.history).toHaveLength(1);
-    expect(retrieved!.history[0]).toEqual({ role: "user", content: "Hello" });
+    expect(retrieved!.history).toHaveLength(2);
+    expect(retrieved!.history[1]).toEqual({ role: "user", content: "Hello" });
   });
 
   it("persists agent with custom directory", async () => {

@@ -22,6 +22,27 @@ A recipe for creating agents. Specifies which AI provider and model to use, the 
 
 **Static**: Templates are defined at startup and never change. Existing agents keep their original template; new agents get the current (unchanging) version.
 
+## Compact
+
+Compaction of an Agent's history to keep it within the template's compact threshold. Triggered automatically before each LLM completion request (when the metered size crosses the threshold) or manually by the user (always runs). Both share one pipeline.
+
+Two levels, escalating in cost:
+
+- **Rule-level**: deterministic, no LLM call. Stubs out bulky tool-call arguments and tool results below the waterline; assistant and user text is never touched. Idempotent.
+- **LLM-level**: used when rule-level alone cannot bring the history below the threshold. Summarizes the entire below-waterline history (via the agent's own template model) into a single rolling summary, which is merged into the system entry (`history[0]` = system prompt + summary). On later compaction the previous summary is re-summarized along with newly-aged rounds — there is never more than one summary.
+
+### Waterline
+
+The boundary separating compactable old history from the retained recent rounds. The last N rounds (template-configured) stay untouched at both levels.
+
+### Round
+
+One user-initiated exchange: a user entry (user message, agent_message, or api_callback) plus all assistant and tool entries it triggers, up to the next user entry. Compaction boundaries always fall on round boundaries, so an assistant message with tool_calls is never separated from its tool results.
+
+### System Notice
+
+A message from the framework runtime to the user through the chat channel (e.g. "history was compacted"), as opposed to AgentOutput which is the agent's (LLM's) own utterance. Routed through the same OutputRouter, distinguishable by type.
+
 ## AI Provider
 
 An abstraction over an LLM service. Takes a message history and a list of tools, returns a completion result (text + optional tool calls).

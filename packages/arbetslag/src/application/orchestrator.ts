@@ -11,13 +11,25 @@ import {
   LLMCompletionRequest,
   LLMCompletionResponse,
   AgentOutput,
+  CompactRequest,
 } from "./event/event";
 import { Agent } from "./agent/model";
+import {
+  type CompactResult,
+  compactAgent,
+  estimateHistoryTokens,
+  estimateTokens,
+  formatCompactNotice,
+  NOTHING_TO_COMPACT,
+  DEFAULT_COMPACT_THRESHOLD,
+  DEFAULT_COMPACT_RETAIN_ROUNDS,
+} from "./agent/compact";
 import { FileSystem } from "./file/model";
 import type { Repository as AgentRepository } from "./agent/repository";
 import type { Repository as TemplateRepository } from "./agent/template/repository";
 import type { Repository as ToolRepository } from "./tool/repository";
 import type { Repository as AIProviderRepository } from "./aiProvider/repository";
+import type { AIProvider } from "./aiProvider/model";
 import type { OutputRouter } from "./outputRouter/model";
 
 export interface OrchestratorDeps {
@@ -56,6 +68,65 @@ export class Orchestrator {
     while (!this.bus.empty() && iterations < maxIterations) {
       await this.step();
       iterations++;
+    }
+  }
+
+  private notifyCompact(result: CompactResult): Promise<void> {
+    return this.deps.outputRouter
+      ? this.deps.outputRouter.route({
+          kind: "history_compacted",
+          content: result.compacted
+            ? formatCompactNotice(result.beforeTokens, result.afterTokens)
+            : NOTHING_TO_COMPACT,
+          beforeTokens: result.compacted ? result.beforeTokens : undefined,
+          afterTokens: result.compacted ? result.afterTokens : undefined,
+        })
+      : Promise.resolve();
+  }
+
+  /**
+   * Compact the agent's history before an LLM request if the metered size
+   * crosses the template threshold. Metering: anchor (last real
+   * prompt_tokens + estimated delta) when available, full estimation
+   * otherwise (ADR-0001). Notifies the user only when something was compacted.
+   */
+  private async compactIfNeeded(
+    agent: Agent,
+    provider: AIProvider | null,
+  ): Promise<void> {
+    const { agentRepository } = this.deps;
+    const template = agent.template;
+    const threshold =
+      template.compactThreshold ?? DEFAULT_COMPACT_THRESHOLD;
+    const retainRounds =
+      template.compactRetainRounds ?? DEFAULT_COMPACT_RETAIN_ROUNDS;
+    // Anchor branch: the anchor's prompt already covered history up to (but
+    // not including) the last assistant entry, so meter that entry plus all
+    // newer ones. Derived rather than stored: every LLM call appends exactly
+    // one assistant entry (agent messages are stored as user-role entries).
+    let anchorCursor = 0;
+    for (let i = agent.history.length - 1; i >= 0; i--) {
+      if (agent.history[i].role === "assistant") {
+        anchorCursor = i;
+        break;
+      }
+    }
+    const meteredTokens =
+      agent.lastPromptTokens != null
+        ? agent.lastPromptTokens + estimateHistoryTokens(agent.history.slice(anchorCursor))
+        : estimateTokens(template.systemPrompt) +
+          estimateHistoryTokens(agent.history);
+    if (meteredTokens < threshold) return;
+    const result = await compactAgent({
+      agent,
+      provider,
+      threshold,
+      retainRounds,
+      summaryPrompt: template.compactSummaryPrompt,
+    });
+    await agentRepository.save(agent);
+    if (result.compacted) {
+      await this.notifyCompact(result);
     }
   }
 
@@ -138,19 +209,18 @@ export class Orchestrator {
       case "llm_completion_request": {
         const e = event as LLMCompletionRequest;
         const agent = await agentRepository.getById(e.from_agent_id);
+        const template = agent!.template;
         const aiProvider = await aiProviderRepository.getByName(
-          agent!.template.ai_provider,
+          template.ai_provider,
         );
-        const outputSchema = agent!.template.outputSchema
-          ? z.fromJSONSchema(agent!.template.outputSchema)
+        await this.compactIfNeeded(agent!, aiProvider);
+        const outputSchema = template.outputSchema
+          ? z.fromJSONSchema(template.outputSchema)
           : undefined;
         const completion = await aiProvider?.complete(
-          agent!.template.model,
-          [
-            { role: "system", content: agent!.template.systemPrompt },
-            ...e.history,
-          ],
-          toolRepository.getByNames(agent!.template.allowedTools),
+          template.model,
+          agent!.history,
+          toolRepository.getByNames(template.allowedTools),
           outputSchema,
         );
         return [
@@ -160,8 +230,38 @@ export class Orchestrator {
             to_agent_id: agent!.id,
             content: completion!.content,
             tool_calls: completion!.tool_calls,
+            usage: completion!.usage,
           },
         ];
+      }
+
+      case "compact_request": {
+        const e = event as CompactRequest;
+        let agent = await agentRepository.getByChatId(e.chat_id);
+        if (!agent) {
+          // First message in the chat is /compact: create the agent the same
+          // way the "message" flow does, then compact (empty history ->
+          // nothing to compact, but the agent now exists for the user).
+          const template = await templateRepository.default();
+          agent = Agent.create(template);
+          agent.chatId = e.chat_id;
+          await agentRepository.setEntryAgent(e.chat_id, agent);
+        }
+        const result = await compactAgent({
+          agent,
+          provider: await aiProviderRepository.getByName(
+            agent.template.ai_provider,
+          ),
+          threshold:
+            agent.template.compactThreshold ?? DEFAULT_COMPACT_THRESHOLD,
+          retainRounds:
+            agent.template.compactRetainRounds ??
+            DEFAULT_COMPACT_RETAIN_ROUNDS,
+          summaryPrompt: agent.template.compactSummaryPrompt,
+        });
+        await agentRepository.save(agent);
+        await this.notifyCompact(result);
+        return [];
       }
 
       case "llm_completion_response": {

@@ -16,6 +16,7 @@ export interface SerializedAgent {
   history: Array<HistoryEntry>;
   chatId?: string;
   waitingForToolCallCount?: number;
+  lastPromptTokens?: number;
 }
 
 export class Agent {
@@ -23,6 +24,12 @@ export class Agent {
   public readonly template: Template;
   public history: Array<HistoryEntry> = [];
   public chatId?: string;
+  /**
+   * Token metering anchor (see docs/adr/0001-compact-token-metering.md):
+   * real prompt_tokens of the last LLM request and the history length at that
+   * request. Public because the orchestrator meters the next request.
+   */
+  public lastPromptTokens?: number;
   private waitingForToolCallCount = 0;
 
   private constructor(
@@ -36,13 +43,16 @@ export class Agent {
   }
 
   static create(template: Template): Agent {
-    return new Agent(nanoid(10), template, []);
+    return new Agent(nanoid(10), template, [
+      { role: "system", content: template.systemPrompt },
+    ]);
   }
 
   static deserialize(data: SerializedAgent): Agent {
     const agent = new Agent(data.id, data.template, data.history);
     if (data.chatId) agent.chatId = data.chatId;
     if (data.waitingForToolCallCount != null) agent.waitingForToolCallCount = data.waitingForToolCallCount;
+    if (data.lastPromptTokens != null) agent.lastPromptTokens = data.lastPromptTokens;
     return agent;
   }
 
@@ -53,7 +63,13 @@ export class Agent {
       history: this.history,
       chatId: this.chatId,
       waitingForToolCallCount: this.waitingForToolCallCount,
+      lastPromptTokens: this.lastPromptTokens,
     };
+  }
+
+  /** Drop the token metering anchor after the history has been compacted. */
+  invalidateAnchor(): void {
+    this.lastPromptTokens = undefined;
   }
 
   handleMessage(event: MessageEvent): Array<Event> {
@@ -137,6 +153,9 @@ export class Agent {
       content: event.content,
       tool_calls: event.tool_calls,
     });
+    if (event.usage?.prompt_tokens != null) {
+      this.lastPromptTokens = event.usage.prompt_tokens;
+    }
     this.waitingForToolCallCount = event.tool_calls ? event.tool_calls.length : 0;
     const events: Array<Event> = [];
     for (const toolCall of event.tool_calls || []) {

@@ -1,4 +1,4 @@
-import { OutputRouter } from "@/application/outputRouter/model";
+import { OutputRouter, type SystemNotice } from "@/application/outputRouter/model";
 import { AgentOutput } from "@/application/event/event";
 
 export class Telegram implements OutputRouter {
@@ -12,7 +12,7 @@ export class Telegram implements OutputRouter {
 		this.apiBase = apiBase;
 	}
 
-	async route(event: AgentOutput): Promise<void> {
+	async route(event: AgentOutput | SystemNotice): Promise<void> {
 		console.log(`[TelegramOutput] chatId=${this.chatId}, content_len=${(event.content ?? '').length}`);
 		console.log(`[TelegramOutput] content_preview="${(event.content ?? '').slice(0, 200)}"`);
 		const res = await fetch(

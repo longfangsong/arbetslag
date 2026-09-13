@@ -15,6 +15,7 @@ export interface CompletionResult {
 	role: "assistant";
 	content: string;
 	tool_calls?: Array<ToolCall>;
+	usage?: { prompt_tokens: number };
 }
 
 export type HistoryEntry =
