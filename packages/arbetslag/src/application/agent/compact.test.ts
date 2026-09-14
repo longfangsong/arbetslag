@@ -349,6 +349,36 @@ describe("compactAgent", () => {
     expect(agent.history.filter((e) => e.role === "system")).toHaveLength(1);
   });
 
+  it("rule-compacts the retained rounds themselves when they alone exceed the threshold", async () => {
+    const agent = Agent.create(template);
+    agent.history = [
+      { role: "system", content: "sys" },
+      ...makeRound(1, 5000),
+      ...makeRound(2, 5000),
+    ];
+
+    const { provider, calls } = makeProvider([], () => {
+      throw new Error("provider should not be called");
+    });
+    const result = unwrap(await compactAgent({
+      agent,
+      provider,
+      threshold: 1000,
+      retainRounds: 4,
+    }));
+
+    expect(calls).toHaveLength(0);
+    expect(result.compacted).toBe(true);
+    expect(result.beforeTokens).toBeGreaterThan(result.afterTokens);
+    // both tool results stubbed (no round is old enough for the waterline)
+    for (const entry of agent.history) {
+      if (entry.role === "tool") {
+        expect(entry.content).toMatch(/^\[omitted:read_file\]/);
+      }
+    }
+    expect(agent.lastPromptTokens).toBeUndefined();
+  });
+
   it("accepts overflow when only retained rounds exist", async () => {
     const agent = Agent.create(template);
     agent.history = [{ role: "user", content: "u".repeat(5000) }];

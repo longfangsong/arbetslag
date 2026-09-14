@@ -272,10 +272,25 @@ export async function compactAgent({
         estimateTokens(systemPrompt) + estimateHistoryTokens(agent.history);
       compacted = true;
     } else {
-      // Only the retained rounds exist and they alone exceed the threshold.
-      console.warn(
-        `[compact] agent ${agent.id}: retained rounds alone exceed threshold (${afterTokens} >= ${threshold}) — accepting overflow`,
+      // Only the retained rounds exist and they alone exceed the threshold:
+      // rule-based compaction of the retained rounds themselves (stub their
+      // tool I/O) as a last resort before accepting overflow.
+      const { history, changed } = applyRuleBasedCompaction(
+        agent.history,
+        agent.history.length,
       );
+      if (changed) {
+        agent.history = history;
+        compacted = true;
+        afterTokens =
+          estimateTokens(systemPrompt) + estimateHistoryTokens(agent.history);
+      } else {
+        // No tool I/O to stub and the retained rounds still exceed the
+        // threshold — accepting overflow.
+        console.warn(
+          `[compact] agent ${agent.id}: retained rounds alone exceed threshold (${afterTokens} >= ${threshold}) — accepting overflow`,
+        );
+      }
     }
   }
 
