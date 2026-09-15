@@ -3,13 +3,25 @@ import util from "node:util";
 import { z } from "zod";
 import { Result, ok, err } from "neverthrow";
 import { AIProvider } from "@/application/aiProvider/model";
-import { HistoryEntry, CompletionResult } from "@/application/agent/history";
+import { HistoryEntry, CompletionResult, ContentPart, contentText } from "@/application/agent/history";
 import { Tool } from "@/application/tool/model";
-import type { ChatCompletionCreateParamsNonStreaming, ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat";
+import type { ChatCompletionCreateParamsNonStreaming, ChatCompletionMessageParam, ChatCompletionContentPartText, ChatCompletionContentPartImage, ChatCompletionTool } from "openai/resources/chat";
 import { zodResponseFormat } from "openai/helpers/zod.js";
 
 /** Per-request timeout for LLM API calls (20 minutes). */
 const REQUEST_TIMEOUT_MS = 20 * 60 * 1000;
+
+/** Map framework content to OpenAI's wire format (string or text/image parts). */
+function contentToStringOrParts(
+	content: string | Array<ContentPart>,
+): string | Array<ChatCompletionContentPartText | ChatCompletionContentPartImage> {
+	if (typeof content === "string") return content;
+	return content.map((part) =>
+		part.type === "image"
+			? ({ type: "image_url", image_url: { url: part.url } } as const)
+			: ({ type: "text", text: part.text } as const),
+	);
+}
 
 export class OpenAIProvider implements AIProvider {
 	name: string = "openai";
@@ -51,7 +63,16 @@ export class OpenAIProvider implements AIProvider {
 					})),
 				};
 			}
-			return { role: entry.role, content: entry.content };
+			if (entry.role === "system") {
+				return {
+					role: "system" as const,
+					content: contentText(entry.content),
+				};
+			}
+			return {
+				role: "user" as const,
+				content: contentToStringOrParts(entry.content),
+			};
 		});
 
 		const tools: ChatCompletionTool[] = allowedTools.map((tool) => {

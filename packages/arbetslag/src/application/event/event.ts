@@ -1,4 +1,4 @@
-import { HistoryEntry, ToolCall } from "../agent/history";
+import { ContentPart, HistoryEntry, ToolCall } from "../agent/history";
 
 export interface ToolCallRequest {
 	id: string;
@@ -16,7 +16,8 @@ export interface MessageEvent {
 	chat_id: string;
 
 	adapter: string;
-	content: string;
+	/** Plain text, or content parts when the message carries images. */
+	content: string | Array<ContentPart>;
 	send_time: number; // epoch ms
 	sender?: string;
 }

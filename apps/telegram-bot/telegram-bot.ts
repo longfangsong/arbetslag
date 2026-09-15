@@ -39,6 +39,8 @@ import {
 	type OrchestratorDeps,
 	type Template,
 	type Update,
+	type ContentPart,
+	contentText,
 } from "arbetslag";
 import { UpdateBatcher } from "./batcher";
 import { STICKERS } from "./prompt/sticker";
@@ -96,13 +98,25 @@ for (const t of config.templates ?? []) {
 /** One item queued per chat: everything is a domain event. */
 type ChatInput = MessageEvent | ApiCallbackEvent;
 
-function formatInputLine(input: ChatInput): string {
+function formatInputParts(input: ChatInput): Array<ContentPart> {
 	if (input.event_type === "api_callback") {
-		return `<api_callback>\n<id>${input.id}</id>\n<api_name>${input.api_name}</api_name>\n<payload>\n${input.content}\n</payload>\n</api_callback>`;
-	} else {
-		const time = format(new Date(input.send_time), "HH:mm:ss");
-		return `[${time}] ${input.sender ?? "user"}: ${input.content}`;
+		return [
+			{
+				type: "text",
+				text: `<api_callback>\n<id>${input.id}</id>\n<api_name>${input.api_name}</api_name>\n<payload>\n${input.content}\n</payload>\n</api_callback>`,
+			},
+		];
 	}
+	const parts: Array<ContentPart> = [];
+	const caption = contentText(input.content);
+	if (caption) {
+		const time = format(new Date(input.send_time), "HH:mm:ss");
+		parts.push({ type: "text", text: `[${time}] ${input.sender ?? "user"}: ${caption}` });
+	}
+	if (typeof input.content !== "string") {
+		parts.push(...input.content.filter((p) => p.type === "image"));
+	}
+	return parts;
 }
 
 async function setWebhook(url: string): Promise<void> {
@@ -161,6 +175,7 @@ async function deleteWebhook(): Promise<void> {
 }
 
 // ── Process a Telegram update ───────────────────────────────────────────────
+const inputAdopter = new TelegramInputAdopter(TELEGRAM_BOT_TOKEN);
 const lastActive = new Map<string, number>();
 const printedHistory = new Map<string, number>();
 let chain: Promise<void> = Promise.resolve();
@@ -186,10 +201,11 @@ const batcher = new UpdateBatcher<ChatInput>(FLUSH_QUIET_MS, (chatId, inputs) =>
 		});
 });
 
-function handleUpdate(update: Update): void {
-	const event = new TelegramInputAdopter().convert(update);
-	if (!event) return;
-	batcher.enqueue(event.chat_id, event);
+function handleUpdate(update: Update): Promise<void> {
+	return inputAdopter.convert(update).then((event) => {
+		if (!event) return;
+		batcher.enqueue(event.chat_id, event);
+	});
 }
 
 async function processChatBatch(
@@ -217,7 +233,7 @@ async function processChatBatch(
 	const callbacks = inputs.filter((i): i is ApiCallbackEvent => i.event_type === "api_callback");
 	// /compact is a user command, not LLM input: route it as compact_request.
 	const isCompactCommand = (i: ChatInput) =>
-		i.event_type === "message" && i.content.trim() === "/compact";
+		i.event_type === "message" && contentText(i.content).trim() === "/compact";
 	const hasCompactCommand = inputs.some(isCompactCommand);
 	let messageInputs: Array<MessageEvent> | Array<ChatInput> = agent
 		? inputs.filter(
@@ -241,7 +257,7 @@ async function processChatBatch(
 					content: "",
 					send_time: Date.now(),
 				};
-		event.content = messageInputs.map(formatInputLine).join("\n");
+		event.content = messageInputs.flatMap(formatInputParts);
 	}
 
 	// Build orchestrator with custom OutputRouter.
@@ -369,7 +385,7 @@ app.get("/cron", async (c) => {
 app.post("/webhook", async (c) => {
 	const update = await c.req.json();
 	console.log(`[webhook] received update: ${JSON.stringify(update)}`);
-	handleUpdate(update as Update);
+	await handleUpdate(update as Update);
 	return c.text("OK");
 });
 

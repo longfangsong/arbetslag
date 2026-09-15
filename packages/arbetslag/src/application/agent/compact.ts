@@ -1,7 +1,7 @@
 import { Result, ok, err } from "neverthrow";
 import { AIProvider } from "@/application/aiProvider/model";
 import { Agent } from "./model";
-import { HistoryEntry } from "./history";
+import { ContentPart, HistoryEntry, contentText } from "./history";
 
 export const DEFAULT_COMPACT_THRESHOLD = 32768;
 export const DEFAULT_COMPACT_RETAIN_ROUNDS = 4;
@@ -19,6 +19,14 @@ export function estimateTokens(text: string): number {
   return cjk + Math.ceil((text.length - cjk) / 4);
 }
 
+// ponytail: images billed as a flat 1024 tokens (OpenAI low-detail price),
+// no per-pixel accounting.
+const IMAGE_TOKEN_ESTIMATE = 1024;
+
+function countImages(content: string | Array<ContentPart>): number {
+	return typeof content === "string" ? 0 : content.filter((p) => p.type === "image").length;
+}
+
 export function estimateEntryTokens(entry: HistoryEntry): number {
   if (entry.role === "assistant") {
     return (
@@ -26,7 +34,7 @@ export function estimateEntryTokens(entry: HistoryEntry): number {
       estimateTokens(JSON.stringify(entry.tool_calls ?? {}))
     );
   }
-  return estimateTokens(entry.content);
+  return estimateTokens(contentText(entry.content)) + countImages(entry.content) * IMAGE_TOKEN_ESTIMATE;
 }
 
 export function estimateHistoryTokens(history: Array<HistoryEntry>): number {
@@ -142,9 +150,11 @@ export function serializeHistoryForSummary(
     .map((entry) => {
       switch (entry.role) {
         case "system":
-          return `[summary] ${entry.content}`;
-        case "user":
-          return `[user] ${entry.content}`;
+          return `[summary] ${contentText(entry.content)}`;
+        case "user": {
+          const images = countImages(entry.content);
+          return `[user] ${contentText(entry.content)}${images ? ` [${images} image(s)]` : ""}`;
+        }
         case "tool":
           return `[tool ${entry.name}] ${entry.content}`;
         case "assistant": {

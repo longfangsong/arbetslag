@@ -10,6 +10,7 @@ function unwrap<T>(r: Result<T, string>): T {
 import { Orchestrator } from "./orchestrator";
 import { Agent } from "./agent/model";
 import type { HistoryEntry } from "./agent/history";
+import { contentText } from "./agent/history";
 import { MessageEvent } from "./event/event";
 import { InMemoryFileSystem } from "@/implementation/tool/file/filesystem/inMemory";
 import { FileSystemAgentRepository } from "@/implementation/agent/repository";
@@ -332,7 +333,7 @@ describe("compact", () => {
         if (
           history.length === 2 &&
           history[0].role === "system" &&
-          history[0].content.includes("CUSTOM")
+          contentText(history[0].content).includes("CUSTOM")
         ) {
           return ok({ role: "assistant", content: "SUMMARY TEXT", tool_calls: [] });
         }
