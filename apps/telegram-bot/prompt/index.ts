@@ -23,7 +23,7 @@ const BASE_SYSTEM_PROMPT =
 1. 引用【置顶消息】：如果当前场景命中下面的【置顶消息】，在文字前单独一行写 [[pin:ID]] 引用它，ID 必须从列表中原样选择，不要自己编造。
 2. 发表情包：单独一行写 [[sticker:ID]]，ID 必须从下面的列表中原样选择，不要自己编造。
 3. 发文字：用 markdown 格式输出你要说的话。请使用 @username 点名群友，username 必须从聊天记录中原样选择，不要自己编造。
-4. 不发言：输出空字符串 ""
+4. 不发言：输出空字符串 ""，请不要添加任何说明
 
 【置顶消息】（括号内是引用场景；没有高度契合的场景就不要引用）
 {{PIN_LIST}}
@@ -129,6 +129,6 @@ export function buildSystemPrompt(stickers: Sticker[], pins: PinMessage[]): stri
 		BASE_SYSTEM_PROMPT
 			.replace("{{STICKER_LIST}}", stickerList)
 			.replace("{{PIN_LIST}}", pinList) +
-		`\n\n【示例】\n${EXAMPLES}\n`
+		`\n\n【示例】（注意括号中的说明是给你看的，并非预期需要输出的内容）\n${EXAMPLES}\n`
 	);
 }
