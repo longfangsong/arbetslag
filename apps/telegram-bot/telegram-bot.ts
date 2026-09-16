@@ -98,6 +98,13 @@ for (const t of config.templates ?? []) {
 /** One item queued per chat: everything is a domain event. */
 type ChatInput = MessageEvent | ApiCallbackEvent;
 
+function contentForLog(content: string | Array<ContentPart>): string {
+	if (typeof content === "string") return content;
+	return content
+		.map((p) => (p.type === "image" ? "[[image]]" : p.text))
+		.join(" ");
+}
+
 function formatInputParts(input: ChatInput): Array<ContentPart> {
 	if (input.event_type === "api_callback") {
 		return [
@@ -321,7 +328,7 @@ async function processChatBatch(
 		}
 	}
 	console.log(
-		`[processChatBatch] chat ${chatId} processing ${event ? JSON.stringify(event.content) : ""} callbacks=[${callbacks.map((c) => c.id).join(",")}]`,
+		`[processChatBatch] chat ${chatId} processing ${event ? contentForLog(event.content) : ""} callbacks=[${callbacks.map((c) => c.id).join(",")}]`,
 	);
 	const result = await orchestrator.stepUntilIdle();
 	result.match(
@@ -344,7 +351,7 @@ async function processChatBatch(
 					h.role === "assistant" && h.tool_calls
 						? ` tool_calls=[${h.tool_calls.map((t) => t.tool_name).join(", ")}]`
 						: "";
-				console.log(`  [${i}] ${h.role}: ${contentText(h.content).slice(0, 500)}${extra}`);
+				console.log(`  [${i}] ${h.role}: ${contentForLog(h.content).slice(0, 500)}${extra}`);
 			}
 			printedHistory.set(chatId, updatedAgent.history.length);
 		}
