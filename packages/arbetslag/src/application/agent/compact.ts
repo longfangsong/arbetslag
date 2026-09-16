@@ -217,6 +217,10 @@ export async function compactAgent({
   const beforeTokens =
     estimateTokens(systemPrompt) + estimateHistoryTokens(agent.history);
   const waterline = findWaterline(agent.history, retainRounds);
+  // Snapshot before any mutation so a compaction that ends up larger than it
+  // started (e.g. an LLM summary of a tiny segment cost more than it saved)
+  // can be rolled back to a clean no-op instead of a half-compacted history.
+  const originalHistory = agent.history;
 
   let compacted = false;
   if (waterline > 0) {
@@ -302,6 +306,16 @@ export async function compactAgent({
         );
       }
     }
+  }
+
+  // ponytail: if the whole attempt left history no smaller than it started —
+  // the summarizer of a small segment cost more than it saved — abandon it:
+  // restore the pre-compaction history and report un-compacted, so the caller
+  // sends no notice (and the anchor stays valid for the unchanged history).
+  if (afterTokens >= beforeTokens) {
+    agent.history = originalHistory;
+    compacted = false;
+    afterTokens = beforeTokens;
   }
 
   if (compacted) agent.invalidateAnchor();

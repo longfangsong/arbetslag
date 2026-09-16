@@ -287,6 +287,40 @@ describe("compactAgent", () => {
     }
   });
 
+  it("abandons compaction when the summary leaves history no smaller than before", async () => {
+    const agent = Agent.create(template);
+    // One tiny round below the waterline (the summarizable segment) plus big
+    // retained rounds that push the whole thing over the threshold.
+    agent.history = [
+      { role: "system", content: "sys" },
+      ...makeRound(1),
+      ...makeRound(2, 20000),
+      ...makeRound(3, 20000),
+      ...makeRound(4, 20000),
+      ...makeRound(5, 20000),
+    ];
+    const originalLength = agent.history.length;
+
+    // A summary far bigger than the tiny segment it replaces.
+    const { provider } = makeProvider([{ content: "x".repeat(500) }]);
+    const result = unwrap(await compactAgent({
+      agent,
+      provider,
+      threshold: 1000,
+      retainRounds: 4,
+    }));
+
+    // Net negative: rolled back to a clean no-op, nothing committed.
+    expect(result.compacted).toBe(false);
+    expect(result.afterTokens).toBeLessThanOrEqual(result.beforeTokens);
+    expect(agent.history[0].role).toBe("system");
+    if (agent.history[0].role === "system") {
+      expect(agent.history[0].content).toBe("sys");
+    }
+    // Same entry count as we started with — no summary was injected.
+    expect(agent.history).toHaveLength(originalLength);
+  });
+
   it("uses the per-template summary prompt when provided", async () => {
     const agent = Agent.create({
       ...template,
