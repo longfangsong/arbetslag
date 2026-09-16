@@ -344,7 +344,7 @@ async function processChatBatch(
 					h.role === "assistant" && h.tool_calls
 						? ` tool_calls=[${h.tool_calls.map((t) => t.tool_name).join(", ")}]`
 						: "";
-				console.log(`  [${i}] ${h.role}: ${String(h.content ?? "").slice(0, 500)}${extra}`);
+				console.log(`  [${i}] ${h.role}: ${contentText(h.content).slice(0, 500)}${extra}`);
 			}
 			printedHistory.set(chatId, updatedAgent.history.length);
 		}
