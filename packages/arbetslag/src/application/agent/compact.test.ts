@@ -258,14 +258,12 @@ describe("compactAgent", () => {
     ];
 
     const { provider, calls } = makeProvider([{ content: "SUMMARY TEXT" }]);
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const result = unwrap(await compactAgent({
       agent,
       provider,
       threshold: 1000,
       retainRounds: 2,
     }));
-    warn.mockRestore();
 
     expect(result.compacted).toBe(true);
     expect(calls).toHaveLength(1);
@@ -416,7 +414,6 @@ describe("compactAgent", () => {
   it("accepts overflow when only retained rounds exist", async () => {
     const agent = Agent.create(template);
     agent.history = [{ role: "user", content: "u".repeat(5000) }];
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const result = unwrap(await compactAgent({
       agent,
       provider: null,
@@ -426,8 +423,6 @@ describe("compactAgent", () => {
 
     expect(result.compacted).toBe(false);
     expect(agent.history).toHaveLength(1);
-    expect(warn).toHaveBeenCalled();
-    warn.mockRestore();
   });
 
   it("does nothing and reports un-compacted when below the waterline and under threshold", async () => {

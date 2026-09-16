@@ -2,6 +2,7 @@ import { PINS } from "./prompt/pin";
 import { STICKERS } from "./prompt/sticker";
 import type { AgentOutput, SystemNotice } from "arbetslag";
 import { Result, ok, err } from "neverthrow";
+import { log, warn } from "./logger";
 
 export class SmartTelegramRouter {
 	private readonly botToken: string;
@@ -20,13 +21,13 @@ export class SmartTelegramRouter {
 				typeof event.beforeTokens === "number"
 				? ` ${event.beforeTokens} -> ${event.afterTokens} tokens`
 				: "";
-			console.log(`[SmartTelegramRouter] ${event.kind} (${event.content})${detail}`);
+			log(`[SmartTelegramRouter] ${event.kind} (${event.content})${detail}`);
 			return ok(undefined);
 		}
 		let content: string | undefined = event.content;
 		content = content?.trim();
 		if (!content || content === '""' || content === "''") {
-			console.log(`[SmartTelegramRouter] No content to send`);
+			log(`[SmartTelegramRouter] No content to send`);
 			return ok(undefined);
 		}
 
@@ -41,17 +42,17 @@ export class SmartTelegramRouter {
 			.replace(/\[\[pin:[a-zA-Z0-9_-]+\]\]/g, "！")
 			.trim();
 		if (pin) {
-			console.log(
+			log(
 				`[SmartTelegramRouter] quoting pinned message ${pin.id} (#${pin.messageId})`,
 			);
 		}
 
 		if (stickerTokens.length === 0 && !text) {
-			console.log(`[SmartTelegramRouter] No content to send`);
+			log(`[SmartTelegramRouter] No content to send`);
 			return ok(undefined);
 		}
 
-		console.log(
+		log(
 			`[SmartTelegramRouter] Sending to chat ${this.chatId}: ${text || "(sticker only)"}${stickerTokens.length ? ` + sticker(s): ${stickerTokens.join(", ")}` : ""}`,
 		);
 
@@ -72,7 +73,7 @@ export class SmartTelegramRouter {
 			});
 			if (!res.ok) {
 				const body = await res.text();
-				console.log(`[SmartTelegramRouter] error: ${res.status} ${body}`);
+				log(`[SmartTelegramRouter] error: ${res.status} ${body}`);
 				return err(`Telegram API error: ${res.status} ${body}`);
 			}
 		}
@@ -80,7 +81,7 @@ export class SmartTelegramRouter {
 		for (const id of stickerTokens) {
 			const sticker = STICKERS.find((s) => s.id === id);
 			if (!sticker) {
-				console.warn(`[SmartTelegramRouter] unknown sticker id: ${id}`);
+				warn(`[SmartTelegramRouter] unknown sticker id: ${id}`);
 				continue;
 			}
 			const res = await fetch(
@@ -93,7 +94,7 @@ export class SmartTelegramRouter {
 			);
 			if (!res.ok) {
 				const body = await res.text();
-				console.log(`[SmartTelegramRouter] sendSticker error: ${res.status} ${body}`);
+				log(`[SmartTelegramRouter] sendSticker error: ${res.status} ${body}`);
 			}
 		}
 		return ok(undefined);

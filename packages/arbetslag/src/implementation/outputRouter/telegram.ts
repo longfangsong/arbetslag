@@ -1,6 +1,9 @@
 import { OutputRouter, type SystemNotice } from "@/application/outputRouter/model";
 import { AgentOutput } from "@/application/event/event";
 import { Result, ok, err } from "neverthrow";
+import createDebug from "debug";
+
+const log = createDebug("arbetslag:output");
 
 export class Telegram implements OutputRouter {
 	private readonly botToken: string;
@@ -14,8 +17,8 @@ export class Telegram implements OutputRouter {
 	}
 
 	async route(event: AgentOutput | SystemNotice): Promise<Result<void, string>> {
-		console.log(`[TelegramOutput] chatId=${this.chatId}, content_len=${(event.content ?? '').length}`);
-		console.log(`[TelegramOutput] content_preview="${(event.content ?? '').slice(0, 200)}"`);
+		log(`chatId=${this.chatId}, content_len=${(event.content ?? '').length}`);
+		log(`content_preview="${(event.content ?? '').slice(0, 200)}"`);
 		const res = await fetch(
 			`${this.apiBase}/bot${this.botToken}/sendRichMessage`,
 			{
@@ -31,10 +34,10 @@ export class Telegram implements OutputRouter {
 		);
 		if (!res.ok) {
 			const body = await res.text();
-			console.log(`[TelegramOutput] ❌ error: ${res.status} ${body}`);
+			log(`❌ error: ${res.status} ${body}`);
 			return err(`Telegram API error: ${res.status} ${body}`);
 		}
-		console.log(`[TelegramOutput] ✅ sent OK`);
+		log(`✅ sent OK`);
 		return ok(undefined);
 	}
 }

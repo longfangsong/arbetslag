@@ -4,6 +4,9 @@ import { ok, err, Result } from "neverthrow";
 import { ToolExecutingContext } from "@/application/tool/model";
 import { Agent } from "@/application/agent/model";
 import { CronTool, parseCronExpression } from ".";
+import createDebug from "debug";
+
+const log = createDebug("arbetslag:tool");
 
 export const CronCreateInputSchema = z
 	.object({
@@ -63,6 +66,7 @@ export class CronCreate extends CronTool<
 	): Promise<Result<CronCreateResult, string>> {
 		const schedule = parseCronExpression(input.schedule);
 		if (schedule === null) {
+			log(`❌ invalid cron expression: "${input.schedule}"`);
 			return err(
 				`Invalid cron expression: "${input.schedule}". Expected 5 fields: minute hour day-of-month month day-of-week.`,
 			);
@@ -72,6 +76,7 @@ export class CronCreate extends CronTool<
 		try {
 			url = new URL(this.callbackUrl);
 		} catch {
+			log(`❌ invalid callback URL: ${this.callbackUrl}`);
 			return err(`Invalid callback URL: ${this.callbackUrl}`);
 		}
 
@@ -79,6 +84,7 @@ export class CronCreate extends CronTool<
 		// the bot delivers the payload to the chat the job was created in.
 		const chatId = _caller?.chatId;
 		if (!chatId) {
+			log(`❌ caller agent has no chatId`);
 			return err("Caller agent has no chatId; cannot build callback URL.");
 		}
 		url.searchParams.set("chat", chatId);
@@ -102,9 +108,11 @@ export class CronCreate extends CronTool<
 				}),
 			})) as { jobId?: number };
 			if (data.jobId === undefined) {
+				log(`❌ cron-job.org did not return a jobId`);
 				return err("cron-job.org did not return a jobId.");
 			}
 			const jobId = data.jobId;
+			log(`created jobId=${jobId}`);
 			// Embed the jobId so the callback identifies which job fired (needed
 			// for delete_cron); the id only exists after creation, so update.
 			// (Updates use PATCH — PUT /jobs/:id returns 404.)

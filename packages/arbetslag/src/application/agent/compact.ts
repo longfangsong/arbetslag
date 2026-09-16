@@ -2,6 +2,9 @@ import { Result, ok, err } from "neverthrow";
 import { AIProvider } from "@/application/aiProvider/model";
 import { Agent } from "./model";
 import { ContentPart, HistoryEntry, contentText } from "./history";
+import createDebug from "debug";
+
+const log = createDebug("arbetslag:compact");
 
 export const DEFAULT_COMPACT_THRESHOLD = 32768;
 export const DEFAULT_COMPACT_RETAIN_ROUNDS = 4;
@@ -301,8 +304,8 @@ export async function compactAgent({
       } else {
         // No tool I/O to stub and the retained rounds still exceed the
         // threshold — accepting overflow.
-        console.warn(
-          `[compact] agent ${agent.id}: retained rounds alone exceed threshold (${afterTokens} >= ${threshold}) — accepting overflow`,
+        log(
+          `⚠️ agent ${agent.id}: retained rounds alone exceed threshold (${afterTokens} >= ${threshold}) — accepting overflow`,
         );
       }
     }
