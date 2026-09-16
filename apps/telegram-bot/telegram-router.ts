@@ -14,15 +14,16 @@ export class SmartTelegramRouter {
 	}
 
 	async route(event: AgentOutput | SystemNotice): Promise<Result<void, string>> {
-		// System notices (e.g. history compaction) render as an italic aside.
+		// System notices (e.g. history compaction) are log-only, never sent to the chat.
 		if ("kind" in event) {
 			const detail =
 				typeof event.beforeTokens === "number"
 				? ` ${event.beforeTokens} -> ${event.afterTokens} tokens`
 				: "";
 			console.log(`[SmartTelegramRouter] ${event.kind} (${event.content})${detail}`);
+			return ok(undefined);
 		}
-		let content: string | undefined = "kind" in event ? `*${event.content}*` : event.content;
+		let content: string | undefined = event.content;
 		content = content?.trim();
 		if (!content || content === '""' || content === "''") {
 			console.log(`[SmartTelegramRouter] No content to send`);
