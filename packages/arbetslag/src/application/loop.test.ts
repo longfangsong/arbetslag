@@ -1,12 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { ok, Result } from "neverthrow";
-
-// Unwrap a Result; the test setups are valid, so a failure here is a real bug.
-function unwrap<T>(r: Result<T, string>): T {
-  return r.match((v) => v, (e) => {
-    throw new Error(e);
-  });
-}
+import { ok } from "neverthrow";
+import { unwrap } from "../utils";
 import { Orchestrator } from "./orchestrator";
 import { Agent } from "./agent/model";
 import type { HistoryEntry } from "./agent/history";
@@ -280,7 +274,7 @@ describe("compact", () => {
     );
     await templateRepo.add(compactTemplate);
 
-    // Seed an agent whose anchor says the last request was already huge.
+    // Seed an agent whose lastPromptTokens says the last request was already huge.
     const agent = Agent.create(compactTemplate);
     agent.chatId = "chat-1";
     agent.history = [
@@ -306,7 +300,7 @@ describe("compact", () => {
       if (e.role === "tool") expect(e.content).toBe("[omitted]");
     }
 
-    // Agent was saved with stubbed history and the anchor was invalidated.
+    // Agent was saved with stubbed history and lastPromptTokens was dropped.
     // (system entry + round 1: user, assistant, tool, assistant → tool is index 3)
     const saved = (await agentRepo.getByChatId("chat-1"))!;
     expect(saved.lastPromptTokens).toBeUndefined();

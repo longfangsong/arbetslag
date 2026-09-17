@@ -26,6 +26,11 @@ export type ContentPart =
 /** Message content: a list of content parts (a plain text message is a single text part). */
 export type Content = Array<ContentPart>;
 
+/** Count the image parts in a message content. */
+export function countImages(content: Content): number {
+	return content.filter((p) => p.type === "image").length;
+}
+
 /** Build content from plain text. */
 export function text(s: string): Content {
 	return [{ type: "text", text: s }];
@@ -54,9 +59,4 @@ export function hasToolCalls(
 	entry: HistoryEntry,
 ): entry is AssistantEntry & { tool_calls: Array<ToolCall> } {
 	return entry.role === "assistant" && entry.tool_calls !== undefined;
-}
-
-/** Count the image parts in a message content. */
-export function countImages(content: Content): number {
-	return content.filter((p) => p.type === "image").length;
 }

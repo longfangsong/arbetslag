@@ -24,10 +24,12 @@ export class Agent {
   public readonly template: Template;
   public history: Array<HistoryEntry> = [];
   public chatId?: string;
+
   /**
-   * Token metering anchor (see docs/adr/0001-compact-token-metering.md):
-   * real prompt_tokens of the last LLM request and the history length at that
-   * request. Public because the orchestrator meters the next request.
+   * Real prompt_tokens of the last LLM response (see
+   * docs/adr/0001-compact-token-metering.md): the orchestrator meters the
+   * next request as this value plus an estimate of the history added since.
+   * Public because the orchestrator meters the next request.
    */
   public lastPromptTokens?: number;
   private waitingForToolCallCount = 0;
@@ -73,8 +75,9 @@ export class Agent {
     };
   }
 
-  /** Drop the token metering anchor after the history has been compacted. */
-  invalidateAnchor(): void {
+  // Invalidate the lastPromptTokens so that the next request will be metered with a new estimate.
+  // Use when the history has been changed, e.g. after compaction.
+  clearLastPromptTokens(): void {
     this.lastPromptTokens = undefined;
   }
 

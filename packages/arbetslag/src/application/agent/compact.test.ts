@@ -1,12 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
-import { ok, Result } from "neverthrow";
-
-// Unwrap a Result; the test setups are valid, so a failure here is a real bug.
-function unwrap<T>(r: Result<T, string>): T {
-  return r.match((v) => v, (e) => {
-    throw new Error(e);
-  });
-}
+import { ok } from "neverthrow";
+import { unwrap } from "../../utils";
 import {
   estimateTokens,
   findWaterline,
@@ -226,7 +220,7 @@ describe("compactAgent", () => {
       role: "assistant",
       content: "assistant reply 3",
     });
-    // anchor invalidated
+    // lastPromptTokens dropped
     expect(agent.lastPromptTokens).toBeUndefined();
   });
 
@@ -478,8 +472,8 @@ describe("compactAgent", () => {
   });
 });
 
-describe("agent token metering anchor", () => {
-  it("anchors from LLM response usage and survives serialize round-trip", () => {
+describe("agent lastPromptTokens", () => {
+  it("stores prompt_tokens from LLM response usage and survives serialize round-trip", () => {
     const agent = Agent.create(template);
     agent.handleMessage({
       id: "m1",
@@ -501,11 +495,11 @@ describe("agent token metering anchor", () => {
     const restored = Agent.deserialize(agent.serialize());
     expect(restored.lastPromptTokens).toBe(1234);
 
-    restored.invalidateAnchor();
+    restored.clearLastPromptTokens();
     expect(restored.lastPromptTokens).toBeUndefined();
   });
 
-  it("leaves the anchor untouched when the provider omits usage", () => {
+  it("leaves lastPromptTokens untouched when the provider omits usage", () => {
     const agent = Agent.create(template);
     agent.handleMessage({
       id: "m1",

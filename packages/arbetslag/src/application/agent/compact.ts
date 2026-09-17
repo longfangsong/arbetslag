@@ -239,22 +239,19 @@ async function llmSummarize(
   previousSummary: string | undefined,
   agedEntries: Array<HistoryEntry>,
 ): Promise<Result<string, string>> {
+  let toSummarize = "";
+  if (previousSummary) {
+    toSummarize += `# A previous summary of older conversation\n${previousSummary}\n\n`;
+  }
+  toSummarize += `# New conversation history is to be summarized\n`;
+  toSummarize += serializeHistoryForSummary(agedEntries);
   const completionResult = await provider.complete(
     model,
     [
       { role: "system", content: text(summaryPrompt ?? SUMMARY_SYSTEM_PROMPT) },
       {
         role: "user",
-        content: text(
-          [
-            previousSummary
-              ? `A previous summary of older conversation:\n${previousSummary}\n\nSummarize the previous summary together with the new history below.`
-              : undefined,
-            serializeHistoryForSummary(agedEntries),
-          ]
-            .filter(Boolean)
-            .join("\n\n"),
-        ),
+        content: text(toSummarize),
       },
     ],
     [],
@@ -278,8 +275,12 @@ export async function compactAgent({
   summaryPrompt,
 }: CompactDeps): Promise<Result<CompactResult, string>> {
   const systemPrompt = agent.template.systemPrompt;
-  // history[0] is the system entry, so the whole metered request is the
-  // estimated history (same convention as the orchestrator's metering).
+  // We will keep using rule based token estimation here
+  // because in the following rule based compaction we will try to
+  // reduce the number of tokens without actually calling the LLM. 
+  // And there is no way to know how many tokes are there 
+  // after the rule based compaction. But we have to know whether we have
+  // really reduced the number of tokens or not.
   const beforeTokens = estimateHistoryTokens(agent.history);
   const waterline = findWaterline(agent.history, retainRounds);
 
@@ -308,8 +309,6 @@ export async function compactAgent({
         agedEntries,
       );
       if (summaryResult.isErr()) return err(summaryResult.error);
-      // The summary can cost more than the aged entries it replaces, so the
-      // candidate is adopted only if it is actually smaller.
       const retained = agent.history.slice(waterline);
       const candidate: Array<HistoryEntry> = [
         {
@@ -323,10 +322,6 @@ export async function compactAgent({
         agent.history = candidate;
         afterTokens = candidateTokens;
         compacted = true;
-      } else {
-        console.warn(
-          `[compact] agent ${agent.id}: summary cost more than it saved (${candidateTokens} >= ${afterTokens}) — keeping the rule-compacted history`,
-        );
       }
     } else {
       // Only the retained rounds exist and they alone exceed the threshold:
@@ -348,6 +343,6 @@ export async function compactAgent({
     }
   }
 
-  if (compacted) agent.invalidateAnchor();
+  if (compacted) agent.clearLastPromptTokens();
   return ok({ compacted, beforeTokens, afterTokens });
 }
