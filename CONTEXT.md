@@ -61,6 +61,10 @@ A group conversation. Connects one or more agents with one or more users in a sh
 
 **Group context**: A chat is the shared space where agents and users interact. The `entry_agent_id` designates which agent handles messages for that chat.
 
+## Reply
+
+A chat message that quotes an earlier message in the same chat. The LLM sees the quoted content as a self-contained block inside the message: quoted text is inlined (truncated when long), a quoted sticker is rendered as its emoji, and a quoted photo is included as the image itself.
+
 ## Event
 
 A unit of work in the system. Four kinds:

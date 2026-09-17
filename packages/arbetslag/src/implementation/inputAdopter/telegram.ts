@@ -26,8 +26,12 @@ export interface TelegramMessage {
 	};
 	date?: number;
 	text?: string;
+	/** Present when the message is a sticker. */
+	sticker?: { emoji?: string };
 	/** Smallest first; the last entry is the largest size. */
 	photo?: Array<TelegramPhotoSize>;
+	/** Present when the message quotes another message in the same chat. */
+	reply_to_message?: TelegramMessage;
 }
 
 export interface Update {
@@ -36,6 +40,12 @@ export interface Update {
 	edited_message?: TelegramMessage;
 	channel_post?: TelegramMessage;
 	edited_channel_post?: TelegramMessage;
+}
+
+/** A self-contained <reply_to> block, optionally with the quoted photo re-inlined. */
+interface ReplyBlock {
+	text: string;
+	image: ContentPart | null;
 }
 
 export class TelegramInputAdopter {
@@ -73,15 +83,111 @@ export class TelegramInputAdopter {
 
 		const sender = msg.from?.username ?? msg.from?.first_name;
 
+		const body = await this.buildContent(msg);
 		return {
 			id: nanoid(10),
 			event_type: "message",
 			chat_id: String(msg.chat.id),
 			adapter: "telegram",
-			content: await this.buildContent(msg),
+			content: this.assemble(
+				sender,
+				await this.buildReply(msg.reply_to_message),
+				body,
+			),
 			send_time: msg.date ? msg.date * 1000 : Date.now(),
 			sender,
 		};
+	}
+
+	/** Max characters of a quoted original kept in the reply block. */
+	private static readonly REPLY_MAX_CHARS = 200;
+
+	/**
+	 * Build the <reply_to> block for a quoted message. Text is inlined
+	 * (truncated when long), a sticker is rendered as its emoji, and a
+	 * photo is re-downloaded and inlined as an image part so the LLM can
+	 * tell photos apart. Returns null when the quoted message is
+	 * unavailable.
+	 */
+	private async buildReply(
+		replyTo: TelegramMessage | undefined,
+	): Promise<ReplyBlock | null> {
+		if (!replyTo) return null;
+		const sender = replyTo.from?.username ?? replyTo.from?.first_name;
+		const attr = sender ? ` sender="${sender}"` : "";
+		const original = this.describeReplyTarget(replyTo);
+		if (original === undefined) return null;
+		if (original === null) {
+			// Quoted photo: re-inline the largest size; the [photo] marker
+			// stays in the block so the image part reads as the quoted content.
+			const largest = replyTo.photo![replyTo.photo!.length - 1];
+			const image = await this.fetchLargestPhoto(largest.file_id);
+			return { text: `<reply_to${attr}>\n[photo]\n</reply_to>`, image };
+		}
+		return { text: `<reply_to${attr}>\n${original}\n</reply_to>`, image: null };
+	}
+
+	/**
+	 * Textual rendering of the quoted message's content: its text
+	 * (truncated when long) or a sticker marker with its emoji.
+	 * Returns null for photo targets (handled by re-inlining), and
+	 * undefined when the content cannot be rendered at all.
+	 */
+	private describeReplyTarget(
+		replyTo: TelegramMessage,
+	): string | null | undefined {
+		if (replyTo.text) {
+			return replyTo.text.length > TelegramInputAdopter.REPLY_MAX_CHARS
+				? `${replyTo.text.slice(0, TelegramInputAdopter.REPLY_MAX_CHARS)}（原文较长，已截断）`
+				: replyTo.text;
+		}
+		if (replyTo.sticker) {
+			const emoji = replyTo.sticker.emoji ? ` ${replyTo.sticker.emoji}` : "";
+			return `[sticker${emoji}]`;
+		}
+		if (replyTo.photo?.length) return null;
+		return undefined;
+	}
+
+	/**
+	 * Assemble the leading `[sender]: ` signature and the optional
+	 * <reply_to> block in front of the message body. Without a re-inlined
+	 * image the lead merges into the first text part; with one, the lead
+	 * stands alone so the quoted image part stays adjacent to the block.
+	 */
+	private assemble(
+		sender: string | undefined,
+		reply: ReplyBlock | null,
+		body: string | Array<ContentPart>,
+	): string | Array<ContentPart> {
+		const sig = sender ? `[${sender}]: ` : "";
+		if (!reply) {
+			if (!sig) return body;
+			return this.prependLead(sig, body);
+		}
+		const lead = `${sig}${reply.text}\n`;
+		if (!reply.image) return this.prependLead(lead, body);
+		const parts: Array<ContentPart> = [
+			{ type: "text", text: lead },
+			reply.image,
+		];
+		if (typeof body === "string") {
+			if (body) parts.push({ type: "text", text: body });
+			return parts;
+		}
+		return [...parts, ...body];
+	}
+
+	private prependLead(
+		lead: string,
+		body: string | Array<ContentPart>,
+	): string | Array<ContentPart> {
+		if (typeof body === "string") return lead + body;
+		const [first, ...rest] = body;
+		if (first?.type === "text") {
+			return [{ type: "text", text: lead + first.text }, ...rest];
+		}
+		return [{ type: "text", text: lead }, ...body];
 	}
 
 	private async buildContent(

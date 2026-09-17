@@ -105,6 +105,13 @@ function contentForLog(content: string | Array<ContentPart>): string {
 		.join(" ");
 }
 
+/**
+ * Flatten one batcher item into LLM-visible parts. Keeps the structured
+ * parts produced by the Input Adopter as-is — the leading text part
+ * already carries the `[sender]: ` signature and any <reply_to> block —
+ * and only prepends the batcher-level timestamp. Timestamps double as
+ * message boundaries when a batch holds several items.
+ */
 function formatInputParts(input: ChatInput): Array<ContentPart> {
 	if (input.event_type === "api_callback") {
 		return [
@@ -114,16 +121,16 @@ function formatInputParts(input: ChatInput): Array<ContentPart> {
 			},
 		];
 	}
-	const parts: Array<ContentPart> = [];
-	const caption = contentText(input.content);
-	if (caption) {
-		const time = format(new Date(input.send_time), "HH:mm:ss");
-		parts.push({ type: "text", text: `[${time}] ${input.sender ?? "user"}: ${caption}` });
+	const time = format(new Date(input.send_time), "HH:mm:ss");
+	const parts: Array<ContentPart> =
+		typeof input.content === "string"
+			? [{ type: "text", text: input.content }]
+			: [...input.content];
+	const [first, ...rest] = parts;
+	if (first && first.type === "text") {
+		return [{ type: "text", text: `[${time}] ${first.text}` }, ...rest];
 	}
-	if (typeof input.content !== "string") {
-		parts.push(...input.content.filter((p) => p.type === "image"));
-	}
-	return parts;
+	return [{ type: "text", text: `[${time}] ` }, ...parts];
 }
 
 async function setWebhook(url: string): Promise<void> {
@@ -239,8 +246,14 @@ async function processChatBatch(
 	// creates the default agent.
 	const callbacks = inputs.filter((i): i is ApiCallbackEvent => i.event_type === "api_callback");
 	// /compact is a user command, not LLM input: route it as compact_request.
-	const isCompactCommand = (i: ChatInput) =>
-		i.event_type === "message" && contentText(i.content).trim() === "/compact";
+	// The message content now leads with the adapter's `[sender]: ` signature
+	// and possibly a <reply_to> block, so strip both before comparing.
+	const userCommandText = (i: ChatInput) => {
+		if (i.event_type !== "message") return "";
+		const all = contentText(i.content).replace(/^\[[^\]]+\]: /, "");
+		return all.replace(/<reply_to[\s\S]*?<\/reply_to>\n?/, "").trim();
+	};
+	const isCompactCommand = (i: ChatInput) => userCommandText(i) === "/compact";
 	const hasCompactCommand = inputs.some(isCompactCommand);
 	let messageInputs: Array<MessageEvent> | Array<ChatInput> = agent
 		? inputs.filter(
