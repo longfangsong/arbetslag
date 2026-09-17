@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import { ContentPart } from "@/application/agent/history";
+import { Content, ContentPart, text } from "@/application/agent/history";
 import { MessageEvent } from "@/application/event/event";
 
 const TELEGRAM_API = "https://api.telegram.org";
@@ -158,8 +158,8 @@ export class TelegramInputAdopter {
 	private assemble(
 		sender: string | undefined,
 		reply: ReplyBlock | null,
-		body: string | Array<ContentPart>,
-	): string | Array<ContentPart> {
+		body: Content,
+	): Content {
 		const sig = sender ? `[${sender}]: ` : "";
 		if (!reply) {
 			if (!sig) return body;
@@ -171,18 +171,10 @@ export class TelegramInputAdopter {
 			{ type: "text", text: lead },
 			reply.image,
 		];
-		if (typeof body === "string") {
-			if (body) parts.push({ type: "text", text: body });
-			return parts;
-		}
 		return [...parts, ...body];
 	}
 
-	private prependLead(
-		lead: string,
-		body: string | Array<ContentPart>,
-	): string | Array<ContentPart> {
-		if (typeof body === "string") return lead + body;
+	private prependLead(lead: string, body: Content): Content {
 		const [first, ...rest] = body;
 		if (first?.type === "text") {
 			return [{ type: "text", text: lead + first.text }, ...rest];
@@ -190,14 +182,12 @@ export class TelegramInputAdopter {
 		return [{ type: "text", text: lead }, ...body];
 	}
 
-	private async buildContent(
-		msg: TelegramMessage,
-	): Promise<string | Array<ContentPart>> {
-		if (!msg.photo?.length) return msg.text ?? "";
+	private async buildContent(msg: TelegramMessage): Promise<Content> {
+		if (!msg.photo?.length) return text(msg.text ?? "");
 		const image = await this.fetchLargestPhoto(
 			msg.photo[msg.photo.length - 1].file_id,
 		);
-		if (!image) return msg.text ?? "";
+		if (!image) return text(msg.text ?? "");
 		const parts: Array<ContentPart> = [];
 		if (msg.text) parts.push({ type: "text", text: msg.text });
 		parts.push(image);

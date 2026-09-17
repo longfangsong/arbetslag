@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import { Template } from "./template/model";
-import { HistoryEntry } from "./history";
+import { HistoryEntry, text } from "./history";
 import {
   AgentMessageEvent,
   ApiCallbackEvent,
@@ -44,12 +44,18 @@ export class Agent {
 
   static create(template: Template): Agent {
     return new Agent(nanoid(10), template, [
-      { role: "system", content: template.systemPrompt },
+      { role: "system", content: text(template.systemPrompt) },
     ]);
   }
 
   static deserialize(data: SerializedAgent): Agent {
-    const agent = new Agent(data.id, data.template, data.history);
+    // Legacy stored history may hold plain string content: normalize to a single text part.
+    const history = data.history.map((entry) =>
+      (entry.role === "system" || entry.role === "user") && typeof entry.content === "string"
+        ? { ...entry, content: text(entry.content) }
+        : entry,
+    );
+    const agent = new Agent(data.id, data.template, history);
     if (data.chatId) agent.chatId = data.chatId;
     if (data.waitingForToolCallCount != null) agent.waitingForToolCallCount = data.waitingForToolCallCount;
     if (data.lastPromptTokens != null) agent.lastPromptTokens = data.lastPromptTokens;
@@ -90,10 +96,10 @@ export class Agent {
   handleAgentMessage(event: AgentMessageEvent): Array<Event> {
     this.history.push({
       role: "user",
-      content: `<agent_message>
+      content: text(`<agent_message>
 					<from_agent_id>${event.from_agent_id}</from_agent_id>
 					<content>${event.content}</content>
-				</agent_message>`,
+				</agent_message>`),
     });
     return [
       {
@@ -108,13 +114,13 @@ export class Agent {
   handleApiCallback(event: ApiCallbackEvent): Array<Event> {
     this.history.push({
       role: "user",
-      content: `<api_callback>
+      content: text(`<api_callback>
 					<id>${event.id}</id>
 					<api_name>${event.api_name}</api_name>
 					<payload>
 						${event.content}
 					</payload>
-				</api_callback>`,
+				</api_callback>`),
     });
     return [
       {

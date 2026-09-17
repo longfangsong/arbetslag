@@ -40,6 +40,7 @@ import {
 	type Template,
 	type Update,
 	type ContentPart,
+	type Content,
 	contentText,
 } from "arbetslag";
 import { UpdateBatcher } from "./batcher";
@@ -98,8 +99,7 @@ for (const t of config.templates ?? []) {
 /** One item queued per chat: everything is a domain event. */
 type ChatInput = MessageEvent | ApiCallbackEvent;
 
-function contentForLog(content: string | Array<ContentPart>): string {
-	if (typeof content === "string") return content;
+function contentForLog(content: Content): string {
 	return content
 		.map((p) => (p.type === "image" ? "[[image]]" : p.text))
 		.join(" ");
@@ -122,10 +122,7 @@ function formatInputParts(input: ChatInput): Array<ContentPart> {
 		];
 	}
 	const time = format(new Date(input.send_time), "HH:mm:ss");
-	const parts: Array<ContentPart> =
-		typeof input.content === "string"
-			? [{ type: "text", text: input.content }]
-			: [...input.content];
+	const parts: Array<ContentPart> = [...input.content];
 	const [first, ...rest] = parts;
 	if (first && first.type === "text") {
 		return [{ type: "text", text: `[${time}] ${first.text}` }, ...rest];
@@ -274,7 +271,7 @@ async function processChatBatch(
 					event_type: "message",
 					chat_id: chatId,
 					adapter: "system",
-					content: "",
+					content: [],
 					send_time: Date.now(),
 				};
 		event.content = messageInputs.flatMap(formatInputParts);
@@ -364,7 +361,11 @@ async function processChatBatch(
 					h.role === "assistant" && h.tool_calls
 						? ` tool_calls=[${h.tool_calls.map((t) => t.tool_name).join(", ")}]`
 						: "";
-				console.log(`  [${i}] ${h.role}: ${contentForLog(h.content).slice(0, 500)}${extra}`);
+				const rendered =
+					h.role === "tool" || h.role === "assistant"
+						? h.content
+						: contentForLog(h.content);
+				console.log(`  [${i}] ${h.role}: ${rendered.slice(0, 500)}${extra}`);
 			}
 			printedHistory.set(chatId, updatedAgent.history.length);
 		}

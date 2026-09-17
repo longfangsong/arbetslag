@@ -5,8 +5,10 @@ const image = { type: "image" as const, url: "https://example.com/a.png" };
 const text = { type: "text" as const, text: "hi" };
 
 describe("contentToStringOrParts", () => {
-	it("passes string content through", () => {
-		expect(contentToStringOrParts("hello")).toBe("hello");
+	it("maps plain text content to a text part", () => {
+		expect(contentToStringOrParts([{ type: "text", text: "hello" }])).toEqual([
+			{ type: "text", text: "hello" },
+		]);
 	});
 
 	it("keeps text and image parts when images are supported", () => {

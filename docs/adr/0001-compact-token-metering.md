@@ -6,7 +6,8 @@ when the previous LLM response carried a real `usage.prompt_tokens`, the next
 request is metered as **that anchor plus an estimate of only the history entries
 added since** (the anchor already covers the system prompt and the old history).
 Without an anchor (new agent, provider omitted usage, in-memory provider), the
-whole system prompt + history is estimated. The estimator counts CJK characters
+whole history is estimated (the system prompt lives in history[0], so it is
+already counted). The estimator counts CJK characters
 as 1 token each and all other characters as 1 token per 4 characters — no
 tokenizer dependency.
 

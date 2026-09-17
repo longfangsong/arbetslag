@@ -19,9 +19,6 @@ import {
   type CompactResult,
   compactAgent,
   estimateHistoryTokens,
-  estimateTokens,
-  formatCompactNotice,
-  NOTHING_TO_COMPACT,
   DEFAULT_COMPACT_THRESHOLD,
   DEFAULT_COMPACT_RETAIN_ROUNDS,
 } from "./agent/compact";
@@ -94,9 +91,7 @@ export class Orchestrator {
     if (!this.deps.outputRouter) return Promise.resolve(ok(undefined));
     return this.deps.outputRouter.route({
       kind: "history_compacted",
-      content: result.compacted
-        ? formatCompactNotice(result.beforeTokens, result.afterTokens)
-        : NOTHING_TO_COMPACT,
+      // Tokens set ⇔ something was compacted; the host renders the wording.
       beforeTokens: result.compacted ? result.beforeTokens : undefined,
       afterTokens: result.compacted ? result.afterTokens : undefined,
     });
@@ -106,7 +101,8 @@ export class Orchestrator {
    * Compact the agent's history before an LLM request if the metered size
    * crosses the template threshold. Metering: anchor (last real
    * prompt_tokens + estimated delta) when available, full estimation
-   * otherwise (ADR-0001). Notifies the user only when something was compacted.
+   * otherwise (ADR-0001). The outcome is always routed as a SystemNotice;
+   * the output router decides whether and how to tell the user.
    */
   private async compactIfNeeded(
     agent: Agent,
@@ -132,8 +128,7 @@ export class Orchestrator {
     const meteredTokens =
       agent.lastPromptTokens != null
         ? agent.lastPromptTokens + estimateHistoryTokens(agent.history.slice(anchorCursor))
-        : estimateTokens(template.systemPrompt) +
-          estimateHistoryTokens(agent.history);
+        : estimateHistoryTokens(agent.history); // history[0] is the system entry
     if (meteredTokens < threshold) return ok(undefined);
     const result = await compactAgent({
       agent,

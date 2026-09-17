@@ -3,7 +3,7 @@ import util from "node:util";
 import { z } from "zod";
 import { Result, ok, err } from "neverthrow";
 import { AIProvider } from "@/application/aiProvider/model";
-import { HistoryEntry, CompletionResult, ContentPart, contentText } from "@/application/agent/history";
+import { Content, ContentPart, HistoryEntry, CompletionResult, contentText } from "@/application/agent/history";
 import { Tool } from "@/application/tool/model";
 import type { ChatCompletionCreateParamsNonStreaming, ChatCompletionMessageParam, ChatCompletionContentPartText, ChatCompletionContentPartImage, ChatCompletionTool } from "openai/resources/chat";
 import { zodResponseFormat } from "openai/helpers/zod.js";
@@ -11,12 +11,11 @@ import { zodResponseFormat } from "openai/helpers/zod.js";
 /** Per-request timeout for LLM API calls (20 minutes). */
 const REQUEST_TIMEOUT_MS = 20 * 60 * 1000;
 
-/** Map framework content to OpenAI's wire format (string or text/image parts). */
+/** Map framework content to OpenAI's wire format (text/image parts). */
 export function contentToStringOrParts(
-	content: string | Array<ContentPart>,
+	content: Content,
 	supportsImages = true,
 ): string | Array<ChatCompletionContentPartText | ChatCompletionContentPartImage> {
-	if (typeof content === "string") return content;
 	const parts = supportsImages
 		? content
 		: content.filter((part): part is Extract<ContentPart, { type: "text" }> => part.type === "text");
@@ -57,29 +56,29 @@ export class OpenAIProvider implements AIProvider {
 						content: entry.content,
 					};
 				}
-				if (entry.role === "assistant" && "tool_calls" in entry && entry.tool_calls) {
-					return {
-						role: "assistant" as const,
-						content: entry.content,
-						tool_calls: entry.tool_calls.map((tc) => ({
-							id: tc.id ?? "",
-							type: "function" as const,
-							function: {
-								name: tc.tool_name,
-								arguments: JSON.stringify(tc.arguments),
-							},
-						})),
-					};
-				}
 				if (entry.role === "system") {
 					return {
 						role: "system" as const,
 						content: contentText(entry.content),
 					};
 				}
+				if (entry.role !== "assistant") {
+					return {
+						role: "user" as const,
+						content: contentToStringOrParts(entry.content, this.supportsImages),
+					};
+				}
 				return {
-					role: "user" as const,
-					content: contentToStringOrParts(entry.content, this.supportsImages),
+					role: "assistant" as const,
+					content: entry.content,
+					tool_calls: entry.tool_calls?.map((tc) => ({
+						id: tc.id ?? "",
+						type: "function" as const,
+						function: {
+							name: tc.tool_name,
+							arguments: JSON.stringify(tc.arguments),
+						},
+					})),
 				};
 			});
 

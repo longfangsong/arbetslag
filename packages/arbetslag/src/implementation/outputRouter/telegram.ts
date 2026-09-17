@@ -14,8 +14,16 @@ export class Telegram implements OutputRouter {
 	}
 
 	async route(event: AgentOutput | SystemNotice): Promise<Result<void, string>> {
-		console.log(`[TelegramOutput] chatId=${this.chatId}, content_len=${(event.content ?? '').length}`);
-		console.log(`[TelegramOutput] content_preview="${(event.content ?? '').slice(0, 200)}"`);
+		// SystemNotice carries no copy: render the user-facing wording from
+		// the structured fields (this default adapter uses English).
+		const markdown =
+			"kind" in event
+				? event.beforeTokens != null && event.afterTokens != null
+					? `📦 Compacted history: ${formatTokens(event.beforeTokens)} → ${formatTokens(event.afterTokens)} tokens`
+					: "📦 Nothing to compact"
+				: event.content;
+		console.log(`[TelegramOutput] chatId=${this.chatId}, content_len=${(markdown ?? '').length}`);
+		console.log(`[TelegramOutput] content_preview="${(markdown ?? '').slice(0, 200)}"`);
 		const res = await fetch(
 			`${this.apiBase}/bot${this.botToken}/sendRichMessage`,
 			{
@@ -24,7 +32,7 @@ export class Telegram implements OutputRouter {
 				body: JSON.stringify({
 					chat_id: this.chatId,
 					rich_message: {
-						markdown: event.content,
+						markdown: markdown,
 					},
 				}),
 			},
@@ -37,4 +45,8 @@ export class Telegram implements OutputRouter {
 		console.log(`[TelegramOutput] ✅ sent OK`);
 		return ok(undefined);
 	}
+}
+
+function formatTokens(n: number): string {
+	return n >= 1000 ? `~${(n / 1000).toFixed(1)}K` : `~${n}`;
 }
