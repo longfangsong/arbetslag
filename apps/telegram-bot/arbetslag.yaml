@@ -1,6 +1,4 @@
--providers:
-  - openai
-
+username: test-bot
 templates:
   - name: default
     description: General-purpose assistant

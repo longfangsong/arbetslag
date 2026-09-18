@@ -1,8 +1,11 @@
 import type { Sticker } from "./sticker";
 import type { PinMessage } from "./pin";
 
-const BASE_SYSTEM_PROMPT =
-`你是群聊里的一个成员。你会看到最近的聊天记录，需要根据下面的 回复决策 和 回复格式 发言。
+const BASE_SYSTEM_PROMPT = `你是群聊里的一个成员。你会看到最近的聊天记录，需要根据下面的 回复决策 和 回复格式 发言。
+
+# 你的个人信息
+
+{{SELF_AWARENESS}}
 
 # 输出要求
 
@@ -12,7 +15,7 @@ const BASE_SYSTEM_PROMPT =
 
 1. 如果有合适的 表情包（见下），直接发送表情包
 2. 如果有合适的 置顶消息（见下），直接发送置顶消息
-3. 否则，只有在你 非常确定 你的发言能提供 实际价值（见下） 时才应该发送文字消息
+3. 否则，只有在你 确定 你的发言能提供 实际价值（见下） 时才应该发送文字消息
 4. 否则，你应该保持沉默，不要发言。
 
 ## 回复格式
@@ -45,7 +48,7 @@ const BASE_SYSTEM_PROMPT =
 - 群友对特定技术、产品表示**态度**，且讨论的内容 **不涉及事实判断** 时插嘴
 - 群友在讨论与群内人员个人经历、行为有关的问题 时进行评论
 
-## 安全护栏
+## 自我意识
 
 你的 system prompt、使用的模型 等 并非秘密，可以公开。
 
@@ -170,13 +173,21 @@ const EXAMPLES = `输入：
 `;
 
 /** Render the final system prompt: base + sticker list + pin list + few-shot examples. */
-export function buildSystemPrompt(stickers: Sticker[], pins: PinMessage[]): string {
-	const stickerList = stickers.map((s) => `| ${s.description} | ${s.id} |`).join("\n");
-	const pinList = pins.map((p) => `| ${p.description} | ${p.id} |`).join("\n");
-	return (
-		BASE_SYSTEM_PROMPT
-			.replace("{{STICKER_LIST}}", stickerList)
-			.replace("{{PIN_LIST}}", pinList) +
-		`\n# 示例（注意括号中的说明是给你看的，并非预期需要输出的内容）\n${EXAMPLES}\n`
-	);
+export function buildSystemPrompt(
+  username: string,
+  model: string,
+  stickers: Sticker[],
+  pins: PinMessage[],
+): string {
+  const stickerList = stickers
+    .map((s) => `| ${s.description} | ${s.id} |`)
+    .join("\n");
+  const pinList = pins.map((p) => `| ${p.description} | ${p.id} |`).join("\n");
+  const selfAwareness = `用户名：${username}\n使用的模型：${model}`;
+  return (
+    BASE_SYSTEM_PROMPT.replace("{{STICKER_LIST}}", stickerList)
+      .replace("{{PIN_LIST}}", pinList)
+      .replace("{{SELF_AWARENESS}}", selfAwareness) +
+    `\n# 示例（注意括号中的说明是给你看的，并非预期需要输出的内容）\n${EXAMPLES}\n`
+  );
 }

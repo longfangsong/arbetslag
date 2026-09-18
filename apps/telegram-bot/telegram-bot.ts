@@ -72,7 +72,8 @@ if (!WEBHOOK_URL) {
 const configPath = path.join(APP_DIR, "arbetslag.yaml");
 const configContent = readFileSync(configPath, "utf-8");
 const config = parse(configContent) as {
-	templates?: Array<Template>;
+  username?: string;
+  templates?: Array<Template>;
 };
 
 const fileSystem = new NodeFileSystem(path.join(APP_DIR, "data"));
@@ -82,7 +83,7 @@ const templateRepository = await FileSystemTemplateRepository.create(
 );
 
 // Generate the system prompt (base + sticker capability).
-const systemPrompt = buildSystemPrompt(STICKERS, PINS);
+const systemPrompt = buildSystemPrompt(config.username || "bot", config.templates![0].model, STICKERS, PINS);
 
 // Load templates from config
 for (const t of config.templates ?? []) {
