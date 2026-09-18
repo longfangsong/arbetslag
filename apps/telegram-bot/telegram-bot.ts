@@ -49,6 +49,7 @@ import { PINS } from "./prompt/pin";
 import { buildSystemPrompt } from "./prompt";
 import { format } from "date-fns/format";
 import { SmartTelegramRouter } from "./telegram-router";
+import { log, error } from "./logger";
 
 const FLUSH_QUIET_MS = 5_000;
 const CONTEXT_IDLE_RESET_MS = 4 * 60 * 60 * 1000;
@@ -58,11 +59,11 @@ const PORT = Number(process.env.PORT ?? 3000);
 const APP_DIR = path.dirname(new URL(import.meta.url).pathname);
 
 if (!TELEGRAM_BOT_TOKEN) {
-	console.error("❌  Set TELEGRAM_BOT_TOKEN environment variable.");
+	error("❌  Set TELEGRAM_BOT_TOKEN environment variable.");
 	process.exit(1);
 }
 if (!WEBHOOK_URL) {
-	console.error(
+	error(
 		"❌  Set WEBHOOK_URL environment variable (e.g. https://abc.ngrok.io/webhook).",
 	);
 	process.exit(1);
@@ -151,7 +152,7 @@ async function setWebhook(url: string): Promise<void> {
 	if (!data.ok) {
 		throw new Error(`Failed to set webhook: ${data.description}`);
 	}
-	console.log(`✅ Webhook registered: ${url}`);
+	log(`✅ Webhook registered: ${url}`);
 }
 
 async function setMyCommands(): Promise<void> {
@@ -174,7 +175,7 @@ async function setMyCommands(): Promise<void> {
 	if (!data.ok) {
 		throw new Error(`Failed to set commands: ${data.description}`);
 	}
-	console.log("✅ Commands registered: /compact");
+	log("✅ Commands registered: /compact");
 }
 
 async function deleteWebhook(): Promise<void> {
@@ -182,7 +183,7 @@ async function deleteWebhook(): Promise<void> {
 		`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook`,
 		{ method: "POST" },
 	);
-	console.log("🗑️  Webhook deleted.");
+	log("🗑️  Webhook deleted.");
 }
 
 // ── Process a Telegram update ───────────────────────────────────────────────
@@ -206,7 +207,7 @@ const batcher = new UpdateBatcher<ChatInput>(FLUSH_QUIET_MS, (chatId, inputs) =>
 	chainBusy = true;
 	chain = chain
 		.then(() => processChatBatch(chatId, inputs, stale))
-		.catch(console.error)
+		.catch(error)
 		.finally(() => {
 			chainBusy = false;
 		});
@@ -231,7 +232,7 @@ async function processChatBatch(
 	const agent = await agentRepository.getByChatId(chatId);
 
 	if (stale && agent && agent.history.length > 0) {
-		console.log(`[context] chat ${chatId} idle > 4h — new context window`);
+		log(`[context] chat ${chatId} idle > 4h — new context window`);
 		agent.history = [];
 		await agentRepository.save(agent);
 		printedHistory.set(chatId, 0);
@@ -337,7 +338,7 @@ async function processChatBatch(
 			orchestrator.push({ ...cb, to_agent_id: agent.id });
 		}
 	}
-	console.log(
+	log(
 		`[processChatBatch] chat ${chatId} processing ${event ? contentForLog(event.content) : ""} callbacks=[${callbacks.map((c) => c.id).join(",")}]`,
 	);
 	const result = await orchestrator.stepUntilIdle();
@@ -346,7 +347,7 @@ async function processChatBatch(
 		(e) => {
 			// Fail fast at the app boundary: state is already checkpointed on
 			// disk, so a crash here loses nothing and a restart resumes.
-			console.error(`[Orchestrator] ${e}`);
+			error(`[Orchestrator] ${e}`);
 			throw new Error(`Orchestrator failed: ${e}`);
 		},
 	);
@@ -365,7 +366,7 @@ async function processChatBatch(
 					h.role === "tool" || h.role === "assistant"
 						? h.content
 						: contentForLog(h.content);
-				console.log(`  [${i}] ${h.role}: ${rendered.slice(0, 500)}${extra}`);
+				log(`  [${i}] ${h.role}: ${rendered.slice(0, 500)}${extra}`);
 			}
 			printedHistory.set(chatId, updatedAgent.history.length);
 		}
@@ -405,7 +406,7 @@ app.get("/cron", async (c) => {
 
 app.post("/webhook", async (c) => {
 	const update = await c.req.json();
-	console.log(`[webhook] received update: ${JSON.stringify(update)}`);
+	log(`[webhook] received update: ${JSON.stringify(update)}`);
 	await handleUpdate(update as Update);
 	return c.text("OK");
 });
@@ -417,20 +418,20 @@ async function start(): Promise<void> {
 		await setWebhook(WEBHOOK_URL + "/webhook");
 		await setMyCommands();
 	} catch (err) {
-		console.error("Failed to register webhook:", err);
-		console.log("⚠️  Webhook may already be set.");
+		error("Failed to register webhook:", err);
+		log("⚠️  Webhook may already be set.");
 	}
 
 	serve({ fetch: app.fetch, port: PORT }, (info) => {
-		console.log("🤖 arbetslag Telegram bot starting...");
-		console.log(`   Config: ${configPath}`);
-		console.log(`   Webhook: ${WEBHOOK_URL}`);
-		console.log(`   Listening on port ${info.port}\n`);
+		log("🤖 arbetslag Telegram bot starting...");
+		log(`   Config: ${configPath}`);
+		log(`   Webhook: ${WEBHOOK_URL}`);
+		log(`   Listening on port ${info.port}\n`);
 	});
 }
 
 process.on("SIGINT", async () => {
-	console.log("\n🗑️  Flushing pending messages and shutting down...");
+	log("\n🗑️  Flushing pending messages and shutting down...");
 	shuttingDown = true;
 	batcher.flushNow();
 	await chain;
@@ -439,6 +440,6 @@ process.on("SIGINT", async () => {
 });
 
 start().catch((err) => {
-	console.error("Startup failed:", err);
+	error("Startup failed:", err);
 	process.exit(1);
 });

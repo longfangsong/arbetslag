@@ -1,8 +1,10 @@
 import { nanoid } from "nanoid";
 import { Content, ContentPart, text } from "@/application/agent/history";
 import { MessageEvent } from "@/application/event/event";
+import createDebug from "debug";
 
 const TELEGRAM_API = "https://api.telegram.org";
+const log = createDebug("arbetslag:input");
 
 export interface TelegramChat {
 	id: number | string;
@@ -206,7 +208,7 @@ export class TelegramInputAdopter {
 			};
 			const filePath = meta.result?.file_path;
 			if (!filePath) {
-				console.error(`[telegram] getFile failed for ${fileId}: ${JSON.stringify(meta)}`);
+				log(`❌ getFile failed for ${fileId}: ${JSON.stringify(meta)}`);
 				return null;
 			}
 			const fileRes = await fetch(
@@ -219,7 +221,7 @@ export class TelegramInputAdopter {
 				url: `data:${mime};base64,${bytes.toString("base64")}`,
 			};
 		} catch (e) {
-			console.error(`[telegram] failed to download photo ${fileId}:`, e);
+			log(`❌ failed to download photo ${fileId}:`, e);
 			return null;
 		}
 	}

@@ -30,6 +30,10 @@ import type { Repository as ToolRepository } from "./tool/repository";
 import type { Repository as AIProviderRepository } from "./aiProvider/repository";
 import type { AIProvider } from "./aiProvider/model";
 import type { OutputRouter } from "./outputRouter/model";
+import createDebug from "debug";
+
+const orchLog = createDebug("arbetslag:orchestrator");
+const toolLog = createDebug("arbetslag:tool");
 
 export interface OrchestratorDeps {
   fileSystem: FileSystem;
@@ -70,6 +74,9 @@ export class Orchestrator {
       const result = await this.step();
       if (result.isErr()) return err(result.error);
       iterations++;
+    }
+    if (!this.bus.empty()) {
+      orchLog(`stopped at maxIterations=${maxIterations}, ${this.bus.queue.length} event(s) left unprocessed`);
     }
     return ok(undefined);
   }
@@ -136,6 +143,7 @@ export class Orchestrator {
   }
 
   private async dispatch(event: Event): Promise<Result<Array<Event>, string>> {
+    orchLog(`dispatch ${event.event_type} id=${event.id}`);
     const {
       agentRepository,
       templateRepository,
@@ -179,6 +187,13 @@ export class Orchestrator {
           agent!,
           e.tool_call.arguments,
         );
+        if (result === undefined) {
+          toolLog(`❌ tool not found: ${e.tool_call.tool_name}`);
+        } else {
+          toolLog(
+            `${e.tool_call.tool_name} agent=${e.from_agent_id} ok=${result.isOk()} args=${JSON.stringify(e.tool_call.arguments).slice(0, 200)}`,
+          );
+        }
         const content =
           result === undefined
             ? "Tool not found"
@@ -222,6 +237,7 @@ export class Orchestrator {
         );
         if (!aiProvider) {
           // Configuration error: the template names a provider we don't have.
+          orchLog(`❌ AI provider not found: ${template.ai_provider}`);
           throw new Error(
             `AI provider not found: ${template.ai_provider}`,
           );
