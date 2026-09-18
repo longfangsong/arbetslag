@@ -2,13 +2,10 @@ import { Result } from "neverthrow";
 import { AgentOutput } from "../event/event";
 
 /**
- * A message from the framework runtime to the user (as opposed to the agent's
- * own utterance). `content` is the default copy (localization is the host's
- * decision); structured fields let a host render its own wording.
+ * A structured notice from the framework runtime. 
  */
 export interface SystemNotice {
 	kind: "history_compacted";
-	content: string;
 	/** Estimated tokens before compaction; only set when something was compacted. */
 	beforeTokens?: number;
 	/** Estimated tokens after compaction; only set when something was compacted. */

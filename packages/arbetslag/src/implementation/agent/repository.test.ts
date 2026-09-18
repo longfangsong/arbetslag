@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { FileSystemAgentRepository } from "./repository";
 import { InMemoryFileSystem } from "@/implementation/tool/file/filesystem/inMemory";
 import { Agent } from "@/application/agent/model";
+import { text } from "@/application/agent/history";
 import { Template } from "@/application/agent/template/model";
 
 describe("FileSystemAgentRepository", () => {
@@ -30,7 +31,7 @@ describe("FileSystemAgentRepository", () => {
     expect(retrieved!.id).toBe(agent.id);
     expect(retrieved!.template).toEqual(sampleTemplate);
     expect(retrieved!.history).toEqual([
-      { role: "system", content: "You are a test agent." },
+      { role: "system", content: text("You are a test agent.") },
     ]);
     expect(result).toBe(agent);
   });
@@ -65,11 +66,11 @@ describe("FileSystemAgentRepository", () => {
 
   it("persists agent history", async () => {
     const agent = Agent.create(sampleTemplate);
-    agent.history.push({ role: "user", content: "Hello" });
+    agent.history.push({ role: "user", content: text("Hello") });
     await repo.add(agent);
     const retrieved = await repo.getById(agent.id);
     expect(retrieved!.history).toHaveLength(2);
-    expect(retrieved!.history[1]).toEqual({ role: "user", content: "Hello" });
+    expect(retrieved!.history[1]).toEqual({ role: "user", content: text("Hello") });
   });
 
   it("persists agent with custom directory", async () => {
@@ -80,6 +81,14 @@ describe("FileSystemAgentRepository", () => {
     const retrieved = await customRepo.getById(agent.id);
     expect(retrieved).not.toBeNull();
     expect(retrieved!.id).toBe(agent.id);
+  });
+
+  it("normalizes legacy string content on deserialize", () => {
+    const agent = Agent.create(sampleTemplate);
+    const data = agent.serialize();
+    (data.history[0] as { content: unknown }).content = "legacy string";
+    const restored = Agent.deserialize(data);
+    expect(restored.history[0].content).toEqual(text("legacy string"));
   });
 
   it("sets and retrieves chatId on agent", async () => {

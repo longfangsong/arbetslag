@@ -18,9 +18,9 @@ export class SmartTelegramRouter {
 		if ("kind" in event) {
 			const detail =
 				typeof event.beforeTokens === "number"
-				? ` ${event.beforeTokens} -> ${event.afterTokens} tokens`
-				: "";
-			console.log(`[SmartTelegramRouter] ${event.kind} (${event.content})${detail}`);
+					? ` ${event.beforeTokens} -> ${event.afterTokens} tokens`
+					: " (nothing to compact)";
+			console.log(`[SmartTelegramRouter] ${event.kind}${detail}`);
 			return ok(undefined);
 		}
 		let content: string | undefined = event.content;
@@ -88,7 +88,10 @@ export class SmartTelegramRouter {
 				{
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({ chat_id: this.chatId, sticker: sticker.fileId }),
+					body: JSON.stringify({
+						chat_id: this.chatId,
+						sticker: sticker.fileId,
+					}),
 				},
 			);
 			if (!res.ok) {

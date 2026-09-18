@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { TelegramInputAdopter, type Update } from "./telegram";
+import { contentText } from "@/application/agent/history";
 
 function makeUpdate(overrides: Partial<NonNullable<Update["message"]>> = {}): Update {
   return {
@@ -21,7 +22,7 @@ describe("TelegramInputAdopter", () => {
   it("uses username and falls back to first_name when username missing", async () => {
     const event = await new TelegramInputAdopter().convert(makeUpdate());
     expect(event).not.toBeNull();
-    expect(event!.content).toBe("[wangwu]: 明天那个会议室订好了吗");
+    expect(contentText(event!.content)).toBe("[wangwu]: 明天那个会议室订好了吗");
     expect(event!.sender).toBe("wangwu");
   });
 
@@ -29,7 +30,7 @@ describe("TelegramInputAdopter", () => {
     const event = await new TelegramInputAdopter().convert(
       makeUpdate({ from: { id: 1, first_name: "王五" } }),
     );
-    expect(event!.content).toBe("[王五]: 明天那个会议室订好了吗");
+    expect(contentText(event!.content)).toBe("[王五]: 明天那个会议室订好了吗");
     expect(event!.sender).toBe("王五");
   });
 
@@ -37,13 +38,13 @@ describe("TelegramInputAdopter", () => {
     const event = await new TelegramInputAdopter().convert(
       makeUpdate({ from: undefined }),
     );
-    expect(event!.content).toBe("明天那个会议室订好了吗");
+    expect(contentText(event!.content)).toBe("明天那个会议室订好了吗");
     expect(event!.sender).toBeUndefined();
   });
 
   it("adds no <reply_to> block when the message has no reply info", async () => {
     const event = await new TelegramInputAdopter().convert(makeUpdate());
-    expect(event!.content).toBe("[wangwu]: 明天那个会议室订好了吗");
+    expect(contentText(event!.content)).toBe("[wangwu]: 明天那个会议室订好了吗");
   });
 
   it("renders a <reply_to> block when the message quotes a text message", async () => {
@@ -59,10 +60,10 @@ describe("TelegramInputAdopter", () => {
         },
       }),
     );
-    expect(event!.content).toBe(
+    expect(contentText(event!.content)).toBe(
       "[wangwu]: <reply_to sender=\"lisi\">\n昨天我提到了会议室\n</reply_to>\n昨天说的那件事呢",
     );
-    expect(event!.content).not.toContain("已截断");
+    expect(contentText(event!.content)).not.toContain("已截断");
   });
 
   it("truncates quoted originals longer than 200 characters", async () => {
@@ -77,7 +78,7 @@ describe("TelegramInputAdopter", () => {
         },
       }),
     );
-    expect(event!.content).toBe(
+    expect(contentText(event!.content)).toBe(
       `[wangwu]: <reply_to sender="lisi">\n${"长".repeat(200)}（原文较长，已截断）\n</reply_to>\n明天那个会议室订好了吗`,
     );
   });
@@ -97,7 +98,7 @@ describe("TelegramInputAdopter", () => {
         },
       }),
     );
-    expect(event!.content).toBe(
+    expect(contentText(event!.content)).toBe(
       "[wangwu]: <reply_to sender=\"lisi\">\n[sticker 🎉]\n</reply_to>\n这是啥梗",
     );
     // 贴纸不下载：emoji 字段已完整刻画贴纸内容
@@ -156,7 +157,7 @@ describe("TelegramInputAdopter", () => {
         },
       }),
     );
-    expect(event!.content).toBe(
+    expect(contentText(event!.content)).toBe(
       "[wangwu]: <reply_to sender=\"lisi\">\n[photo]\n</reply_to>\n这张更好看",
     );
   });
@@ -254,6 +255,6 @@ describe("TelegramInputAdopter", () => {
     const event = await new TelegramInputAdopter("TOKEN123").convert(
       makeUpdate({ photo: [{ file_id: "p", file_unique_id: "u", width: 1, height: 1 }] }),
     );
-    expect(event!.content).toBe("[wangwu]: 明天那个会议室订好了吗");
+    expect(contentText(event!.content)).toBe("[wangwu]: 明天那个会议室订好了吗");
   });
 });

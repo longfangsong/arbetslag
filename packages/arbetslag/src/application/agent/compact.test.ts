@@ -1,23 +1,16 @@
 import { describe, it, expect, vi } from "vitest";
-import { ok, Result } from "neverthrow";
-
-// Unwrap a Result; the test setups are valid, so a failure here is a real bug.
-function unwrap<T>(r: Result<T, string>): T {
-  return r.match((v) => v, (e) => {
-    throw new Error(e);
-  });
-}
+import { ok } from "neverthrow";
+import { unwrap } from "../../utils";
 import {
   estimateTokens,
   findWaterline,
   applyRuleBasedCompaction,
   serializeHistoryForSummary,
-  formatCompactNotice,
-  NOTHING_TO_COMPACT,
   compactAgent,
 } from "./compact";
 import { Agent } from "./model";
 import type { Template } from "./template/model";
+import { text, contentText } from "./history";
 import type { HistoryEntry, CompletionResult } from "./history";
 import type { AIProvider } from "@/application/aiProvider/model";
 
@@ -55,7 +48,7 @@ function makeProvider(
 /** user + (optional tool call with long result) + assistant reply */
 function makeRound(n: number, toolResultLength = 0): Array<HistoryEntry> {
   const entries: Array<HistoryEntry> = [
-    { role: "user", content: `user message ${n}` },
+    { role: "user", content: text(`user message ${n}`) },
   ];
   if (toolResultLength > 0) {
     entries.push({
@@ -122,9 +115,7 @@ describe("applyRuleBasedCompaction", () => {
     expect(changed).toBe(true);
     expect(next[2].role).toBe("tool");
     if (next[2].role === "tool") {
-      expect(next[2].content).toMatch(
-        /^\[omitted:read_file\] args=.*$/,
-      );
+      expect(next[2].content).toBe("[omitted]");
     }
     // recent round untouched
     expect(next[6].role).toBe("tool");
@@ -136,7 +127,7 @@ describe("applyRuleBasedCompaction", () => {
   it("truncates long assistant tool-call argument values", () => {
     const long = "y".repeat(200);
     const history: Array<HistoryEntry> = [
-      { role: "user", content: "go" },
+      { role: "user", content: text("go") },
       {
         role: "assistant",
         content: "",
@@ -159,24 +150,22 @@ describe("applyRuleBasedCompaction", () => {
     expect(second.history).toEqual(first.history);
   });
 
-  it("stubs tool entries whose matching assistant call is unknown without args", () => {
+  it("keeps tool results no longer than the stub intact", () => {
     const history: Array<HistoryEntry> = [
-      { role: "user", content: "go" },
+      { role: "user", content: text("go") },
       { role: "tool", tool_call_id: "orphan", name: "get_time", content: "12:00" },
     ];
     const { history: next } = applyRuleBasedCompaction(history, 2);
-    expect(next[1].role).toBe("tool");
-    if (next[1].role === "tool") {
-      expect(next[1].content).toBe("[omitted:get_time]");
-    }
+    // stubbing "12:00" would grow it, so the entry is left untouched
+    expect(next[1]).toBe(history[1]);
   });
 });
 
 describe("serializeHistoryForSummary", () => {
   it("renders one line per entry with role markers", () => {
-    const text = serializeHistoryForSummary([
-      { role: "system", content: "old summary" },
-      { role: "user", content: "hello" },
+    const rendered = serializeHistoryForSummary([
+      { role: "system", content: text("old summary") },
+      { role: "user", content: text("hello") },
       {
         role: "assistant",
         content: "ok",
@@ -184,25 +173,16 @@ describe("serializeHistoryForSummary", () => {
           { id: "t1", tool_name: "read_file", arguments: { path: "a" } },
         ],
       },
-      { role: "tool", tool_call_id: "t1", name: "read_file", content: "[omitted:read_file]" },
+      { role: "tool", tool_call_id: "t1", name: "read_file", content: "[omitted]" },
     ]);
-    expect(text).toBe(
+    expect(rendered).toBe(
       [
         "[summary] old summary",
         "[user] hello",
         '[assistant] ok [calls: read_file({"path":"a"})]',
-        "[tool read_file] [omitted:read_file]",
+        "[tool read_file] [omitted]",
       ].join("\n"),
     );
-  });
-});
-
-describe("notices", () => {
-  it("formats the compact notice", () => {
-    expect(formatCompactNotice(31200, 4100)).toBe(
-      "📦 Compacted history: ~31.2K → ~4.1K tokens",
-    );
-    expect(NOTHING_TO_COMPACT).toBe("📦 Nothing to compact");
   });
 });
 
@@ -211,7 +191,7 @@ describe("compactAgent", () => {
     const agent = Agent.create(template);
     agent.lastPromptTokens = 12345;
     agent.history = [
-      { role: "system", content: "sys" },
+      { role: "system", content: text("sys") },
       ...makeRound(1, 5000),
       ...makeRound(2, 5000),
       ...makeRound(3),
@@ -233,14 +213,14 @@ describe("compactAgent", () => {
     // old tool result stubbed (system entry + round 1: user, assistant, tool)
     expect(agent.history[3].role).toBe("tool");
     if (agent.history[3].role === "tool") {
-      expect(agent.history[3].content).toMatch(/^\[omitted:read_file\]/);
+      expect(agent.history[3].content).toBe("[omitted]");
     }
     // recent round (no bulky tool I/O) intact
     expect(agent.history[agent.history.length - 1]).toEqual({
       role: "assistant",
       content: "assistant reply 3",
     });
-    // anchor invalidated
+    // lastPromptTokens dropped
     expect(agent.lastPromptTokens).toBeUndefined();
   });
 
@@ -249,11 +229,11 @@ describe("compactAgent", () => {
     // long user/assistant text only — rule-based has nothing to stub
     const longRounds: Array<HistoryEntry> = [];
     for (let n = 1; n <= 6; n++) {
-      longRounds.push({ role: "user", content: `user ${n} ${"u".repeat(490)}` });
+      longRounds.push({ role: "user", content: text(`user ${n} ${"u".repeat(490)}`) });
       longRounds.push({ role: "assistant", content: `a ${"a".repeat(490)}` });
     }
     agent.history = [
-      { role: "system", content: "sys" },
+      { role: "system", content: text("sys") },
       ...longRounds,
     ];
 
@@ -269,13 +249,13 @@ describe("compactAgent", () => {
 
     expect(result.compacted).toBe(true);
     expect(calls).toHaveLength(1);
-    // summary call: system instruction + serialized segment (4 of 6 rounds)
+    // summary call: system instruction + serialized aged entries (4 of 6 rounds)
     expect(calls[0].history).toHaveLength(2);
     expect(calls[0].history[0].role).toBe("system");
     if (calls[0].history[0].role === "system") {
-      expect(calls[0].history[0].content).toContain("compacting");
+      expect(contentText(calls[0].history[0].content)).toContain("compacting");
     }
-    const serialized = calls[0].history[1].role === "user" ? calls[0].history[1].content : "";
+    const serialized = calls[0].history[1].role === "user" ? contentText(calls[0].history[1].content) : "";
     expect(serialized).toContain("user 1 ");
     expect(serialized).not.toContain("user 5 ");
 
@@ -283,16 +263,16 @@ describe("compactAgent", () => {
     expect(agent.history).toHaveLength(5);
     expect(agent.history[0].role).toBe("system");
     if (agent.history[0].role === "system") {
-      expect(agent.history[0].content).toContain("SUMMARY TEXT");
+      expect(contentText(agent.history[0].content)).toContain("SUMMARY TEXT");
     }
   });
 
   it("abandons compaction when the summary leaves history no smaller than before", async () => {
     const agent = Agent.create(template);
-    // One tiny round below the waterline (the summarizable segment) plus big
+    // One tiny round below the waterline (aged entries) plus big
     // retained rounds that push the whole thing over the threshold.
     agent.history = [
-      { role: "system", content: "sys" },
+      { role: "system", content: text("sys") },
       ...makeRound(1),
       ...makeRound(2, 20000),
       ...makeRound(3, 20000),
@@ -301,7 +281,7 @@ describe("compactAgent", () => {
     ];
     const originalLength = agent.history.length;
 
-    // A summary far bigger than the tiny segment it replaces.
+    // A summary far bigger than the few aged entries it replaces.
     const { provider } = makeProvider([{ content: "x".repeat(500) }]);
     const result = unwrap(await compactAgent({
       agent,
@@ -310,15 +290,57 @@ describe("compactAgent", () => {
       retainRounds: 4,
     }));
 
-    // Net negative: rolled back to a clean no-op, nothing committed.
+    // Net negative: the candidate summary is rejected. The rule pass had
+    // nothing to stub here, so nothing was committed at all.
     expect(result.compacted).toBe(false);
     expect(result.afterTokens).toBeLessThanOrEqual(result.beforeTokens);
     expect(agent.history[0].role).toBe("system");
     if (agent.history[0].role === "system") {
-      expect(agent.history[0].content).toBe("sys");
+      expect(contentText(agent.history[0].content)).toBe("sys");
     }
     // Same entry count as we started with — no summary was injected.
     expect(agent.history).toHaveLength(originalLength);
+  });
+
+  it("keeps the rule-compacted history when the summary costs more than it saves", async () => {
+    const agent = Agent.create(template);
+    // A tool round below the waterline (the rule pass stubs its result) plus
+    // big retained rounds that keep the whole thing over the threshold.
+    agent.history = [
+      { role: "system", content: text("sys") },
+      ...makeRound(1, 20000),
+      ...makeRound(2, 20000),
+      ...makeRound(3, 20000),
+      ...makeRound(4, 20000),
+      ...makeRound(5, 20000),
+    ];
+    // A summary far bigger than the aged entries it replaces.
+    const { provider } = makeProvider([{ content: "x".repeat(2000) }]);
+    const result = unwrap(await compactAgent({
+      agent,
+      provider,
+      threshold: 1000,
+      retainRounds: 4,
+    }));
+
+    // The summary candidate is rejected, but the rule pass (pure shortening)
+    // is kept even though the history is still over the threshold.
+    expect(result.compacted).toBe(true);
+    expect(result.afterTokens).toBeLessThan(result.beforeTokens);
+    expect(result.afterTokens).toBeGreaterThanOrEqual(1000);
+    // No summary injected: the original system entry is intact.
+    expect(agent.history[0].role).toBe("system");
+    if (agent.history[0].role === "system") {
+      expect(contentText(agent.history[0].content)).toBe("sys");
+    }
+    // Rule pass applied: the aged tool result is stubbed.
+    expect((agent.history[3] as Extract<HistoryEntry, { role: "tool" }>).content).toBe(
+      "[omitted]",
+    );
+    // Retained rounds untouched.
+    expect((agent.history[19] as Extract<HistoryEntry, { role: "tool" }>).content).toBe(
+      "x".repeat(20000),
+    );
   });
 
   it("uses the per-template summary prompt when provided", async () => {
@@ -328,11 +350,11 @@ describe("compactAgent", () => {
     });
     const rounds: Array<HistoryEntry> = [];
     for (let n = 1; n <= 4; n++) {
-      rounds.push({ role: "user", content: `user ${n} ${"u".repeat(1900)}` });
+      rounds.push({ role: "user", content: text(`user ${n} ${"u".repeat(1900)}`) });
       rounds.push({ role: "assistant", content: `a ${"a".repeat(1900)}` });
     }
     agent.history = [
-      { role: "system", content: "sys" },
+      { role: "system", content: text("sys") },
       ...rounds,
     ];
 
@@ -348,7 +370,7 @@ describe("compactAgent", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].history[0].role).toBe("system");
     if (calls[0].history[0].role === "system") {
-      expect(calls[0].history[0].content).toBe(
+      expect(contentText(calls[0].history[0].content)).toBe(
         "CUSTOM: summarize briefly in one line",
       );
     }
@@ -358,25 +380,28 @@ describe("compactAgent", () => {
     const agent = Agent.create(template);
     const rounds: Array<HistoryEntry> = [];
     for (let n = 1; n <= 5; n++) {
-      rounds.push({ role: "user", content: `user ${n} ${"u".repeat(490)}` });
+      rounds.push({ role: "user", content: text(`user ${n} ${"u".repeat(490)}`) });
       rounds.push({ role: "assistant", content: `a ${"a".repeat(490)}` });
     }
     agent.history = [
-      { role: "system", content: "sys\n## History summary (compacted)\nold summary" },
+      { role: "system", content: text("sys\n## History summary (compacted)\nold summary") },
       ...rounds,
     ];
 
     const { provider, calls } = makeProvider([{ content: "NEW SUMMARY" }]);
     unwrap(await compactAgent({ agent, provider, threshold: 500, retainRounds: 1 }));
 
-    const serialized = calls[0].history[1].role === "user" ? calls[0].history[1].content : "";
-    // previous summary is re-fed explicitly; the segment itself is pure rounds
+    const serialized = calls[0].history[1].role === "user" ? contentText(calls[0].history[1].content) : "";
+    // previous summary is re-fed explicitly; the aged entries are pure rounds
     expect(serialized).toContain("old summary");
     expect(serialized).not.toContain("[summary]");
+    // the agent's system prompt ("sys") lives in the system entry, it is not
+    // part of the re-fed previous summary
+    expect(serialized).not.toContain("sys");
     // new system entry: template system prompt + new summary, single system entry
     expect(agent.history[0].role).toBe("system");
     if (agent.history[0].role === "system") {
-      expect(agent.history[0].content).toBe(
+      expect(contentText(agent.history[0].content)).toBe(
         "sys\n## History summary (compacted)\nNEW SUMMARY",
       );
     }
@@ -386,7 +411,7 @@ describe("compactAgent", () => {
   it("rule-compacts the retained rounds themselves when they alone exceed the threshold", async () => {
     const agent = Agent.create(template);
     agent.history = [
-      { role: "system", content: "sys" },
+      { role: "system", content: text("sys") },
       ...makeRound(1, 5000),
       ...makeRound(2, 5000),
     ];
@@ -407,7 +432,7 @@ describe("compactAgent", () => {
     // both tool results stubbed (no round is old enough for the waterline)
     for (const entry of agent.history) {
       if (entry.role === "tool") {
-        expect(entry.content).toMatch(/^\[omitted:read_file\]/);
+        expect(entry.content).toBe("[omitted]");
       }
     }
     expect(agent.lastPromptTokens).toBeUndefined();
@@ -415,7 +440,7 @@ describe("compactAgent", () => {
 
   it("accepts overflow when only retained rounds exist", async () => {
     const agent = Agent.create(template);
-    agent.history = [{ role: "user", content: "u".repeat(5000) }];
+    agent.history = [{ role: "user", content: text("u".repeat(5000)) }];
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const result = unwrap(await compactAgent({
       agent,
@@ -447,15 +472,15 @@ describe("compactAgent", () => {
   });
 });
 
-describe("agent token metering anchor", () => {
-  it("anchors from LLM response usage and survives serialize round-trip", () => {
+describe("agent lastPromptTokens", () => {
+  it("stores prompt_tokens from LLM response usage and survives serialize round-trip", () => {
     const agent = Agent.create(template);
     agent.handleMessage({
       id: "m1",
       event_type: "message",
       chat_id: "c",
       adapter: "test",
-      content: "hi",
+      content: text("hi"),
       send_time: 0,
     });
     agent.handleLLMCompletionResponse({
@@ -470,18 +495,18 @@ describe("agent token metering anchor", () => {
     const restored = Agent.deserialize(agent.serialize());
     expect(restored.lastPromptTokens).toBe(1234);
 
-    restored.invalidateAnchor();
+    restored.clearLastPromptTokens();
     expect(restored.lastPromptTokens).toBeUndefined();
   });
 
-  it("leaves the anchor untouched when the provider omits usage", () => {
+  it("leaves lastPromptTokens untouched when the provider omits usage", () => {
     const agent = Agent.create(template);
     agent.handleMessage({
       id: "m1",
       event_type: "message",
       chat_id: "c",
       adapter: "test",
-      content: "hi",
+      content: text("hi"),
       send_time: 0,
     });
     agent.handleLLMCompletionResponse({

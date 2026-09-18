@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import { Template } from "./template/model";
-import { HistoryEntry } from "./history";
+import { HistoryEntry, text } from "./history";
 import {
   AgentMessageEvent,
   ApiCallbackEvent,
@@ -24,10 +24,12 @@ export class Agent {
   public readonly template: Template;
   public history: Array<HistoryEntry> = [];
   public chatId?: string;
+
   /**
-   * Token metering anchor (see docs/adr/0001-compact-token-metering.md):
-   * real prompt_tokens of the last LLM request and the history length at that
-   * request. Public because the orchestrator meters the next request.
+   * Real prompt_tokens of the last LLM response (see
+   * docs/adr/0001-compact-token-metering.md): the orchestrator meters the
+   * next request as this value plus an estimate of the history added since.
+   * Public because the orchestrator meters the next request.
    */
   public lastPromptTokens?: number;
   private waitingForToolCallCount = 0;
@@ -44,12 +46,18 @@ export class Agent {
 
   static create(template: Template): Agent {
     return new Agent(nanoid(10), template, [
-      { role: "system", content: template.systemPrompt },
+      { role: "system", content: text(template.systemPrompt) },
     ]);
   }
 
   static deserialize(data: SerializedAgent): Agent {
-    const agent = new Agent(data.id, data.template, data.history);
+    // Legacy stored history may hold plain string content: normalize to a single text part.
+    const history = data.history.map((entry) =>
+      (entry.role === "system" || entry.role === "user") && typeof entry.content === "string"
+        ? { ...entry, content: text(entry.content) }
+        : entry,
+    );
+    const agent = new Agent(data.id, data.template, history);
     if (data.chatId) agent.chatId = data.chatId;
     if (data.waitingForToolCallCount != null) agent.waitingForToolCallCount = data.waitingForToolCallCount;
     if (data.lastPromptTokens != null) agent.lastPromptTokens = data.lastPromptTokens;
@@ -67,8 +75,9 @@ export class Agent {
     };
   }
 
-  /** Drop the token metering anchor after the history has been compacted. */
-  invalidateAnchor(): void {
+  // Invalidate the lastPromptTokens so that the next request will be metered with a new estimate.
+  // Use when the history has been changed, e.g. after compaction.
+  clearLastPromptTokens(): void {
     this.lastPromptTokens = undefined;
   }
 
@@ -90,10 +99,10 @@ export class Agent {
   handleAgentMessage(event: AgentMessageEvent): Array<Event> {
     this.history.push({
       role: "user",
-      content: `<agent_message>
+      content: text(`<agent_message>
 					<from_agent_id>${event.from_agent_id}</from_agent_id>
 					<content>${event.content}</content>
-				</agent_message>`,
+				</agent_message>`),
     });
     return [
       {
@@ -108,13 +117,13 @@ export class Agent {
   handleApiCallback(event: ApiCallbackEvent): Array<Event> {
     this.history.push({
       role: "user",
-      content: `<api_callback>
+      content: text(`<api_callback>
 					<id>${event.id}</id>
 					<api_name>${event.api_name}</api_name>
 					<payload>
 						${event.content}
 					</payload>
-				</api_callback>`,
+				</api_callback>`),
     });
     return [
       {

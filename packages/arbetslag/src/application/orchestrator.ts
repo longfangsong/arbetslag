@@ -2,6 +2,7 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { Result, ok, err } from "neverthrow";
 import { EventBus } from "./event/bus";
+import { unwrap } from "../utils";
 import {
   Event,
   ToolCallRequest,
@@ -19,9 +20,6 @@ import {
   type CompactResult,
   compactAgent,
   estimateHistoryTokens,
-  estimateTokens,
-  formatCompactNotice,
-  NOTHING_TO_COMPACT,
   DEFAULT_COMPACT_THRESHOLD,
   DEFAULT_COMPACT_RETAIN_ROUNDS,
 } from "./agent/compact";
@@ -55,20 +53,6 @@ export class Orchestrator {
     return this.bus.empty();
   }
 
-  /**
-   * Unwrap a Result, throwing on failure. The framework only throws to crash
-   * on configuration errors — runtime data-flow failures travel as Result
-   * errors and surface at the app boundary.
-   */
-  private unwrap<T>(result: Result<T, string>): T {
-    return result.match(
-      (v) => v,
-      (e) => {
-        throw new Error(e);
-      },
-    );
-  }
-
   async step(): Promise<Result<Array<Event>, string>> {
     const event = this.bus.pop();
     if (!event) return ok([]);
@@ -94,9 +78,7 @@ export class Orchestrator {
     if (!this.deps.outputRouter) return Promise.resolve(ok(undefined));
     return this.deps.outputRouter.route({
       kind: "history_compacted",
-      content: result.compacted
-        ? formatCompactNotice(result.beforeTokens, result.afterTokens)
-        : NOTHING_TO_COMPACT,
+      // Tokens set ⇔ something was compacted; the host renders the wording.
       beforeTokens: result.compacted ? result.beforeTokens : undefined,
       afterTokens: result.compacted ? result.afterTokens : undefined,
     });
@@ -104,9 +86,11 @@ export class Orchestrator {
 
   /**
    * Compact the agent's history before an LLM request if the metered size
-   * crosses the template threshold. Metering: anchor (last real
-   * prompt_tokens + estimated delta) when available, full estimation
-   * otherwise (ADR-0001). Notifies the user only when something was compacted.
+   * crosses the template threshold. Metering: lastPromptTokens (last real
+   * prompt_tokens) plus an estimate of the history added since, when
+   * available; full estimation otherwise (ADR-0001). The outcome is always
+   * routed as a SystemNotice; the output router decides whether and how to
+   * tell the user.
    */
   private async compactIfNeeded(
     agent: Agent,
@@ -118,22 +102,22 @@ export class Orchestrator {
       template.compactThreshold ?? DEFAULT_COMPACT_THRESHOLD;
     const retainRounds =
       template.compactRetainRounds ?? DEFAULT_COMPACT_RETAIN_ROUNDS;
-    // Anchor branch: the anchor's prompt already covered history up to (but
-    // not including) the last assistant entry, so meter that entry plus all
-    // newer ones. Derived rather than stored: every LLM call appends exactly
-    // one assistant entry (agent messages are stored as user-role entries).
-    let anchorCursor = 0;
+    // lastPromptTokens branch: that request already covered history up to
+    // (but not including) the last assistant entry, so meter that entry plus
+    // all newer ones. Derived rather than stored: every LLM call appends
+    // exactly one assistant entry (agent messages are stored as user-role
+    // entries).
+    let lastAssistantIndex = 0;
     for (let i = agent.history.length - 1; i >= 0; i--) {
       if (agent.history[i].role === "assistant") {
-        anchorCursor = i;
+        lastAssistantIndex = i;
         break;
       }
     }
     const meteredTokens =
       agent.lastPromptTokens != null
-        ? agent.lastPromptTokens + estimateHistoryTokens(agent.history.slice(anchorCursor))
-        : estimateTokens(template.systemPrompt) +
-          estimateHistoryTokens(agent.history);
+        ? agent.lastPromptTokens + estimateHistoryTokens(agent.history.slice(lastAssistantIndex))
+        : estimateHistoryTokens(agent.history); // history[0] is the system entry
     if (meteredTokens < threshold) return ok(undefined);
     const result = await compactAgent({
       agent,
@@ -166,9 +150,9 @@ export class Orchestrator {
         const e = event as MessageEvent;
         let agent = await agentRepository.getByChatId(e.chat_id);
         if (!agent) {
-          // unwrap: a missing default template is a configuration error —
+          // a missing default template is a configuration error —
           // the one place we still throw (crash, don't silently misroute).
-          const template = this.unwrap(await templateRepository.default());
+          const template = unwrap(await templateRepository.default());
           agent = Agent.create(template);
           agent.chatId = e.chat_id;
           await agentRepository.setEntryAgent(e.chat_id, agent);
@@ -273,7 +257,7 @@ export class Orchestrator {
           // First message in the chat is /compact: create the agent the same
           // way the "message" flow does, then compact (empty history ->
           // nothing to compact, but the agent now exists for the user).
-          const template = this.unwrap(await templateRepository.default());
+          const template = unwrap(await templateRepository.default());
           agent = Agent.create(template);
           agent.chatId = e.chat_id;
           await agentRepository.setEntryAgent(e.chat_id, agent);
