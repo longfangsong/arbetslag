@@ -26,13 +26,11 @@ export interface SerializedAgent {
  * the tag names. English, like the built-in compact summary prompt; the
  * leading newline separates it from the app's system prompt.
  */
-const META_SYSTEM_PROMPT = `
-# Agent 框架元消息
+const META_SYSTEM_PROMPT = `# Agent 框架元消息
 
 有时你会收到一些包裹在 xml 标签中的消息，这些消息是由框架包装的，不是由人类用户输入的：
 - <agent_message>：由另一个 Agent 发送的消息；其中 <from_agent_id> 字段标识发送者的 Agent ID。
 - <api_callback>：外部异步 API 调用的结果，通常来自工具调用的 callback；其中 <api_name> 为 API 名称。
-请根据用户要求处理这些消息。
 `;
 
 /**
