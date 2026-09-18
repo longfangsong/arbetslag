@@ -3,6 +3,9 @@ import { ok, err, Result } from "neverthrow";
 import { ToolExecutingContext } from "@/application/tool/model";
 import { Agent } from "@/application/agent/model";
 import { CronTool } from ".";
+import createDebug from "debug";
+
+const log = createDebug("arbetslag:tool");
 
 export const CronDeleteInputSchema = z
 	.object({
@@ -32,7 +35,8 @@ export class CronDelete extends CronTool<
 		input: z.infer<typeof CronDeleteInputSchema>,
 	): Promise<Result<CronDeleteResult, string>> {
 		try {
-			await this.request(`/jobs/${input.job_id}`, { method: "DELETE" });
+      await this.request(`/jobs/${input.job_id}`, { method: "DELETE" });
+      log(`cron job deleted jobId=${input.job_id}`);
 			return ok({ jobId: input.job_id });
 		} catch (e) {
 			return err(e instanceof Error ? e.message : String(e));

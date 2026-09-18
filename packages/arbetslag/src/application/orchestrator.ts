@@ -189,10 +189,6 @@ export class Orchestrator {
         );
         if (result === undefined) {
           toolLog(`❌ tool not found: ${e.tool_call.tool_name}`);
-        } else {
-          toolLog(
-            `${e.tool_call.tool_name} agent=${e.from_agent_id} ok=${result.isOk()} args=${JSON.stringify(e.tool_call.arguments).slice(0, 200)}`,
-          );
         }
         const content =
           result === undefined

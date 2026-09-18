@@ -21,13 +21,13 @@ export class SmartTelegramRouter {
 				typeof event.beforeTokens === "number"
 					? ` ${event.beforeTokens} -> ${event.afterTokens} tokens`
 					: " (nothing to compact)";
-			log(`[SmartTelegramRouter] ${event.kind}${detail}`);
+			log(`    [SmartTelegramRouter] ${event.kind}${detail}`);
 			return ok(undefined);
 		}
 		let content: string | undefined = event.content;
-		content = content?.trim();
+    content = content?.trim();
+		content = content?.replace(/^"(.*)"$/, "$1");
 		if (!content || content === '""' || content === "''") {
-			log(`[SmartTelegramRouter] No content to send`);
 			return ok(undefined);
 		}
 
@@ -41,20 +41,10 @@ export class SmartTelegramRouter {
 			.replace(/\[\[sticker:[a-zA-Z0-9_-]+\]\]/g, "")
 			.replace(/\[\[pin:[a-zA-Z0-9_-]+\]\]/g, "！")
 			.trim();
-		if (pin) {
-			log(
-				`[SmartTelegramRouter] quoting pinned message ${pin.id} (#${pin.messageId})`,
-			);
-		}
 
 		if (stickerTokens.length === 0 && !text) {
-			log(`[SmartTelegramRouter] No content to send`);
 			return ok(undefined);
 		}
-
-		log(
-			`[SmartTelegramRouter] Sending to chat ${this.chatId}: ${text || "(sticker only)"}${stickerTokens.length ? ` + sticker(s): ${stickerTokens.join(", ")}` : ""}`,
-		);
 
 		if (this.TEST_MODE) {
 			return ok(undefined);
@@ -73,7 +63,7 @@ export class SmartTelegramRouter {
 			});
 			if (!res.ok) {
 				const body = await res.text();
-				log(`[SmartTelegramRouter] error: ${res.status} ${body}`);
+				log(`    [SmartTelegramRouter] error: ${res.status} ${body}`);
 				return err(`Telegram API error: ${res.status} ${body}`);
 			}
 		}
@@ -81,7 +71,7 @@ export class SmartTelegramRouter {
 		for (const id of stickerTokens) {
 			const sticker = STICKERS.find((s) => s.id === id);
 			if (!sticker) {
-				warn(`[SmartTelegramRouter] unknown sticker id: ${id}`);
+				warn(`    [SmartTelegramRouter] unknown sticker id: ${id}`);
 				continue;
 			}
 			const res = await fetch(
@@ -97,7 +87,7 @@ export class SmartTelegramRouter {
 			);
 			if (!res.ok) {
 				const body = await res.text();
-				log(`[SmartTelegramRouter] sendSticker error: ${res.status} ${body}`);
+				log(`    [SmartTelegramRouter] sendSticker error: ${res.status} ${body}`);
 			}
 		}
 		return ok(undefined);

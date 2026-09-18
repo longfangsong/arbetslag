@@ -112,7 +112,7 @@ export class CronCreate extends CronTool<
 				return err("cron-job.org did not return a jobId.");
 			}
 			const jobId = data.jobId;
-			log(`created jobId=${jobId}`);
+			log(`cron job created jobId=${jobId}`);
 			// Embed the jobId so the callback identifies which job fired (needed
 			// for delete_cron); the id only exists after creation, so update.
 			// (Updates use PATCH — PUT /jobs/:id returns 404.)
