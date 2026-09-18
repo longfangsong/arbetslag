@@ -89,8 +89,8 @@ export class Orchestrator {
    * crosses the template threshold. Metering: lastPromptTokens (last real
    * prompt_tokens) plus an estimate of the history added since, when
    * available; full estimation otherwise (ADR-0001). The outcome is always
-   * routed as a SystemNotice; the output router decides whether and how to
-   * tell the user.
+   * routed as a Compacted notice; the output router decides whether and how
+   * to tell the user.
    */
   private async compactIfNeeded(
     agent: Agent,

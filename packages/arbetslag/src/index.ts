@@ -75,7 +75,7 @@ export type { ContentPart, Content } from "./application/agent/history";
 export { contentText, text } from "./application/agent/history";
 export type { FileSystem } from "./application/file/model";
 export type { Template } from "./application/agent/template/model";
-export type { OutputRouter, SystemNotice } from "./application/outputRouter/model";
+export type { OutputRouter, Compacted } from "./application/outputRouter/model";
 export type { OrchestratorDeps, OntologyConfig };
 export type { Update } from "./implementation/inputAdopter/telegram";
 

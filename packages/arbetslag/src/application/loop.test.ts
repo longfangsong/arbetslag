@@ -19,7 +19,7 @@ import { HttpRequest } from "@/implementation/tool/http";
 import { GetTime } from "@/implementation/tool/getTime";
 import type { AIProvider } from "./aiProvider/model";
 import type { Template } from "@/application/agent/template/model";
-import type { OutputRouter, SystemNotice } from "./outputRouter/model";
+import type { OutputRouter, Compacted } from "./outputRouter/model";
 
 const sampleTemplate: Template = {
   name: "test",
@@ -232,7 +232,7 @@ describe("compact", () => {
   async function makeOrchestrator(
     fs: InMemoryFileSystem,
     provider: AIProvider,
-    notices: SystemNotice[],
+    notices: Compacted[],
     template: Template = compactTemplate,
   ) {
     const agentRepo = await FileSystemAgentRepository.create(fs, "agents/");
@@ -258,7 +258,7 @@ describe("compact", () => {
 
   it("auto-compacts before the LLM request and sends a system notice", async () => {
     const fs = new InMemoryFileSystem();
-    const notices: SystemNotice[] = [];
+    const notices: Compacted[] = [];
     const seenByProvider: Array<Array<HistoryEntry>> = [];
     const provider: AIProvider = {
       name: "openai",
@@ -317,7 +317,7 @@ describe("compact", () => {
 
   it("escalates to LLM-based and merges the summary into the system entry", async () => {
     const fs = new InMemoryFileSystem();
-    const notices: SystemNotice[] = [];
+    const notices: Compacted[] = [];
     const seenByProvider: Array<Array<HistoryEntry>> = [];
     const summaryTemplate: Template = {
       ...compactTemplate,
@@ -378,7 +378,7 @@ describe("compact", () => {
 
   it("processes compact_request: compacts and notifies; no agent -> creates one, nothing to compact", async () => {
     const fs = new InMemoryFileSystem();
-    const notices: SystemNotice[] = [];
+    const notices: Compacted[] = [];
     const provider = mockAiProvider();
     // High threshold: the retained round plus stubs stay under it, so
     // rule-based alone is expected to settle it.

@@ -39,9 +39,9 @@ The boundary separating compactable old history from the retained recent rounds.
 
 One user-initiated exchange: a user entry (user message, agent_message, or api_callback) plus all assistant and tool entries it triggers, up to the next user entry. Compaction boundaries always fall on round boundaries, so an assistant message with tool_calls is never separated from its tool results.
 
-### System Notice
+### Compacted
 
-A message from the framework runtime to the user through the chat channel (e.g. "history was compacted"), as opposed to AgentOutput which is the agent's (LLM's) own utterance. Routed through the same OutputRouter, distinguishable by type.
+A notice that an agent's history was compacted — an agent-scoped fact (the before/after token counts are that agent's) that the orchestrator routes to the user through the chat channel on the agent's behalf. As opposed to AgentOutput, which is the agent's (LLM's) own utterance. Routed through the same OutputRouter, distinguishable by type.
 
 ## AI Provider
 

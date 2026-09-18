@@ -16,7 +16,7 @@
   - **与已锁定点的冲突（先改 ADR/PRD 再选）**：PRD「Implementation Decisions」已锁定“压缩逻辑不进 Agent 类（Agent 拿不到 provider，保持其『处理单个事件』职责）”——Option A/B 均与之冲突，采用前需先更新该决策与 `docs/prd/0002-compact.md`。`history[0]` 恒为 system 条目 + marker 存储摘要是另一条锁定点，**建议保留**（保持 `agent.history` == 直接发给 LLM 的内容，无需发送时重建）。
   - 建议顺序：先 A（最小、消除泄漏）→ 需要更强不变量时再上 B。
 
-- **[todo] `SystemNotice` 改名为 `Compacted`**：`SystemNotice` 的本意是 notice 的联合类型（`Compacted | 更多 notice`），但目前唯一实例是 `kind: "history_compacted"`，名字名不副实。改为 `Compacted`（`packages/arbetslag/src/application/outputRouter/model.ts`，影响 orchestrator / telegram router / telegram-bot 共 6 个文件）；等出现第二种 notice 时再引入 `SystemNotice = Compacted | …` 联合。
+- **[done] `SystemNotice` 改名为 `Compacted`**：`SystemNotice` 的本意是 notice 的联合类型（`Compacted | 更多 notice`），但目前唯一实例是 `kind: "history_compacted"`，名字名不副实。改为 `Compacted`（`packages/arbetslag/src/application/outputRouter/model.ts`，影响 orchestrator / telegram router / telegram-bot 共 6 个文件）；等出现第二种 notice 时再引入 `SystemNotice = Compacted | …` 联合。
   - **归属问题**：`Compacted` 更像 Agent 事件而不是 “system” 事件——它描述的是某个 agent 自己的 history 被压缩（before/after tokens 都是该 agent 的），只是由 orchestrator 代为发出。改名时一并考虑它的语义归属（agent-scoped event vs system-level notice），而不是只改类型名。
 
 ## Meta system prompt（向 LLM 说明内置输入格式）
@@ -38,7 +38,7 @@
   - **贴纸 token 协议 `[[sticker:id]]`**：解析 token → 从文本移除 → `sendSticker` 发送。backport 形式：库构造器接受可选 sticker 目录 `Array<{ id; fileId }>`（`STICKERS` 数据注册表留 app）。
   - **Pin token 协议 `[[pin:id]]`**：替换为占位符并带 `reply_to_message_id` 发送。库形式：可选 pin 目录 `Array<{ id; messageId }>`。
   - **dry-run（app 的 TEST_MODE）**：只打日志不发送。库形式：构造器 `dryRun` 标志。
-  - **SystemNotice 策略需先定**：库默认把 compact notice 作为用户可见消息发（`📦 Compacted history…`），app 选择只打日志不发。backport 时定一个库级默认（如默认发送、可关），而不是各 app 各自为政。
+  - **Compacted 策略需先定**：库默认把 compact notice 作为用户可见消息发（`📦 Compacted history…`），app 选择只打日志不发。backport 时定一个库级默认（如默认发送、可关），而不是各 app 各自为政。
   - **InputAdopter 时间戳前缀**：`[HH:mm:ss]` 目前由 app 的 `formatInputParts` 加；它给 LLM 的消息时序/批量边界是通用信息，可移进库 adapter 的 `assemble`。
   - **不 backport（留 app）**：`/compact` 命令识别与 `compact_request` 路由（app 自有命令）、STICKERS/PINS 数据、4h idle 重置、batch 合并策略、api_callback XML 渲染。
   - 执行时给新逻辑补 Vitest（token 解析、空内容、dry-run），app 改用库 `Telegram`（传目录/dryRun）后删除 `SmartTelegramRouter`。

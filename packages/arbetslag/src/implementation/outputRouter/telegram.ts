@@ -1,4 +1,4 @@
-import { OutputRouter, type SystemNotice } from "@/application/outputRouter/model";
+import { OutputRouter, type Compacted } from "@/application/outputRouter/model";
 import { AgentOutput } from "@/application/event/event";
 import { Result, ok, err } from "neverthrow";
 
@@ -13,8 +13,8 @@ export class Telegram implements OutputRouter {
 		this.apiBase = apiBase;
 	}
 
-	async route(event: AgentOutput | SystemNotice): Promise<Result<void, string>> {
-		// SystemNotice carries no copy: render the user-facing wording from
+	async route(event: AgentOutput | Compacted): Promise<Result<void, string>> {
+		// Compacted carries no copy: render the user-facing wording from
 		// the structured fields (this default adapter uses English).
 		const markdown =
 			"kind" in event

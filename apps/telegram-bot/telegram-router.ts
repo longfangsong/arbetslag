@@ -1,6 +1,6 @@
 import { PINS } from "./prompt/pin";
 import { STICKERS } from "./prompt/sticker";
-import type { AgentOutput, SystemNotice } from "arbetslag";
+import type { AgentOutput, Compacted } from "arbetslag";
 import { Result, ok, err } from "neverthrow";
 
 export class SmartTelegramRouter {
@@ -13,8 +13,8 @@ export class SmartTelegramRouter {
 		this.chatId = chatId;
 	}
 
-	async route(event: AgentOutput | SystemNotice): Promise<Result<void, string>> {
-		// System notices (e.g. history compaction) are log-only, never sent to the chat.
+	async route(event: AgentOutput | Compacted): Promise<Result<void, string>> {
+		// Compacted notices are log-only, never sent to the chat.
 		if ("kind" in event) {
 			const detail =
 				typeof event.beforeTokens === "number"

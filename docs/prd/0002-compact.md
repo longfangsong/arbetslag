@@ -155,10 +155,10 @@ context window 的大部。用户观察到的核心痛点是：**历史过长时
 - 新事件 `compact_request { id, event_type, chat_id }`，host（如 telegram-bot 识别 `/compact`）推它代替 `message`；orchestrator 用 `getByChatId` 解析 agent，跑同一条流水线 + `save()` + 发通知。
 - chat 无 agent 时：no-op + "无可压缩内容"通知，不创建 agent。
 
-### 通知的通道（SystemNotice）
+### 通知的通道（Compacted）
 
-- 新增 `SystemNotice` 类型：`{ kind: "history_compacted"; content: string }`。`OutputRouter.route` 签名改为 `route(event: AgentOutput | SystemNotice)`，两个现有实现（框架 `Telegram`、app `SmartTelegramRouter`）各加一个分支，渲染上可区别于 agent 发言（如斜体）。
-- 语义区分：AgentOutput = agent（LLM）的发言；SystemNotice = 框架运行时告知用户的事。不塞进 AgentOutput，避免 app 层退化为字符串匹配前缀。
+- 新增 `Compacted` 类型：`{ kind: "history_compacted"; beforeTokens?; afterTokens? }`（agent-scoped：token 数属于被压缩的那个 agent，由 orchestrator 代发；早期草案曾带 `content: string`，后改为结构化字段、文案由 router 渲染）。`OutputRouter.route` 签名改为 `route(event: AgentOutput | Compacted)`，两个现有实现（框架 `Telegram`、app `SmartTelegramRouter`）各加一个分支，渲染上可区别于 agent 发言（如斜体）。
+- 语义区分：AgentOutput = agent（LLM）的发言；Compacted = 某 agent 的 history 被压缩这一事实，由框架运行时告知用户。不塞进 AgentOutput，避免 app 层退化为字符串匹配前缀。
 - **不上 bus**：orchestrator 即生产者且已持有 `outputRouter`，直接调用；通知是 cosmetic 副作用，与现有 `agent_output` 路由一样不参与 checkpoint 回放。因此不需要 id / from_agent_id。
 - `kind` 保留为 union 内部的稳定判别位，为后续通知种类留缝（现在只有 `history_compacted` 一种）。
 
