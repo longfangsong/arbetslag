@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { FileSystemAgentRepository } from "./repository";
 import { InMemoryFileSystem } from "@/implementation/tool/file/filesystem/inMemory";
-import { Agent } from "@/application/agent/model";
+import { Agent, composeSystemPrompt } from "@/application/agent/model";
 import { text } from "@/application/agent/history";
 import { Template } from "@/application/agent/template/model";
 
@@ -31,7 +31,7 @@ describe("FileSystemAgentRepository", () => {
     expect(retrieved!.id).toBe(agent.id);
     expect(retrieved!.template).toEqual(sampleTemplate);
     expect(retrieved!.history).toEqual([
-      { role: "system", content: text("You are a test agent.") },
+      { role: "system", content: text(composeSystemPrompt(sampleTemplate)) },
     ]);
     expect(result).toBe(agent);
   });
@@ -85,10 +85,11 @@ describe("FileSystemAgentRepository", () => {
 
   it("normalizes legacy string content on deserialize", () => {
     const agent = Agent.create(sampleTemplate);
+    agent.history.push({ role: "user", content: text("hello") });
     const data = agent.serialize();
-    (data.history[0] as { content: unknown }).content = "legacy string";
+    (data.history[1] as { content: unknown }).content = "legacy string";
     const restored = Agent.deserialize(data);
-    expect(restored.history[0].content).toEqual(text("legacy string"));
+    expect(restored.history[1].content).toEqual(text("legacy string"));
   });
 
   it("sets and retrieves chatId on agent", async () => {

@@ -1,6 +1,6 @@
 import { Result, ok, err } from "neverthrow";
 import { AIProvider } from "@/application/aiProvider/model";
-import { Agent } from "./model";
+import { Agent, composeSystemPrompt } from "./model";
 import {
   AssistantEntry,
   HistoryEntry,
@@ -17,7 +17,7 @@ const OMITTED_STUB = "[omitted]";
 const MAX_ARG_VALUE_CHARS = 100; // cap for truncated argument values
 // Shared by the system-entry writer (compactAgent) and reader
 // (extractPreviousSummary); the leading newline is part of the match.
-const SUMMARY_MARKER = "\n## History summary (compacted)\n";
+export const SUMMARY_MARKER = "\n## History summary (compacted)\n";
 
 // ── Token estimation (see docs/adr/0001-compact-token-metering.md) ──────────
 
@@ -216,7 +216,7 @@ export interface CompactDeps {
 
 /**
  * The previous rolling summary carried in the system entry: the text below
- * the SUMMARY_MARKER (the template system prompt above it is not part of the
+ * the SUMMARY_MARKER (the composed system prompt above it is not part of the
  * summary). Undefined when there is no previous summary.
  */
 function extractPreviousSummary(systemEntry: HistoryEntry): string | undefined {
@@ -274,11 +274,11 @@ export async function compactAgent({
   retainRounds,
   summaryPrompt,
 }: CompactDeps): Promise<Result<CompactResult, string>> {
-  const systemPrompt = agent.template.systemPrompt;
+  const systemPrompt = composeSystemPrompt(agent.template);
   // We will keep using rule based token estimation here
   // because in the following rule based compaction we will try to
-  // reduce the number of tokens without actually calling the LLM. 
-  // And there is no way to know how many tokes are there 
+  // reduce the number of tokens without actually calling the LLM.
+  // And there is no way to know how many tokes are there
   // after the rule based compaction. But we have to know whether we have
   // really reduced the number of tokens or not.
   const beforeTokens = estimateHistoryTokens(agent.history);
@@ -296,8 +296,8 @@ export async function compactAgent({
 
   let afterTokens = estimateHistoryTokens(agent.history);
   if (afterTokens >= threshold) {
-    // history[0] is the system entry (template systemPrompt plus any previous
-    // summary); the aged entries to be summarized always start at index 1.
+    // history[0] is the system entry (composed system prompt plus any
+    // previous summary); the aged entries to be summarized always start at index 1.
     const agedEntries = agent.history.slice(1, waterline);
     if (agedEntries.length > 0) {
       if (!provider) return err("LLM-based compaction needs an AI provider");

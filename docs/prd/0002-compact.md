@@ -140,7 +140,7 @@ context window 的大部。用户观察到的核心痛点是：**历史过长时
 
 ### LLM 级摘要
 
-- **`history[0]` 恒为 system 条目**：`content = template.systemPrompt`（若已有摘要：`systemPrompt + "\n## History summary (compacted)\n" + 摘要`）。`Agent.create` 创建时即注入裸 systemPrompt 条目；orchestrator 组请求直接发 `agent.history`（无额外拼接）。滚动摘要 = 从 `history[0]` 的 `## History summary (compacted)` 标记下取出旧摘要，显式喂给摘要 LLM 后整体替换。不新增 `HistoryEntry` 变体。
+- **`history[0]` 恒为 system 条目**：`content = composeSystemPrompt(template)`（即 `template.systemPrompt + 框架 meta prompt`；若已有摘要：再 `+ "\n## History summary (compacted)\n" + 摘要`）。`Agent.create`、LLM 级压缩、`deserialize` 对存量 agent 的 backfill 都走同一个 `composeSystemPrompt`，meta prompt 压缩后不丢失、存量 agent 加载即修复（无持久化迁移）；orchestrator 组请求直接发 `agent.history`（无额外拼接）。滚动摘要 = 从 `history[0]` 的 `## History summary (compacted)` 标记下取出旧摘要，显式喂给摘要 LLM 后整体替换。不新增 `HistoryEntry` 变体。
 - 待总结历史序列化：每条一行，`[user] …` / `[assistant] …` / `[tool read_file] …`（此时工具 I/O 已是 stub）。
 - 总结 prompt 为 compact.ts 内固定英文文本：说明这是进行中的 agent 对话的压缩历史、stub 含义；要求保留用户请求与偏好、关键决策、文件/外部资源事实、未了事项状态；丢弃过程细节与原文引用；跟随对话语言，分节，尽可能短。
 

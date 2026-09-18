@@ -7,8 +7,9 @@ import {
   applyRuleBasedCompaction,
   serializeHistoryForSummary,
   compactAgent,
+  SUMMARY_MARKER,
 } from "./compact";
-import { Agent } from "./model";
+import { Agent, composeSystemPrompt } from "./model";
 import type { Template } from "./template/model";
 import { text, contentText } from "./history";
 import type { HistoryEntry, CompletionResult } from "./history";
@@ -384,7 +385,7 @@ describe("compactAgent", () => {
       rounds.push({ role: "assistant", content: `a ${"a".repeat(490)}` });
     }
     agent.history = [
-      { role: "system", content: text("sys\n## History summary (compacted)\nold summary") },
+      { role: "system", content: text(`${composeSystemPrompt(template)}${SUMMARY_MARKER}old summary`) },
       ...rounds,
     ];
 
@@ -398,11 +399,11 @@ describe("compactAgent", () => {
     // the agent's system prompt ("sys") lives in the system entry, it is not
     // part of the re-fed previous summary
     expect(serialized).not.toContain("sys");
-    // new system entry: template system prompt + new summary, single system entry
+    // new system entry: composed system prompt + new summary, single system entry
     expect(agent.history[0].role).toBe("system");
     if (agent.history[0].role === "system") {
       expect(contentText(agent.history[0].content)).toBe(
-        "sys\n## History summary (compacted)\nNEW SUMMARY",
+        `${composeSystemPrompt(template)}${SUMMARY_MARKER}NEW SUMMARY`,
       );
     }
     expect(agent.history.filter((e) => e.role === "system")).toHaveLength(1);
@@ -516,5 +517,25 @@ describe("agent lastPromptTokens", () => {
       content: "hello",
     });
     expect(agent.lastPromptTokens).toBeUndefined();
+  });
+});
+
+describe("Agent.deserialize system entry backfill", () => {
+  function deserializeWith(history: Array<HistoryEntry>) {
+    return Agent.deserialize({ id: "a1", template, history });
+  }
+
+
+  it("is idempotent for agents already on the composed layout", () => {
+    const composed: HistoryEntry = {
+      role: "system",
+      content: text(composeSystemPrompt(template)),
+    };
+    expect(deserializeWith([composed]).history[0]).toEqual(composed);
+  });
+
+  it("leaves histories without a system entry untouched", () => {
+    const history: Array<HistoryEntry> = [{ role: "user", content: text("hi") }];
+    expect(deserializeWith(history).history).toEqual(history);
   });
 });

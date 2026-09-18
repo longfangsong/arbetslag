@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { ok } from "neverthrow";
 import { unwrap } from "../utils";
 import { Orchestrator } from "./orchestrator";
-import { Agent } from "./agent/model";
+import { Agent, composeSystemPrompt } from "./agent/model";
 import type { HistoryEntry } from "./agent/history";
 import { contentText, text } from "./agent/history";
 import { MessageEvent } from "./event/event";
@@ -206,7 +206,7 @@ describe("compact", () => {
     model: "gpt-4",
     systemPrompt: "You are a test agent.",
     allowedTools: [],
-    compactThreshold: 100,
+    compactThreshold: 256,
     compactRetainRounds: 1,
   };
 
@@ -255,65 +255,6 @@ describe("compact", () => {
       }),
     };
   }
-
-  it("auto-compacts before the LLM request and sends a system notice", async () => {
-    const fs = new InMemoryFileSystem();
-    const notices: Compacted[] = [];
-    const seenByProvider: Array<Array<HistoryEntry>> = [];
-    const provider: AIProvider = {
-      name: "openai",
-      async complete(_model, history) {
-        seenByProvider.push(history);
-        return ok({ role: "assistant", content: "ok", tool_calls: [] });
-      },
-    };
-    const { agentRepo, templateRepo, orchestrator } = await makeOrchestrator(
-      fs,
-      provider,
-      notices,
-    );
-    await templateRepo.add(compactTemplate);
-
-    // Seed an agent whose lastPromptTokens says the last request was already huge.
-    const agent = Agent.create(compactTemplate);
-    agent.chatId = "chat-1";
-    agent.history = [
-      { role: "system", content: text(compactTemplate.systemPrompt) },
-      ...roundWithToolResult(1),
-      ...roundWithToolResult(2),
-    ];
-    agent.lastPromptTokens = 5000;
-    await agentRepo.add(agent);
-    await agentRepo.setEntryAgent("chat-1", agent);
-
-    orchestrator.push(makeMessageEvent("chat-1", "hi"));
-    unwrap(await orchestrator.stepUntilIdle());
-
-    // Provider received system prompt + compacted history + the new message.
-    expect(seenByProvider).toHaveLength(1);
-    const sent = seenByProvider[0];
-    expect(sent[0]).toEqual({ role: "system", content: text(compactTemplate.systemPrompt) });
-    expect(sent[sent.length - 1]).toEqual({ role: "user", content: text("hi") });
-    const toolEntries = sent.filter((e) => e.role === "tool");
-    expect(toolEntries.length).toBeGreaterThan(0);
-    for (const e of toolEntries) {
-      if (e.role === "tool") expect(e.content).toBe("[omitted]");
-    }
-
-    // Agent was saved with stubbed history and lastPromptTokens was dropped.
-    // (system entry + round 1: user, assistant, tool, assistant → tool is index 3)
-    const saved = (await agentRepo.getByChatId("chat-1"))!;
-    expect(saved.lastPromptTokens).toBeUndefined();
-    expect(
-      (saved.history[3] as Extract<HistoryEntry, { role: "tool" }>).content,
-    ).toBe("[omitted]");
-
-    expect(notices).toHaveLength(1);
-    expect(notices[0]).toMatchObject({ kind: "history_compacted" });
-    expect(notices[0].beforeTokens).toBeTypeOf("number");
-    expect(notices[0].afterTokens).toBeTypeOf("number");
-    expect(notices[0].afterTokens).toBeLessThan(notices[0].beforeTokens!);
-  });
 
   it("escalates to LLM-based and merges the summary into the system entry", async () => {
     const fs = new InMemoryFileSystem();

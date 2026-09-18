@@ -43,6 +43,10 @@ One user-initiated exchange: a user entry (user message, agent_message, or api_c
 
 A notice that an agent's history was compacted — an agent-scoped fact (the before/after token counts are that agent's) that the orchestrator routes to the user through the chat channel on the agent's behalf. As opposed to AgentOutput, which is the agent's (LLM's) own utterance. Routed through the same OutputRouter, distinguishable by type.
 
+## Meta System Prompt
+
+A short framework-owned English paragraph appended to every agent's system entry (`history[0]`), telling the LLM what the built-in input wrappers `<agent_message>` and `<api_callback>` mean, so behavior doesn't drift with the model's guess at the tag names. `composeSystemPrompt` is the single composition point shared by agent creation, the deserialize backfill and LLM-level compaction, so the meta prompt survives compaction and agents persisted before it existed are fixed on load. `template.systemPrompt` stays purely app-controlled.
+
 ## AI Provider
 
 An abstraction over an LLM service. Takes a message history and a list of tools, returns a completion result (text + optional tool calls).

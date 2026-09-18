@@ -21,7 +21,7 @@
 
 ## Meta system prompt（向 LLM 说明内置输入格式）
 
-- **[todo] 提供框架级 "meta system prompt"，向 LLM 说明 `<agent_message>` 与 `<api_callback>` 两种内置输入的用途**：目前这两种 XML 包装（`agent/model.ts` 的 `handleAgentMessage` / `handleApiCallback`）完全靠 LLM 从标签名自行推断语义，行为随模型漂移——典型风险：把 `api_callback` 当作用户新请求而寒暄、不行动，或把 `agent_message` 当作用户发言。成本极低（~10 行文本），收益是消除一整类模型相关歧义。**建议做**。
+- **[done] 提供框架级 "meta system prompt"，向 LLM 说明 `<agent_message>` 与 `<api_callback>` 两种内置输入的用途**：目前这两种 XML 包装（`agent/model.ts` 的 `handleAgentMessage` / `handleApiCallback`）完全靠 LLM 从标签名自行推断语义，行为随模型漂移——典型风险：把 `api_callback` 当作用户新请求而寒暄、不行动，或把 `agent_message` 当作用户发言。成本极低（~10 行文本），收益是消除一整类模型相关歧义。**建议做**。
   - **推荐设计**：框架内置一个简短英文常量 `META_SYSTEM_PROMPT`（与内置 compact 摘要提示的英文默认一致），只描述两种包装形态及含义：
     - `<agent_message>`：来自**另一个 agent** 的发言（非人类用户），`from_agent_id` 标识发送者；
     - `<api_callback>`：外部 API 的（可能延迟的）结果，`api_name` 指明哪个 API，`payload` 是响应体；应按 payload 继续所隐含的工作，不当作用户新请求；

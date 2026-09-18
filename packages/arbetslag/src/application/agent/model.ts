@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import { Template } from "./template/model";
-import { HistoryEntry, text } from "./history";
+import { HistoryEntry, text, contentText } from "./history";
 import {
   AgentMessageEvent,
   ApiCallbackEvent,
@@ -17,6 +17,36 @@ export interface SerializedAgent {
   chatId?: string;
   waitingForToolCallCount?: number;
   lastPromptTokens?: number;
+}
+
+/**
+ * Framework meta prompt appended to every agent's system entry: tells the
+ * LLM what the framework's built-in input wrappers (<agent_message>,
+ * <api_callback>) mean, so behavior doesn't drift with the model's guess at
+ * the tag names. English, like the built-in compact summary prompt; the
+ * leading newline separates it from the app's system prompt.
+ */
+const META_SYSTEM_PROMPT = `
+# Agent 框架元消息
+
+有时你会收到一些包裹在 xml 标签中的消息，这些消息是由框架包装的，不是由人类用户输入的：
+- <agent_message>：由另一个 Agent 发送的消息；其中 <from_agent_id> 字段标识发送者的 Agent ID。
+- <api_callback>：外部异步 API 调用的结果，通常来自工具调用的 callback；其中 <api_name> 为 API 名称。
+请根据用户要求处理这些消息。
+`;
+
+/**
+ * The system entry (history[0]) content: the app's template system prompt
+ * plus the framework meta prompt. Single composition point shared by
+ * Agent.create, the deserialize backfill and LLM-level compaction, so the
+ * meta prompt survives compaction and every loaded agent has it.
+ * template.systemPrompt stays purely app-controlled.
+ */
+export function composeSystemPrompt(template: Template): string {
+  if (template.systemPrompt.indexOf("{{META_SYSTEM_PROMPT}}") === -1) {
+    return template.systemPrompt + META_SYSTEM_PROMPT;
+  }
+  return template.systemPrompt.replace("{{META_SYSTEM_PROMPT}}", META_SYSTEM_PROMPT);
 }
 
 export class Agent {
@@ -46,7 +76,7 @@ export class Agent {
 
   static create(template: Template): Agent {
     return new Agent(nanoid(10), template, [
-      { role: "system", content: text(template.systemPrompt) },
+      { role: "system", content: text(composeSystemPrompt(template)) },
     ]);
   }
 
