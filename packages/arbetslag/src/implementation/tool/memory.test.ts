@@ -4,7 +4,7 @@ import { SimpleMemoryRead, SimpleMemoryUpdate, MEMORY_FILE } from "./memory";
 
 function makeTools() {
 	const fileSystem = new InMemoryFileSystem();
-	const ctx = { fileSystem };
+	const ctx = { fileSystem, pushEvent: () => {} };
 	return {
 		fileSystem,
 		ctx,

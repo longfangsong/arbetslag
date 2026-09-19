@@ -52,7 +52,7 @@ export class OpenAIProvider implements AIProvider {
 				if (entry.role === "tool") {
 					return {
 						role: "tool" as const,
-						tool_call_id: entry.tool_call_id ?? "",
+						tool_call_id: entry.tool_call_id,
 						content: entry.content,
 					};
 				}
@@ -72,7 +72,7 @@ export class OpenAIProvider implements AIProvider {
 					role: "assistant" as const,
 					content: entry.content,
 					tool_calls: entry.tool_calls?.map((tc) => ({
-						id: tc.id ?? "",
+						id: tc.id,
 						type: "function" as const,
 						function: {
 							name: tc.tool_name,

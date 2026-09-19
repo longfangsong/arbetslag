@@ -1,5 +1,9 @@
 # Backlog
 
+## Sub-agent（见 docs/prd/0003-sub-agent.md）
+
+- **[deferred] Sub-agent 与外界通信的工具**：本次它的唯一对外通道是它的 Creator。后续由工具实现（哪个渠道、以谁的名义发言待定）。
+
 ## 虚拟群友（见 docs/prd/0001-virtual-group-member.md）
 
 - **[deferred] 定时主动抛话（A2）**：bot 在没人触发时自己主动冒泡发言。本次不做。

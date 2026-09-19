@@ -8,9 +8,37 @@ A TypeScript agent framework. Provides the core abstractions for building, orche
 
 A running instance of an AI agent. Has a unique ID, a template (defining its personality/capabilities), and a message history. Agents process events and interact with the world through tools.
 
-Agents communicate with each other via tools (e.g., `spawn`). They share the same chat, runtime, and filesystem, but each agent has its own isolated context (message history, state).
+Agents communicate with each other via tools. They share the same chat, runtime, and filesystem, but each agent has its own isolated context (message history, state).
 
-**Immortal**: Agents live forever once created. The `AgentRepository` is append-only — agents are never destroyed.
+**Immortal**: Agents live forever once created. The `AgentRepository` is append-only — agents are never destroyed. Sub-agents are included: creating one adds a permanent agent.
+
+### Sub-agent
+
+An Agent created by another Agent. It is not a separate kind of entity — it is an ordinary Agent with a creator link.
+
+A Sub-agent works on a task handed to it and reports its result to its creator, not to the user. It is defined by a pre-declared Template, so it has no personality of its own beyond that Template.
+
+_Avoid_: "sub-agent" as a distinct entity type; Worker, Task, Job.
+
+### Creator
+
+The Agent that created a Sub-agent. A Sub-agent has exactly one Creator, and reports its result to that Creator.
+
+_Avoid_: Parent — implies a lifecycle where the child ends, which contradicts immortality.
+
+### Report
+
+The result a Sub-agent delivers to its Creator — the content of the turn it ends with.
+
+**Wait-only**: a Creator receives a Report only through a Wait. A Report that arrives while no Wait is open is held for the Creator until a Wait naming that Sub-agent consumes it.
+
+_Avoid_: Output, Result — Output is the agent's utterance toward the user (AgentOutput), which a Sub-agent never produces.
+
+**Creation is immediate**: a Creator is not blocked by creating a Sub-agent — the create call completes at once, and the Creator may then Wait for the Sub-agent's report.
+
+**Wait**: a Creator waits only for the reports of the Sub-agents it asked for, and a Wait does not stop other work from being processed — the loop keeps draining while the Creator waits. A Wait resolves when the Sub-agent delivers its final answer (or reports failure), and a Wait survives a checkpoint and restart. A Wait is never interrupted by a new message.
+
+**Same Chat**: a Sub-agent belongs to its Creator's Chat, and shares the runtime and filesystem as any Agent does.
 
 ### AI Provider
 
@@ -110,4 +138,11 @@ The event loop. Processes events from the queue one at a time via `step()`, repe
 
 **Automatic checkpointing**: After each `step` completes, the framework automatically persists state so the program can be restarted safely.
 
-**Error handling**: Fail fast. Any unhandled error crashes the processing cycle. State is checkpointed, and the host program decides whether to restart, recover, or alert.
+**Error handling**: Fail fast. Any unhandled error crashes the processing cycle. State is checkpointed, and the host program decides whether to restart, recover, or alert. Sub-agent failures are an exception: they reach the Creator as a report rather than crashing the cycle.
+
+## Flagged ambiguities
+
+- "sub-agent" was used to mean a distinct entity type — resolved: it is an ordinary Agent with a Creator.
+- "Parent" vs "Creator" — resolved: **Creator**, because agents are immortal and never destroyed.
+- Tool names (`spawn`, `await`, `send_message`) are implementation, not domain language. Only the *behavior* (immediate creation, Wait, per-Template enabling) is a requirement.
+- Backlog, not a requirement yet: a Sub-agent communicating with the outside world through a tool.

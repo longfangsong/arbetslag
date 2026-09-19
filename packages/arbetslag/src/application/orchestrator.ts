@@ -182,8 +182,9 @@ export class Orchestrator {
         const e = event as ToolCallRequest;
         const tool = await toolRepository.getByName(e.tool_call.tool_name);
         const agent = await agentRepository.getById(e.from_agent_id);
+        const pushed: Array<Event> = [];
         const result = await tool?.call(
-          { fileSystem },
+          { fileSystem, pushEvent: (event) => pushed.push(event) },
           agent!,
           e.tool_call.arguments,
         );
@@ -198,13 +199,13 @@ export class Orchestrator {
               : JSON.stringify(result.error);
         return ok([
           {
-            id: nanoid(10),
+            id: e.tool_call.id,
             event_type: "tool_call_response" as const,
             to_agent_id: agent!.id,
-            tool_call_id: e.tool_call.id,
             name: tool!.name,
             content,
           },
+          ...pushed,
         ]);
       }
 

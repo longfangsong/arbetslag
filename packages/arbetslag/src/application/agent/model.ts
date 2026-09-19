@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import { Template } from "./template/model";
-import { HistoryEntry, text, contentText } from "./history";
+import { HistoryEntry, text, contentText, hasUnansweredToolCall } from "./history";
 import {
   AgentMessageEvent,
   ApiCallbackEvent,
@@ -164,13 +164,14 @@ export class Agent {
   }
 
   handleToolResponse(event: ToolResponseEvent): Array<Event> {
+    const pairsOpenToolCall = hasUnansweredToolCall(this.history, event.id);
     this.history.push({
       role: "tool",
-      tool_call_id: event.tool_call_id,
+      tool_call_id: event.id,
       name: event.name,
       content: event.content,
     });
-    --this.waitingForToolCallCount;
+    if (pairsOpenToolCall) --this.waitingForToolCallCount;
     if (this.waitingForToolCallCount === 0) {
       return [
         {
@@ -197,7 +198,7 @@ export class Agent {
     const events: Array<Event> = [];
     for (const toolCall of event.tool_calls || []) {
       events.push({
-        id: nanoid(10),
+        id: toolCall.id,
         event_type: "tool_call_request",
         from_agent_id: this.id,
         tool_call: toolCall,

@@ -3,18 +3,14 @@ import { Content, HistoryEntry, ToolCall } from "../agent/history";
 export interface ToolCallRequest {
 	id: string;
 	event_type: "tool_call_request";
-
 	from_agent_id: string;
-
 	tool_call: ToolCall;
 }
 
 export interface MessageEvent {
 	id: string;
 	event_type: "message";
-
 	chat_id: string;
-
 	adapter: string;
 	/** Content parts (a plain text message is a single text part). */
 	content: Content;
@@ -23,12 +19,15 @@ export interface MessageEvent {
 }
 
 export interface ToolResponseEvent {
+	/**
+	 * The tool call this response answers — the same id as its tool_call_request event,
+	 * so a call and its response trace as one id.
+	 * ponytail: this id comes from the provider, so it is no longer globally unique
+	 * across agents; prefix it with nanoid if collisions ever show up.
+	 */
 	id: string;
 	event_type: "tool_call_response";
-
 	to_agent_id: string;
-
-	tool_call_id?: string;
 	name: string;
 	content: string;
 }
@@ -36,19 +35,15 @@ export interface ToolResponseEvent {
 export interface AgentMessageEvent {
 	id: string;
 	event_type: "agent_message";
-
 	from_agent_id: string;
 	to_agent_id: string;
-
 	content: string;
 }
 
 export interface ApiCallbackEvent {
 	id: string;
 	event_type: "api_callback";
-
 	to_agent_id?: string;
-
 	api_name: string;
 	content: string;
 }
@@ -56,18 +51,14 @@ export interface ApiCallbackEvent {
 export interface LLMCompletionRequest {
 	id: string;
 	event_type: "llm_completion_request";
-	
 	from_agent_id: string;
-	
 	history: Array<HistoryEntry>
 }
 
 export interface LLMCompletionResponse {
 	id: string;
 	event_type: "llm_completion_response";
-	
 	to_agent_id: string;
-	
 	content: string;
 	tool_calls?: Array<ToolCall>;
 	usage?: { prompt_tokens: number };
@@ -76,14 +67,12 @@ export interface LLMCompletionResponse {
 export interface CompactRequest {
 	id: string;
 	event_type: "compact_request";
-	
 	chat_id: string;
 }
 
 export interface AgentOutput {
 	id: string;
 	event_type: "agent_output";
-	
 	from_agent_id: string;
 	content: string;
 }

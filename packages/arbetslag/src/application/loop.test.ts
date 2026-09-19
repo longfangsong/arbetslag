@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { ok } from "neverthrow";
+import z from "zod";
 import { unwrap } from "../utils";
 import { Orchestrator } from "./orchestrator";
 import { Agent, composeSystemPrompt } from "./agent/model";
@@ -20,6 +21,7 @@ import { GetTime } from "@/implementation/tool/getTime";
 import type { AIProvider } from "./aiProvider/model";
 import type { Template } from "@/application/agent/template/model";
 import type { OutputRouter, Compacted } from "./outputRouter/model";
+import type { Tool } from "./tool/model";
 
 const sampleTemplate: Template = {
   name: "test",
@@ -364,5 +366,104 @@ describe("compact", () => {
     // nothing compacted -> no token counts
     expect(notices[1].beforeTokens).toBeUndefined();
     expect(notices[1].afterTokens).toBeUndefined();
+  });
+});
+
+describe("tool call pairing", () => {
+  it("decrements the waiting count only for the tool call a response answers", () => {
+    const agent = Agent.create(sampleTemplate);
+    agent.handleLLMCompletionResponse({
+      id: "r1",
+      event_type: "llm_completion_response",
+      to_agent_id: agent.id,
+      content: "",
+      tool_calls: [{ id: "tc-1", tool_name: "get_time", arguments: {} }],
+    });
+
+    const orphan = agent.handleToolResponse({
+      id: "orphan",
+      event_type: "tool_call_response",
+      to_agent_id: agent.id,
+      name: "get_time",
+      content: "12:00",
+    });
+    expect(orphan).toHaveLength(0); // still waiting for tc-1
+
+    const paired = agent.handleToolResponse({
+      id: "tc-1",
+      event_type: "tool_call_response",
+      to_agent_id: agent.id,
+      name: "get_time",
+      content: "12:01",
+    });
+    expect(paired).toHaveLength(1);
+  });
+});
+
+describe("tool pushEvent", () => {
+  it("processes an event pushed by a tool in a later step, after the tool's own response", async () => {
+    const fs = new InMemoryFileSystem();
+    const agentRepo = await FileSystemAgentRepository.create(fs, "push-agents/");
+    const templateRepo = await FileSystemTemplateRepository.create(fs, "push-templates/");
+    await templateRepo.add(sampleTemplate);
+
+    const tool: Tool<unknown, unknown, unknown> = {
+      name: "pusher",
+      description: "queues an event for a later step",
+      inputSchema: z.object({}),
+      async call(context, caller) {
+        context.pushEvent({
+          id: "p1",
+          event_type: "api_callback",
+          to_agent_id: caller.id,
+          api_name: "pusher",
+          content: "callback payload",
+        });
+        return ok("acked");
+      },
+    };
+
+    let calls = 0;
+    const provider: AIProvider = {
+      name: "openai",
+      async complete() {
+        calls += 1;
+        return calls === 1
+          ? ok({
+              role: "assistant",
+              content: "",
+              tool_calls: [{ id: "tc-1", tool_name: "pusher", arguments: {} }],
+            })
+          : ok({ role: "assistant", content: "done", tool_calls: [] });
+      },
+    };
+
+    const orchestrator = new Orchestrator({
+      fileSystem: fs,
+      agentRepository: agentRepo,
+      templateRepository: templateRepo,
+      toolRepository: {
+        tools: [tool],
+        async getByName(name: string) {
+          return name === tool.name ? tool : null;
+        },
+        getByNames(names: string[]) {
+          return names.includes(tool.name) ? [tool] : [];
+        },
+      },
+      aiProviderRepository: makeAiRepo(provider),
+      outputRouter: null,
+    });
+
+    orchestrator.push(makeMessageEvent("chat-9", "go"));
+    unwrap(await orchestrator.stepUntilIdle());
+
+    const agent = (await agentRepo.list())[0];
+    const toolResult = agent.history[3] as Extract<HistoryEntry, { role: "tool" }>;
+    expect(toolResult.tool_call_id).toBe("tc-1");
+    expect(toolResult.content).toBe('"acked"');
+    // the pushed event ran in a later step, after this tool call resolved
+    const callbackEntry = agent.history[4] as Extract<HistoryEntry, { role: "user" | "system" }>;
+    expect(contentText(callbackEntry.content)).toContain("callback payload");
   });
 });

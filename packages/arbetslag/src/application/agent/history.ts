@@ -1,12 +1,12 @@
 export interface ToolCall {
-	id?: string;
+	id: string;
 	tool_name: string;
 	arguments: Record<string, any>;
 }
 
 export interface ToolCallResult {
 	role: "tool";
-	tool_call_id?: string;
+	tool_call_id: string;
 	name: string;
 	content: string;
 }
@@ -59,4 +59,15 @@ export function hasToolCalls(
 	entry: HistoryEntry,
 ): entry is AssistantEntry & { tool_calls: Array<ToolCall> } {
 	return entry.role === "assistant" && entry.tool_calls !== undefined;
+}
+
+/** True when `toolCallId` answers a tool call in history that has no result yet. */
+export function hasUnansweredToolCall(
+	history: Array<HistoryEntry>,
+	toolCallId: string,
+): boolean {
+	return (
+		history.some((e) => hasToolCalls(e) && e.tool_calls.some((tc) => tc.id === toolCallId)) &&
+		!history.some((e) => e.role === "tool" && e.tool_call_id === toolCallId)
+	);
 }
