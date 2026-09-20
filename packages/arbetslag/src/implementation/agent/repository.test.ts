@@ -100,17 +100,4 @@ describe("FileSystemAgentRepository", () => {
     expect(retrieved!.chatId).toBe("chat-123");
   });
 
-  it("getChatIdByAgentId returns chatId for mapped agent", async () => {
-    const agent = Agent.create(sampleTemplate);
-    const chatId = "chat-456";
-    await repo.setEntryAgent(chatId, agent);
-    const result = await repo.getChatIdByAgentId(agent.id);
-    expect(result).toBe(chatId);
-  });
-
-  it("getChatIdByAgentId returns undefined for unmapped agent", async () => {
-    const agent = Agent.create(sampleTemplate);
-    const result = await repo.getChatIdByAgentId(agent.id);
-    expect(result).toBeUndefined();
-  });
 });

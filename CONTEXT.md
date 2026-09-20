@@ -30,15 +30,17 @@ _Avoid_: Parent — implies a lifecycle where the child ends, which contradicts 
 
 The result a Sub-agent delivers to its Creator — the content of the turn it ends with.
 
-**Wait-only**: a Creator receives a Report only through a Wait. A Report that arrives while no Wait is open is held for the Creator until a Wait naming that Sub-agent consumes it.
+**Wait-only**: a Creator receives a Report only through a Wait. A Report that arrives while no Wait is open stays readable from the Sub-agent until a Wait naming that Sub-agent reads it; a Wait reads the latest Report.
 
-_Avoid_: Output, Result — Output is the agent's utterance toward the user (AgentOutput), which a Sub-agent never produces.
+_Avoid_: Result — Output (AgentOutput) is an agent's own utterance, routed through that agent's Output Router; for an agent with a Creator, its turn-ending output is exactly this Report.
 
 **Creation is immediate**: a Creator is not blocked by creating a Sub-agent — the create call completes at once, and the Creator may then Wait for the Sub-agent's report.
 
 **Wait**: a Creator waits only for the reports of the Sub-agents it asked for, and a Wait does not stop other work from being processed — the loop keeps draining while the Creator waits. A Wait resolves when the Sub-agent delivers its final answer (or reports failure), and a Wait survives a checkpoint and restart. A Wait is never interrupted by a new message.
 
 **Same Chat**: a Sub-agent belongs to its Creator's Chat, and shares the runtime and filesystem as any Agent does.
+
+**Output Router**: every Agent has one — where its output goes. The app's channel for an agent that speaks to a user; the Report router for an agent with a Creator, which turns that agent's turn-ending output into the response of the open Wait naming it. It is a routing decision, not a mailbox: nothing is stored, and a Wait reads an agent's output from history.
 
 ### AI Provider
 
@@ -69,7 +71,7 @@ One user-initiated exchange: a user entry (user message, agent_message, or api_c
 
 ### Compacted
 
-A notice that an agent's history was compacted — an agent-scoped fact (the before/after token counts are that agent's) that the orchestrator routes to the user through the chat channel on the agent's behalf. As opposed to AgentOutput, which is the agent's (LLM's) own utterance. Routed through the same OutputRouter, distinguishable by type.
+A notice that an agent's history was compacted — an agent-scoped fact (the before/after token counts are that agent's) that the orchestrator routes through the agent's Output Router on the agent's behalf — the chat channel for an agent with no Creator, nothing to tell for one with a Creator. As opposed to AgentOutput, which is the agent's (LLM's) own utterance. Routed through the same Output Router, distinguishable by type.
 
 ## Meta System Prompt
 
@@ -120,7 +122,7 @@ The full runtime environment passed to every tool and agent method. Formed by co
 
 ## Config
 
-The immutable infrastructure layer of the Context. Contains AI providers, repositories (agent templates, tools), user config (API keys, bot tokens), file system, and output handler registry. Set when the Context is created and never changes during execution.
+The immutable infrastructure layer of the Context. Contains AI providers, repositories (agent templates, tools), user config (API keys, bot tokens), file system, and the app's output router (the router of every agent that has no Creator). Set when the Context is created and never changes during execution.
 
 ## State
 

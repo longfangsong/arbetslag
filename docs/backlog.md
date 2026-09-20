@@ -3,6 +3,11 @@
 ## Sub-agent（见 docs/prd/0003-sub-agent.md）
 
 - **[deferred] Sub-agent 与外界通信的工具**：本次它的唯一对外通道是它的 Creator。后续由工具实现（哪个渠道、以谁的名义发言待定）。
+- **[待定] 每个 Agent 的 OutputRouter 是否真的做成队列**：已按「每个 Agent 有一个 router」实现（orchestrator 收到 `agent_output` → 解析该 Agent 的 router → 有 Creator 的是 ReportRouter，回答 Creator 里点名该 Agent 的 open wait；没有 Creator 的走 app 的 router），但 router 仍是**无状态的路由决策**，不是队列：
+  - Report 的唯一状态在 Agent 历史里，router 只是「这次输出该给谁」；所以 `wait_for_agent` 的拉取仍是 `reportOf(agent)`（读该 Agent 的输出），不是消费。
+  - 因此第二个 Wait 对同一 Agent 会重读同一个最新 Report（当前语义：Report 可读，不被消费）。
+  - 改成真队列的条件（出现任一条再改）：(1) 需要消费语义（pull 之后不可再读，或同一 Agent 的多个输出要按序排队）；(2) router 需要持久化（跨重启的 pending，见 task 0007）。那时 `OutputRouter` 要加 `pull`，并需定：消费还是可读、持久化在哪、app 侧（无法 pull 的 adapter）怎么表达。
+  - 前提：`route` 不返回事件（只有需要代 agent 回答 open wait 的 ReportRouter 持有 bus 引用直接写事件，其他 router 仍只是送达渠道）；空内容的 turn 也会被路由（`agent_output` 的发射条件已放宽，router 各自决定要不要发）。
 
 ## 虚拟群友（见 docs/prd/0001-virtual-group-member.md）
 
@@ -23,7 +28,7 @@
 ## Telegram 实现收敛（app → 库 backport）
 
 - **[todo] 把 app 侧 telegram 输入/输出处理中的通用部分 backport 进库的 telegram 实现**：目前 app（`apps/telegram-bot/telegram-router.ts` 的 `SmartTelegramRouter`、`telegram-bot.ts` 的 batch 输入整形）承载了库 `Telegram` OutputRouter / `TelegramInputAdopter` 没有的行为。候选项：
-  - **OutputRouter 空内容防护**：trim 后为空、或 LLM 返回 `\"\"`/`''` 时跳过发送。库的 `route` 目前不防护，空内容会原样发给 API。
+  - **OutputRouter 空内容防护**：库的 `route` 已加最小防护（空内容直接返回，不再发 API）——因为现在每个 Agent 的 turn-ending 输出都会被路由，空 Report 也会到达 router。app 侧仍保留 trim / 去引号 / `""`、`''` 判断，backport 待定。
   - **贴纸 token 协议 `[[sticker:id]]`**：解析 token → 从文本移除 → `sendSticker` 发送。backport 形式：库构造器接受可选 sticker 目录 `Array<{ id; fileId }>`（`STICKERS` 数据注册表留 app）。
   - **Pin token 协议 `[[pin:id]]`**：替换为占位符并带 `reply_to_message_id` 发送。库形式：可选 pin 目录 `Array<{ id; messageId }>`。
   - **dry-run（app 的 TEST_MODE）**：只打日志不发送。库形式：构造器 `dryRun` 标志。

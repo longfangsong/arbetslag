@@ -326,6 +326,9 @@ async function processChatBatch(
 	};
 
 	const orchestrator = new Orchestrator(deps);
+	// A pending Wait is history, not queue state: resolve any Wait that is still
+	// open against Reports that arrived while the program was down.
+	await orchestrator.resolveOpenWaits();
 	if (event) orchestrator.push(event);
 	if (hasCompactCommand) {
 		orchestrator.push({

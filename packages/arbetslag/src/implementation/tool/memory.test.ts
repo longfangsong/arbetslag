@@ -1,10 +1,16 @@
 import { describe, it, expect } from "vitest";
+import { err } from "neverthrow";
 import { InMemoryFileSystem } from "./file/filesystem/inMemory";
 import { SimpleMemoryRead, SimpleMemoryUpdate, MEMORY_FILE } from "./memory";
 
 function makeTools() {
 	const fileSystem = new InMemoryFileSystem();
-	const ctx = { fileSystem, pushEvent: () => {} };
+	const ctx = {
+		fileSystem,
+		pushEvent: () => {},
+		createAgent: async () => err("create capability not available in this test"),
+		getReport: async () => undefined,
+	};
 	return {
 		fileSystem,
 		ctx,

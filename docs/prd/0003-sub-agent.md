@@ -70,7 +70,7 @@
 - **创建即返回**：调用创建工具后，事件队列中没有该 Sub-agent 的未完成工作也必须能继续被处理；创建工具的结果不含工作结果。
 - **任务即首条消息**：创建时交出的任务成为 Sub-agent 历史中的第一条 user 形态条目（计入 Round 边界，与 Compact 的轮定义一致）。
 - **自动回报**：Sub-agent 产生无 tool_calls 的最终答复时，Creator 收到来自该 Sub-agent 的回报；Sub-agent 不调用任何"报告"工具也能送达。
-- **不路由给用户**：Sub-agent 的最终答复不进入 OutputRouter；用户视角只有 entry agent 的发言。
+- **不路由给用户**：每个 Agent 有自己的 Output Router；Sub-agent 的输出走它自己的 router（ReportRouter），不进用户所在的 channel，用户视角只有 entry agent 的发言。
 - **Wait 语义**：点名 N 个 Sub-agent 的 Wait，只返回这 N 个的回报；其中一个已回报、其余未回报时，Wait 让出执行权，队列继续处理其它事件（含被等待的 Sub-agent 的工作），回报到达后解析。
 - **等待图是树**：构造两个 Agent 互相等待的场景，验证框架不允许（只能等待自己创建的 Agent）。
 - **深度上限**：depth 1 → 2 → 3 允许，从 depth 3 再创建时返回错误；验证全局值不被任何 Template 配置绕过。
@@ -97,7 +97,7 @@
 
 - `CONTEXT.md` 声称框架"内置 sub-agent spawning"，此前无任何实现；本 Spec 是这一声明的第一次落地，术语（Sub-agent / Creator / Wait / Same Chat）已写入 glossary。
 - 术语：用 **Creator**，不用 Parent——Parent 暗示子代会消亡，与 Agent 永生矛盾。工具名（`spawn` / `wait` / `send_message`）属实现层，不进 glossary。
-- 与现有决策的冲突点需在实现时解决：`agent_output` 目前无条件路由到 OutputRouter，对 Sub-agent 必须例外（回报给 Creator，而不是用户）；fail-fast 规则对 Sub-agent 失败需例外（回报而不是崩溃）。
+- 冲突点的现状：`agent_output` 不再无条件路由给用户——它路由到**该 Agent 自己的** Output Router，有 Creator 的 Agent 的 router 是 ReportRouter（回答点名它的 open wait），没有 Creator 的走 app 的 router。fail-fast 对 Sub-agent 失败的例外仍未实现（task 0009）。
 - "等待让出执行权"是 Orchestrator 契约变化：当前 `step()` 会 await 完整个 handler 后才处理队列中的下一个事件，因此工具内阻塞式等待在当前模型下不可能。
 - 实现层已对齐，见 `docs/adr/0003-wait-as-unresolved-tool-call.md`（Wait = 未响应的 tool call；等待期间的入站事件挂起；Report 只能经 Wait 消费；pending 状态存于 agent 记录而非队列）。
 - 依赖 `docs/prd/0002-compact.md`：Sub-agent 的历史膨胀同样由 Compact 治理，且隔离效果正是本 Spec 的动机；Sub-agent 的回报进入 Creator 时按 Round 边界参与压缩。

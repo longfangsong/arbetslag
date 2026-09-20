@@ -1,5 +1,5 @@
 import { OutputRouter, type Compacted } from "@/application/outputRouter/model";
-import { AgentOutput } from "@/application/event/event";
+import type { AgentOutput, Event } from "@/application/event/event";
 import { Result, ok, err } from "neverthrow";
 import createDebug from "debug";
 
@@ -16,7 +16,9 @@ export class Telegram implements OutputRouter {
 		this.apiBase = apiBase;
 	}
 
-	async route(event: AgentOutput | Compacted): Promise<Result<void, string>> {
+	async route(
+		event: AgentOutput | Compacted,
+	): Promise<Result<void, string>> {
 		// Compacted carries no copy: render the user-facing wording from
 		// the structured fields (this default adapter uses English).
 		const markdown =
@@ -25,6 +27,8 @@ export class Telegram implements OutputRouter {
 					? `📦 Compacted history: ${formatTokens(event.beforeTokens)} → ${formatTokens(event.afterTokens)} tokens`
 					: "📦 Nothing to compact"
 				: event.content;
+		// A turn can end with nothing to say — nothing to send.
+		if (!markdown) return ok(undefined);
 		log(`chatId=${this.chatId}, content_len=${(markdown ?? '').length}`);
 		log(`content_preview="${(markdown ?? '').slice(0, 200)}"`);
 		const res = await fetch(

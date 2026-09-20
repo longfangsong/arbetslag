@@ -15,7 +15,8 @@ import {
   AgentOutput,
   CompactRequest,
 } from "./event/event";
-import { Agent } from "./agent/model";
+import { Agent, MAX_AGENT_DEPTH } from "./agent/model";
+import { reportOf, openWaits, WAIT_TOOL_NAME } from "./agent/report";
 import {
   type CompactResult,
   compactAgent,
@@ -27,9 +28,11 @@ import { FileSystem } from "./file/model";
 import type { Repository as AgentRepository } from "./agent/repository";
 import type { Repository as TemplateRepository } from "./agent/template/repository";
 import type { Repository as ToolRepository } from "./tool/repository";
+import type { ToolExecutingContext } from "./tool/model";
 import type { Repository as AIProviderRepository } from "./aiProvider/repository";
 import type { AIProvider } from "./aiProvider/model";
 import type { OutputRouter } from "./outputRouter/model";
+import { ReportRouter } from "./outputRouter/reportRouter";
 import createDebug from "debug";
 
 const orchLog = createDebug("arbetslag:orchestrator");
@@ -57,6 +60,30 @@ export class Orchestrator {
     return this.bus.empty();
   }
 
+  /**
+   * On restore, before any other processing: a pending Wait is an unanswered
+   * tool call in the persisted history, so it needs no extra state — but the
+   * queue is not persisted, so a Report that arrived while the program was down
+   * must be written as the response of the Wait that is still open for it.
+   */
+  async resolveOpenWaits(): Promise<void> {
+    for (const agent of await this.deps.agentRepository.list()) {
+      for (const wait of openWaits(agent.history)) {
+        const target = await this.deps.agentRepository.getById(wait.arguments.agent_id);
+        const report = target ? reportOf(target) : undefined;
+        if (report === undefined) continue;
+        orchLog(`restore: resolves open wait ${wait.id} for agent ${agent.id}`);
+        this.push({
+          id: wait.id,
+          event_type: "tool_call_response",
+          to_agent_id: agent.id,
+          name: WAIT_TOOL_NAME,
+          content: JSON.stringify(report),
+        });
+      }
+    }
+  }
+
   async step(): Promise<Result<Array<Event>, string>> {
     const event = this.bus.pop();
     if (!event) return ok([]);
@@ -81,14 +108,31 @@ export class Orchestrator {
     return ok(undefined);
   }
 
-  private notifyCompact(result: CompactResult): Promise<Result<void, string>> {
-    if (!this.deps.outputRouter) return Promise.resolve(ok(undefined));
-    return this.deps.outputRouter.route({
+  /**
+   * Every agent has an output router: the app's router for an agent that speaks
+   * to a user, the Report router for one that has a Creator. Routers stay
+   * stateless (the Report lives in history), so nothing is cached here.
+   */
+  private routerFor(agent: Agent): OutputRouter | null {
+    return agent.createdByAgentId
+      ? new ReportRouter(agent.id, this.deps.agentRepository, this.bus)
+      : this.deps.outputRouter;
+  }
+
+  private async notifyCompact(
+    agent: Agent,
+    result: CompactResult,
+  ): Promise<Result<void, string>> {
+    const router = this.routerFor(agent);
+    if (!router) return ok(undefined);
+    // Tokens set ⇔ something was compacted; the router decides what to do with
+    // the notice (send it, or nothing for an agent with no user).
+    const routed = await router.route({
       kind: "history_compacted",
-      // Tokens set ⇔ something was compacted; the host renders the wording.
       beforeTokens: result.compacted ? result.beforeTokens : undefined,
       afterTokens: result.compacted ? result.afterTokens : undefined,
     });
+    return routed.isErr() ? err(routed.error) : ok(undefined);
   }
 
   /**
@@ -136,10 +180,53 @@ export class Orchestrator {
     if (result.isErr()) return err(result.error);
     await agentRepository.save(agent);
     if (result.value.compacted) {
-      const notice = await this.notifyCompact(result.value);
+      const notice = await this.notifyCompact(agent, result.value);
       if (notice.isErr()) return err(notice.error);
     }
     return ok(undefined);
+  }
+
+  /**
+   * Create a Sub-agent from a pre-declared Template and queue its task as the
+   * first message (a Round boundary). Creation is immediate — nothing here
+   * waits for the Sub-agent's work. Depth is computed by walking the Creator
+   * chain, never stored; the Sub-agent's Chat stays the Creator's through the
+   * Creator link, so no second chat reference is written.
+   */
+  private async createSubAgent(
+    templateName: string,
+    task: string,
+    creator: Agent,
+    pushEvent: (event: Event) => void,
+  ): Promise<Result<string, string>> {
+    const { agentRepository, templateRepository } = this.deps;
+    const template = await templateRepository.getByName(templateName);
+    if (!template) return err(`Template not found: ${templateName}`);
+
+    let depth = 1; // the Creator itself
+    let current: Agent | null = creator;
+    while (current?.createdByAgentId) {
+      current = await agentRepository.getById(current.createdByAgentId);
+      depth++;
+    }
+    if (depth >= MAX_AGENT_DEPTH) {
+      toolLog(`❌ depth limit: creator at depth ${depth} cannot create`);
+      return err(
+        `Maximum Sub-agent depth of ${MAX_AGENT_DEPTH} exceeded: the Creator is already at depth ${depth}.`,
+      );
+    }
+
+    const sub = Agent.create(template, creator);
+    await agentRepository.add(sub);
+    pushEvent({
+      id: nanoid(10),
+      event_type: "agent_message",
+      from_agent_id: creator.id,
+      to_agent_id: sub.id,
+      content: task,
+    });
+    orchLog(`sub-agent created id=${sub.id} creator=${creator.id} depth=${depth + 1}`);
+    return ok(sub.id);
   }
 
   private async dispatch(event: Event): Promise<Result<Array<Event>, string>> {
@@ -150,7 +237,6 @@ export class Orchestrator {
       toolRepository,
       aiProviderRepository,
       fileSystem,
-      outputRouter,
     } = this.deps;
 
     switch (event.event_type) {
@@ -162,7 +248,6 @@ export class Orchestrator {
           // the one place we still throw (crash, don't silently misroute).
           const template = unwrap(await templateRepository.default());
           agent = Agent.create(template);
-          agent.chatId = e.chat_id;
           await agentRepository.setEntryAgent(e.chat_id, agent);
         }
         const events = agent.handleMessage(e);
@@ -183,14 +268,27 @@ export class Orchestrator {
         const tool = await toolRepository.getByName(e.tool_call.tool_name);
         const agent = await agentRepository.getById(e.from_agent_id);
         const pushed: Array<Event> = [];
+        const context: ToolExecutingContext = {
+          fileSystem,
+          pushEvent: (event) => pushed.push(event),
+          createAgent: (templateName, task) =>
+            this.createSubAgent(templateName, task, agent!, (event) => pushed.push(event)),
+          getReport: async (agentId) => {
+            const target = await agentRepository.getById(agentId);
+            return target ? reportOf(target) : undefined;
+          },
+        };
         const result = await tool?.call(
-          { fileSystem, pushEvent: (event) => pushed.push(event) },
+          context,
           agent!,
           e.tool_call.arguments,
         );
         if (result === undefined) {
           toolLog(`❌ tool not found: ${e.tool_call.tool_name}`);
         }
+        // A handler cannot block: an ok(undefined) result means the tool yields
+        // and stays open (a Wait) — its response is written when the Report arrives.
+        if (result?.isOk() && result.value === undefined) return ok(pushed);
         const content =
           result === undefined
             ? "Tool not found"
@@ -272,7 +370,6 @@ export class Orchestrator {
           // nothing to compact, but the agent now exists for the user).
           const template = unwrap(await templateRepository.default());
           agent = Agent.create(template);
-          agent.chatId = e.chat_id;
           await agentRepository.setEntryAgent(e.chat_id, agent);
         }
         const result = await compactAgent({
@@ -289,7 +386,7 @@ export class Orchestrator {
         });
         if (result.isErr()) return err(result.error);
         await agentRepository.save(agent);
-        const notice = await this.notifyCompact(result.value);
+        const notice = await this.notifyCompact(agent, result.value);
         if (notice.isErr()) return err(notice.error);
         return ok([]);
       }
@@ -297,17 +394,21 @@ export class Orchestrator {
       case "llm_completion_response": {
         const e = event as LLMCompletionResponse;
         const agent = await agentRepository.getById(e.to_agent_id);
-        const events = agent?.handleLLMCompletionResponse(e);
-        if (agent) await agentRepository.save(agent);
-        return ok(events ?? []);
+        if (!agent) return ok([]);
+        const events = agent.handleLLMCompletionResponse(e);
+        await agentRepository.save(agent);
+        return ok(events);
       }
 
       case "agent_output": {
         const e = event as AgentOutput;
-        if (outputRouter) {
-          const routed = await outputRouter.route(e);
-          if (routed.isErr()) return err(routed.error);
-        }
+        const agent = await agentRepository.getById(e.from_agent_id);
+        const router = agent ? this.routerFor(agent) : null;
+        if (!router) return ok([]);
+        // The router decides what an agent's output becomes: a message to the
+        // user, or (for a router that answers on the agent's behalf) an event.
+        const routed = await router.route(e);
+        if (routed.isErr()) return err(routed.error);
         return ok([]);
       }
     }

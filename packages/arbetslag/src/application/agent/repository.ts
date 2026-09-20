@@ -7,5 +7,4 @@ export interface Repository {
 	list(): Promise<Array<Agent>>;
 	setEntryAgent(chatId: string, agent: Agent): Promise<void>;
 	getByChatId(chatId: string): Promise<Agent | null>;
-	getChatIdByAgentId(agentId: string): Promise<string | undefined>;
 }

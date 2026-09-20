@@ -10,11 +10,16 @@ import {
   Event,
 } from "@/application/event/event";
 
+/** Global maximum nesting depth of the Creator chain (not per-Template). */
+export const MAX_AGENT_DEPTH = 3;
+
 export interface SerializedAgent {
   id: string;
   template: Template;
   history: Array<HistoryEntry>;
   chatId?: string;
+  /** The Creator — set when this Agent was created by another Agent. */
+  createdByAgentId?: string;
   waitingForToolCallCount?: number;
   lastPromptTokens?: number;
 }
@@ -52,6 +57,7 @@ export class Agent {
   public readonly template: Template;
   public history: Array<HistoryEntry> = [];
   public chatId?: string;
+  public createdByAgentId?: string;
 
   /**
    * Real prompt_tokens of the last LLM response (see
@@ -72,10 +78,12 @@ export class Agent {
     this.history = history;
   }
 
-  static create(template: Template): Agent {
-    return new Agent(nanoid(10), template, [
+  static create(template: Template, creator?: Agent): Agent {
+    const agent = new Agent(nanoid(10), template, [
       { role: "system", content: text(composeSystemPrompt(template)) },
     ]);
+    if (creator) agent.createdByAgentId = creator.id;
+    return agent;
   }
 
   static deserialize(data: SerializedAgent): Agent {
@@ -87,6 +95,7 @@ export class Agent {
     );
     const agent = new Agent(data.id, data.template, history);
     if (data.chatId) agent.chatId = data.chatId;
+    if (data.createdByAgentId) agent.createdByAgentId = data.createdByAgentId;
     if (data.waitingForToolCallCount != null) agent.waitingForToolCallCount = data.waitingForToolCallCount;
     if (data.lastPromptTokens != null) agent.lastPromptTokens = data.lastPromptTokens;
     return agent;
@@ -98,6 +107,7 @@ export class Agent {
       template: this.template,
       history: this.history,
       chatId: this.chatId,
+      createdByAgentId: this.createdByAgentId,
       waitingForToolCallCount: this.waitingForToolCallCount,
       lastPromptTokens: this.lastPromptTokens,
     };
@@ -204,7 +214,10 @@ export class Agent {
         tool_call: toolCall,
       });
     }
-    if (event.content) {
+    // Every agent's output goes to its own output router (resolved per agent by
+    // the orchestrator). A turn-ending output is the agent's Report; mid-turn
+    // content is routed only when there is something to say.
+    if (event.content || !event.tool_calls?.length) {
       events.push({
         id: nanoid(10),
         event_type: "agent_output",

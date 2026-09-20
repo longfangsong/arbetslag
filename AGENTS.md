@@ -14,6 +14,8 @@ Do not create abstraction of things until there are multiple (>=3) instance of t
 
 Do not extract separated interface/class from another interface/class unless the original interface/class has more than 10 fields or there is a really good reason for the new interface/class to exist.
 
+Try not to create new concepts just for naming things, always prefer using existing concepts.
+
 ## Ubiquitous language
 
 Please always use the terms listed in ./CONTEXT.md when talking with the user.
@@ -24,24 +26,6 @@ Please always use the terms listed in ./CONTEXT.md when talking with the user.
 packages/arbetslag   # the framework library (published to npm)
 apps/telegram-bot    # a consumer app that imports the `arbetslag` package
 ```
-
-## Build & Development
-
-```bash
-pnpm install
-
-pnpm build          # Build every package (tsdown: ESM + CJS + .d.ts)
-pnpm type-check     # TypeScript type checking (all packages)
-pnpm demo:telegram  # Run the Telegram bot demo (builds arbetslag first)
-```
-
-Package-level commands use a filter, e.g.
-`pnpm --filter arbetslag test` (Vitest),
-`pnpm --filter arbetslag run dev` (tsdown watch),
-`pnpm --filter arbetslag lint|format`,
-`pnpm --filter telegram-bot run start`.
-
-**Tooling:** tsdown (bundler), Biome (lint/format), Vitest (tests), Zod v4 (schemas), TypeScript 6
 
 ## Debug Strategy
 
@@ -56,7 +40,3 @@ A tool name is `snake_case` verb-first, such that `Agent <ToolName> <parameter>`
 - ❌ `file_read` / `cron_create` (noun before verb)
 
 When adding a tool, check that the sentence reads naturally; prefer an ordinary verb (read, get, list, create, update, delete, send) as the first word.
-
-## Migration progress
-
-`_src` is old source code. Do not look at it.

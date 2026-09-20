@@ -21,6 +21,8 @@ import { CronCreate } from "@/implementation/tool/cron/create";
 import { CronDelete } from "@/implementation/tool/cron/delete";
 import { WebSearch } from "@/implementation/tool/webSearch";
 import { SimpleMemoryRead, SimpleMemoryUpdate } from "@/implementation/tool/memory";
+import { CreateAgent } from "@/implementation/tool/createAgent";
+import { WaitForAgent } from "@/implementation/tool/waitForAgent";
 import {
 	ListEntities,
 	CreateEntity,
@@ -67,6 +69,8 @@ export { HttpRequest } from "./implementation/tool/http";
 export { FetchWebPage } from "./implementation/tool/fetchWebPage";
 export { WebSearch } from "./implementation/tool/webSearch";
 export { SimpleMemoryRead, SimpleMemoryUpdate } from "./implementation/tool/memory";
+export { CreateAgent } from "./implementation/tool/createAgent";
+export { WaitForAgent } from "./implementation/tool/waitForAgent";
 export { MEMORY_FILE } from "./implementation/tool/memory";
 export type { Tool } from "./application/tool/model";
 export type { Agent } from "./application/agent/model";
@@ -138,6 +142,8 @@ function createBuiltInTools(
     new HttpRequest(),
     new FetchWebPage(),
     new GetTime(),
+    new CreateAgent(),
+    new WaitForAgent(),
     ...(webSearchConfig
       ? [
           new WebSearch(

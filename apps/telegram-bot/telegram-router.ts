@@ -14,7 +14,9 @@ export class SmartTelegramRouter {
 		this.chatId = chatId;
 	}
 
-	async route(event: AgentOutput | Compacted): Promise<Result<void, string>> {
+	async route(
+		event: AgentOutput | Compacted,
+	): Promise<Result<void, string>> {
 		// Compacted notices are log-only, never sent to the chat.
 		if ("kind" in event) {
 			const detail =

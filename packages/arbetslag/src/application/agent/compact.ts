@@ -222,7 +222,7 @@ export interface CompactDeps {
  * the SUMMARY_MARKER (the composed system prompt above it is not part of the
  * summary). Undefined when there is no previous summary.
  */
-function extractPreviousSummary(systemEntry: HistoryEntry): string | undefined {
+export function extractPreviousSummary(systemEntry: HistoryEntry): string | undefined {
   const content =
     systemEntry.role === "tool" || systemEntry.role === "assistant"
       ? systemEntry.content

@@ -27,19 +27,14 @@ export class InMemoryAgentRepository implements Repository {
 	}
 
 	async setEntryAgent(chatId: string, agent: Agent): Promise<void> {
+		agent.chatId = chatId;
 		this.chatMap.set(chatId, agent.id);
+		this.agents.set(agent.id, agent);
 	}
 
 	async getByChatId(chatId: string): Promise<Agent | null> {
 		const agentId = this.chatMap.get(chatId);
 		if (!agentId) return null;
 		return this.agents.get(agentId) ?? null;
-	}
-
-	async getChatIdByAgentId(agentId: string): Promise<string | undefined> {
-		for (const [chatId, id] of this.chatMap) {
-			if (id === agentId) return chatId;
-		}
-		return undefined;
 	}
 }
