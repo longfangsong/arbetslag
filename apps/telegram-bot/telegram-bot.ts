@@ -52,7 +52,6 @@ import { SmartTelegramRouter } from "./telegram-router";
 import { log, error } from "./logger";
 
 const FLUSH_QUIET_MS = 5_000;
-const CONTEXT_IDLE_RESET_MS = 4 * 60 * 60 * 1000;
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const WEBHOOK_URL = process.env.WEBHOOK_URL!;
 const PORT = Number(process.env.PORT ?? 3000);
@@ -189,7 +188,6 @@ async function deleteWebhook(): Promise<void> {
 
 // ── Process a Telegram update ───────────────────────────────────────────────
 const inputAdopter = new TelegramInputAdopter(TELEGRAM_BOT_TOKEN);
-const lastActive = new Map<string, number>();
 const printedHistory = new Map<string, number>();
 let chain: Promise<void> = Promise.resolve();
 let chainBusy = false;
@@ -201,13 +199,9 @@ const batcher = new UpdateBatcher<ChatInput>(FLUSH_QUIET_MS, (chatId, inputs) =>
 		for (const input of inputs) batcher.enqueue(chatId, input);
 		return;
 	}
-	const prev = lastActive.get(chatId);
-	const now = Date.now();
-	lastActive.set(chatId, now);
-	const stale = prev !== undefined && now - prev >= CONTEXT_IDLE_RESET_MS;
 	chainBusy = true;
 	chain = chain
-		.then(() => processChatBatch(chatId, inputs, stale))
+		.then(() => processChatBatch(chatId, inputs))
 		.catch(error)
 		.finally(() => {
 			chainBusy = false;
@@ -223,21 +217,13 @@ function handleUpdate(update: Update): Promise<void> {
 
 async function processChatBatch(
 	chatId: string,
-	inputs: ChatInput[],
-	stale: boolean,
+	inputs: ChatInput[]
 ): Promise<void> {
 	const agentRepository = await FileSystemAgentRepository.create(
 		fileSystem,
 		"agents/",
 	);
 	const agent = await agentRepository.getByChatId(chatId);
-
-	if (stale && agent && agent.history.length > 0) {
-		log(`[context] chat ${chatId} idle > 4h — new context window`);
-		agent.history = [];
-		await agentRepository.save(agent);
-		printedHistory.set(chatId, 0);
-	}
 
 	// Callbacks ride the bus as api_callback events (Agent.handleApiCallback
 	// renders them into history, jobId in <id> for delete_cron). If no agent
