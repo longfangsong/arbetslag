@@ -56,7 +56,3 @@ A tool name is `snake_case` verb-first, such that `Agent <ToolName> <parameter>`
 - ❌ `file_read` / `cron_create` (noun before verb)
 
 When adding a tool, check that the sentence reads naturally; prefer an ordinary verb (read, get, list, create, update, delete, send) as the first word.
-
-## Migration progress
-
-`_src` is old source code. Do not look at it.
