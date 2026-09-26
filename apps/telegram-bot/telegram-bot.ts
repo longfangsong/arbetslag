@@ -25,11 +25,13 @@ import {
 	OpenAIProvider,
 	InMemoryAIProviderRepository,
 	InMemoryToolRepository,
+	FileSystemToolStateRepository,
 	type MessageEvent,
 	type ApiCallbackEvent,
 	type CompactRequest,
 	GetTime,
 	ReadFile,
+	ListTemplates,
 	FetchWebPage,
 	WebSearch,
 	CronCreate,
@@ -274,6 +276,7 @@ async function processChatBatch(
 	const tools = [
 		new GetTime(),
 		new ReadFile(),
+		new ListTemplates(),
 		new FetchWebPage(),
 		...(process.env.SEARXNG_URL
 			? [
@@ -302,6 +305,7 @@ async function processChatBatch(
 		agentRepository,
 		templateRepository,
 		toolRepository: new InMemoryToolRepository(tools),
+		toolState: new FileSystemToolStateRepository(fileSystem, "tool_state/"),
 		aiProviderRepository: new InMemoryAIProviderRepository([
 			new OpenAIProvider(
 				process.env.OPENAI_API_KEY!,

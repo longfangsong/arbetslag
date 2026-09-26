@@ -31,17 +31,9 @@ Two levels, escalating in cost:
 - **Rule-level**: deterministic, no LLM call. Stubs out bulky tool-call arguments and tool results below the waterline; assistant and user text is never touched. Idempotent.
 - **LLM-level**: used when rule-level alone cannot bring the history below the threshold. Summarizes the entire below-waterline history (via the agent's own template model) into a single rolling summary, which is merged into the system entry (`history[0]` = system prompt + summary). On later compaction the previous summary is re-summarized along with newly-aged rounds — there is never more than one summary.
 
-### Waterline
-
-The boundary separating compactable old history from the retained recent rounds. The last N rounds (template-configured) stay untouched at both levels.
-
 ### Round
 
 One user-initiated exchange: a user entry (user message, agent_message, or api_callback) plus all assistant and tool entries it triggers, up to the next user entry. Compaction boundaries always fall on round boundaries, so an assistant message with tool_calls is never separated from its tool results.
-
-### Compacted
-
-A notice that an agent's history was compacted — an agent-scoped fact (the before/after token counts are that agent's) that the orchestrator routes to the user through the chat channel on the agent's behalf. As opposed to AgentOutput, which is the agent's (LLM's) own utterance. Routed through the same OutputRouter, distinguishable by type.
 
 ## Meta System Prompt
 
@@ -84,23 +76,9 @@ Events flow through a queue and are processed one at a time.
 
 A component that converts external service updates (Telegram, Slack, HTTP webhooks, etc.) into framework `Event` objects. Supports a generic adapter pattern — any external service can be adapted.
 
-## Context
-
-The full runtime environment passed to every tool and agent method. Formed by combining `Config` (immutable infrastructure) and `State` (mutable runtime data).
-
-**Host-controlled lifecycle**: The host program creates the Context, feeds events, calls `stepUntilIdle`, and handles checkpointing. The framework does not own the processing loop.
-
 ## Config
 
 The immutable infrastructure layer of the Context. Contains AI providers, repositories (agent templates, tools), user config (API keys, bot tokens), file system, and output handler registry. Set when the Context is created and never changes during execution.
-
-## State
-
-The mutable runtime data that changes during agent execution. Contains agent repositories, chat repositories, the event queue, and per-tool state.
-
-**Mutable**: Unlike `Config`, the `State` is modified as agents process events — agents are spawned, chats evolve, events are consumed. The framework handles serialization and checkpointing of the `State`.
-
-- `toolState`: Per-tool mutable state for persistence across invocations. Each tool manages its own data independently.
 
 ## Orchestrator
 

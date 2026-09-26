@@ -9,11 +9,13 @@ import { InMemoryAIProviderRepository } from "@/implementation/aiProvider/inMemo
 import { OpenAIProvider } from "@/implementation/aiProvider/openai";
 import { Telegram } from "@/implementation/outputRouter/telegram";
 import { InMemoryToolRepository } from "@/implementation/tool/repository";
+import { FileSystemToolStateRepository } from "@/implementation/tool/state";
 import { ReadFile } from "@/implementation/tool/file/readFile";
 import { WriteFile } from "@/implementation/tool/file/writeFile";
 import { EditFile } from "@/implementation/tool/file/editFile";
 import { DeleteFile } from "@/implementation/tool/file/deleteFile";
 import { ListFiles } from "@/implementation/tool/file/listFiles";
+import { ListTemplates } from "@/implementation/tool/subagent/listTemplates";
 import { HttpRequest } from "@/implementation/tool/http";
 import { FetchWebPage } from "@/implementation/tool/fetchWebPage";
 import { GetTime } from "@/implementation/tool/getTime";
@@ -48,6 +50,7 @@ export {
 	// Infrastructure re-exported for library consumers (e.g. the telegram-bot app).
 	FileSystemAgentRepository,
 	FileSystemTemplateRepository,
+	FileSystemToolStateRepository,
 };
 export { TelegramInputAdopter } from "./implementation/inputAdopter/telegram";
 export { InMemoryFileSystem } from "./implementation/tool/file/filesystem/inMemory";
@@ -61,6 +64,7 @@ export { WriteFile } from "./implementation/tool/file/writeFile";
 export { EditFile } from "./implementation/tool/file/editFile";
 export { DeleteFile } from "./implementation/tool/file/deleteFile";
 export { ListFiles } from "./implementation/tool/file/listFiles";
+export { ListTemplates } from "./implementation/tool/subagent/listTemplates";
 export { CronCreate } from "./implementation/tool/cron/create";
 export { CronDelete } from "./implementation/tool/cron/delete";
 export { HttpRequest } from "./implementation/tool/http";
@@ -69,6 +73,7 @@ export { WebSearch } from "./implementation/tool/webSearch";
 export { SimpleMemoryRead, SimpleMemoryUpdate } from "./implementation/tool/memory";
 export { MEMORY_FILE } from "./implementation/tool/memory";
 export type { Tool } from "./application/tool/model";
+export type { ToolStateRepository } from "./application/tool/state";
 export type { Agent } from "./application/agent/model";
 export type { MessageEvent, ApiCallbackEvent, CompactRequest, AgentOutput } from "./application/event/event";
 export type { ContentPart, Content } from "./application/agent/history";
@@ -84,6 +89,7 @@ export interface ArbetslagConfig {
   directories?: {
     agents?: string;
     templates?: string;
+    toolState?: string;
   };
   openai: { apiKey: string; baseUrl?: string };
   telegram: { botToken: string; apiBase?: string };
@@ -109,6 +115,10 @@ export async function processEvent(
       ...createBuiltInTools(config.webSearch),
       ...(config.customTools ?? []),
     ]),
+    toolState: new FileSystemToolStateRepository(
+      config.fileSystem,
+      config.directories?.toolState ?? "tool_state/",
+    ),
     aiProviderRepository: new InMemoryAIProviderRepository([
       new OpenAIProvider(config.openai.apiKey, config.openai.baseUrl),
     ]),
@@ -135,6 +145,7 @@ function createBuiltInTools(
     new EditFile(),
     new DeleteFile(),
     new ListFiles(),
+    new ListTemplates(),
     new HttpRequest(),
     new FetchWebPage(),
     new GetTime(),

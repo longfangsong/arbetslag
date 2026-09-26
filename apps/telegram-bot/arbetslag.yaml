@@ -14,3 +14,4 @@ templates:
       - read_memory
       - update_memory
       - read_file
+      - list_templates

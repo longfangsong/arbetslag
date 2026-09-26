@@ -35,11 +35,4 @@ export class InMemoryAgentRepository implements Repository {
 		if (!agentId) return null;
 		return this.agents.get(agentId) ?? null;
 	}
-
-	async getChatIdByAgentId(agentId: string): Promise<string | undefined> {
-		for (const [chatId, id] of this.chatMap) {
-			if (id === agentId) return chatId;
-		}
-		return undefined;
-	}
 }

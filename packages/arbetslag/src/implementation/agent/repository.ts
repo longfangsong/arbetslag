@@ -80,11 +80,4 @@ export class FileSystemAgentRepository implements Repository {
 		if (!agentId) return null;
 		return this.getById(agentId);
 	}
-
-	async getChatIdByAgentId(agentId: string): Promise<string | undefined> {
-		for (const [chatId, id] of this.chatMap) {
-			if (id === agentId) return chatId;
-		}
-		return undefined;
-	}
 }
