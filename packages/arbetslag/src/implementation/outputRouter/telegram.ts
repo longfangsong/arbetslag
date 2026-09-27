@@ -1,11 +1,15 @@
-import { OutputRouter, type Compacted } from "@/application/outputRouter/model";
-import { AgentOutput } from "@/application/event/event";
+import type {
+	OutputEvent,
+	OutputRouter,
+	SerializedOutputRouter,
+} from "@/application/outputRouter/model";
 import { Result, ok, err } from "neverthrow";
 import createDebug from "debug";
 
 const log = createDebug("arbetslag:output");
 
 export class Telegram implements OutputRouter {
+	readonly kind = "telegram";
 	private readonly botToken: string;
 	readonly chatId: string;
 	private readonly apiBase: string;
@@ -16,7 +20,12 @@ export class Telegram implements OutputRouter {
 		this.apiBase = apiBase;
 	}
 
-	async route(event: AgentOutput | Compacted): Promise<Result<void, string>> {
+	/** The bot token is app config, not agent state: the Registry factory supplies it. */
+	serialize(): SerializedOutputRouter {
+		return { kind: this.kind, config: { chatId: this.chatId, apiBase: this.apiBase } };
+	}
+
+	async route(event: OutputEvent): Promise<Result<void, string>> {
 		// Compacted carries no copy: render the user-facing wording from
 		// the structured fields (this default adapter uses English).
 		const markdown =

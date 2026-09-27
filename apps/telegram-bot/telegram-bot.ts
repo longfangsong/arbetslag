@@ -32,6 +32,7 @@ import {
 	GetTime,
 	ReadFile,
 	ListTemplates,
+	SpawnAgent,
 	FetchWebPage,
 	WebSearch,
 	CronCreate,
@@ -39,6 +40,7 @@ import {
 	SimpleMemoryRead,
 	SimpleMemoryUpdate,
 	type OrchestratorDeps,
+	OutputRouterRegistry,
 	type Template,
 	type Update,
 	type ContentPart,
@@ -82,6 +84,10 @@ const templateRepository = await FileSystemTemplateRepository.create(
 	fileSystem,
 	"config/templates/",
 );
+// kind -> factory, so a persisted agent can rebuild its own router on load.
+const outputRouterRegistry = new OutputRouterRegistry([
+	["telegram", (config) => new SmartTelegramRouter(TELEGRAM_BOT_TOKEN, config.chatId as string)],
+]);
 
 // Generate the system prompt (base + sticker capability).
 const systemPrompt = buildSystemPrompt(config.username || "bot", config.templates![0].model, STICKERS, PINS);
@@ -223,6 +229,7 @@ async function processChatBatch(
 ): Promise<void> {
 	const agentRepository = await FileSystemAgentRepository.create(
 		fileSystem,
+		outputRouterRegistry,
 		"agents/",
 	);
 	const agent = await agentRepository.getByChatId(chatId);
@@ -267,16 +274,12 @@ async function processChatBatch(
 		event.content = messageInputs.flatMap(formatInputParts);
 	}
 
-	// Build orchestrator with custom OutputRouter.
-	const outputRouter = new SmartTelegramRouter(
-		TELEGRAM_BOT_TOKEN,
-		chatId
-	);
-
+	// Build orchestrator with the app's OutputRouter registered by kind.
 	const tools = [
 		new GetTime(),
 		new ReadFile(),
 		new ListTemplates(),
+		new SpawnAgent(),
 		new FetchWebPage(),
 		...(process.env.SEARXNG_URL
 			? [
@@ -312,7 +315,7 @@ async function processChatBatch(
 				process.env.OPENAI_BASE_URL,
 			),
 		]),
-		outputRouter,
+		outputRouterRegistry,
 	};
 
 	const orchestrator = new Orchestrator(deps);

@@ -49,7 +49,7 @@ export class SpawnAgent implements Tool<
 		input: z.infer<typeof SpawnAgentInputSchema>,
 	): Promise<Result<SpawnAgentResult, string>> {
         const template = await context.templateRepository.getByName(input.template);
-        const created_agent = Agent.create(template!);
+        const created_agent = Agent.create(template!, caller.outputRouter);
         await context.agentRepository.add(created_agent);
         const parents = (await context.toolState.get<ParentState>("subagent")) ?? {};
         parents[created_agent.id] = caller.id;

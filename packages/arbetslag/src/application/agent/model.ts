@@ -11,6 +11,11 @@ import {
   MessageEvent,
   ToolResponseEvent,
 } from "@/application/event/event";
+import type {
+  OutputRouter,
+  SerializedOutputRouter,
+} from "@/application/outputRouter/model";
+import type { OutputRouterRegistry } from "@/application/outputRouter/registry";
 
 const agentLog = createDebug("arbetslag:agent");
 
@@ -22,6 +27,7 @@ export interface SerializedAgent {
   chatId?: string;
   waitingForToolCallCount?: number;
   lastPromptTokens?: number;
+  outputRouter: SerializedOutputRouter;
 }
 
 /**
@@ -64,6 +70,8 @@ export class Agent {
   public eventQueue: Array<Event> = [];
   public history: Array<HistoryEntry> = [];
   public chatId?: string;
+  /** The channel this agent replies on. */
+  public outputRouter: OutputRouter;
   /**
    * Real prompt_tokens of the last LLM response (see
    * docs/adr/0001-compact-token-metering.md): the metering point uses this
@@ -76,20 +84,27 @@ export class Agent {
     id: string,
     template: Template,
     history: Array<HistoryEntry>,
+    outputRouter: OutputRouter,
   ) {
     this.id = id;
     this.template = template;
     this.history = history;
+    this.outputRouter = outputRouter;
   }
 
-  static create(template: Template): Agent {
+  static create(template: Template, outputRouter: OutputRouter): Agent {
     return new Agent(nanoid(10), template, [
       { role: "system", content: text(composeSystemPrompt(template)) },
-    ]);
+    ], outputRouter);
   }
 
-  static deserialize(data: SerializedAgent): Agent {
-    const agent = new Agent(data.id, data.template, data.history);
+  static deserialize(data: SerializedAgent, registry: OutputRouterRegistry): Agent {
+    const agent = new Agent(
+      data.id,
+      data.template,
+      data.history,
+      registry.resolve(data.outputRouter)!,
+    );
     if (data.chatId) agent.chatId = data.chatId;
     if (data.waitingForToolCallCount != null) agent.waitingForToolCallCount = data.waitingForToolCallCount;
     if (data.lastPromptTokens != null) agent.lastPromptTokens = data.lastPromptTokens;
@@ -105,7 +120,8 @@ export class Agent {
       chatId: this.chatId,
       waitingForToolCallCount: this.waitingForToolCallCount,
       lastPromptTokens: this.lastPromptTokens,
-      eventQueue: this.eventQueue
+      eventQueue: this.eventQueue,
+      outputRouter: this.outputRouter?.serialize(),
     };
   }
 

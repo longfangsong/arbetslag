@@ -15,3 +15,4 @@ templates:
       - update_memory
       - read_file
       - list_templates
+      - spawn_agent

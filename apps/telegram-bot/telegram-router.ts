@@ -1,10 +1,15 @@
 import { PINS } from "./prompt/pin";
 import { STICKERS } from "./prompt/sticker";
-import type { AgentOutput, Compacted } from "arbetslag";
+import type {
+	OutputEvent,
+	OutputRouter,
+	SerializedOutputRouter,
+} from "arbetslag";
 import { Result, ok, err } from "neverthrow";
 import { log, warn } from "./logger";
 
-export class SmartTelegramRouter {
+export class SmartTelegramRouter implements OutputRouter {
+	readonly kind = "telegram";
 	private readonly botToken: string;
 	private readonly chatId: string;
     private readonly TEST_MODE = process.env.TEST_MODE === "true" || process.env.TEST_MODE === "1";
@@ -14,7 +19,12 @@ export class SmartTelegramRouter {
 		this.chatId = chatId;
 	}
 
-	async route(event: AgentOutput | Compacted): Promise<Result<void, string>> {
+	/** The bot token lives in app config, so only the chat is persisted. */
+	serialize(): SerializedOutputRouter {
+		return { kind: this.kind, config: { chatId: this.chatId } };
+	}
+
+	async route(event: OutputEvent): Promise<Result<void, string>> {
 		// Compacted notices are log-only, never sent to the chat.
 		if ("kind" in event) {
 			const detail =

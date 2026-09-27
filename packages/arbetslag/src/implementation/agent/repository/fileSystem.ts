@@ -1,5 +1,6 @@
 import { Repository } from "@/application/agent/repository";
 import { Agent, SerializedAgent } from "@/application/agent/model";
+import type { OutputRouterRegistry } from "@/application/outputRouter/registry";
 import { FileSystem } from "@/application/file/model";
 
 export class FileSystemAgentRepository implements Repository {
@@ -8,13 +9,18 @@ export class FileSystemAgentRepository implements Repository {
 
 	constructor(
 		private fs: FileSystem,
+		private registry: OutputRouterRegistry,
 		dir: string = "agents/",
 	) {
 		this.dir = dir.endsWith("/") ? dir : dir + "/";
 	}
 
-	static async create(fs: FileSystem, dir = "agents/"): Promise<FileSystemAgentRepository> {
-		const repo = new FileSystemAgentRepository(fs, dir);
+	static async create(
+		fs: FileSystem,
+		registry: OutputRouterRegistry,
+		dir = "agents/",
+	): Promise<FileSystemAgentRepository> {
+		const repo = new FileSystemAgentRepository(fs, registry, dir);
 		await repo.rebuild();
 		return repo;
 	}
@@ -47,7 +53,7 @@ export class FileSystemAgentRepository implements Repository {
 	async getById(id: string): Promise<Agent | null> {
 		try {
 			const content = await this.fs.readFile(`${this.dir}${id}.json`);
-			return Agent.deserialize(JSON.parse(content) as SerializedAgent);
+			return Agent.deserialize(JSON.parse(content) as SerializedAgent, this.registry);
 		} catch {
 			return null;
 		}
@@ -63,7 +69,7 @@ export class FileSystemAgentRepository implements Repository {
 			fileNames.map((p) => this.fs.readFile(p)),
 		);
 		return contents.map((c) =>
-			Agent.deserialize(JSON.parse(c) as SerializedAgent),
+			Agent.deserialize(JSON.parse(c) as SerializedAgent, this.registry),
 		);
 	}
 

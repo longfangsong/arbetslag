@@ -1,12 +1,15 @@
 import { Repository } from "@/application/agent/repository";
 import { Agent } from "@/application/agent/model";
+import type { OutputRouterRegistry } from "@/application/outputRouter/registry";
 
 export class InMemoryAgentRepository implements Repository {
 	private agents: Map<string, Agent> = new Map();
 	private chatMap: Map<string, string> = new Map();
 
-	static async create(): Promise<InMemoryAgentRepository> {
-		return new InMemoryAgentRepository();
+	constructor(private registry: OutputRouterRegistry) {}
+
+	static async create(registry: OutputRouterRegistry): Promise<InMemoryAgentRepository> {
+		return new InMemoryAgentRepository(registry);
 	}
 
 	async add(agent: Agent): Promise<Agent> {

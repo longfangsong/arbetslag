@@ -3,11 +3,12 @@ import type { OrchestratorDeps } from "./application/orchestrator";
 export type { Result } from "neverthrow";
 import { MessageEvent } from "./application/event/event";
 import { contentText, text } from "./application/agent/history";
-import { FileSystemAgentRepository } from "@/implementation/agent/repository";
+import { FileSystemAgentRepository } from "@/implementation/agent/repository/fileSystem";
 import { FileSystemTemplateRepository } from "@/implementation/agent/template/repository";
 import { InMemoryAIProviderRepository } from "@/implementation/aiProvider/inMemory";
 import { OpenAIProvider } from "@/implementation/aiProvider/openai";
 import { Telegram } from "@/implementation/outputRouter/telegram";
+import { OutputRouterRegistry } from "./application/outputRouter/registry";
 import { InMemoryToolRepository } from "@/implementation/tool/repository";
 import { FileSystemToolStateRepository } from "@/implementation/tool/state";
 import { ReadFile } from "@/implementation/tool/file/readFile";
@@ -22,15 +23,15 @@ import { GetTime } from "@/implementation/tool/getTime";
 import { CronCreate } from "@/implementation/tool/cron/create";
 import { CronDelete } from "@/implementation/tool/cron/delete";
 import { WebSearch } from "@/implementation/tool/webSearch";
-import { SimpleMemoryRead, SimpleMemoryUpdate } from "@/implementation/tool/memory";import type { Tool } from "./application/tool/model";
+import { SimpleMemoryRead, SimpleMemoryUpdate } from "@/implementation/tool/memory"; import type { Tool } from "./application/tool/model";
 import type { FileSystem } from "./application/file/model";
 
 export {
-	Orchestrator,
-	// Infrastructure re-exported for library consumers (e.g. the telegram-bot app).
-	FileSystemAgentRepository,
-	FileSystemTemplateRepository,
-	FileSystemToolStateRepository,
+  Orchestrator,
+  // Infrastructure re-exported for library consumers (e.g. the telegram-bot app).
+  FileSystemAgentRepository,
+  FileSystemTemplateRepository,
+  FileSystemToolStateRepository,
 };
 export { TelegramInputAdopter } from "./implementation/inputAdopter/telegram";
 export { InMemoryFileSystem } from "./implementation/tool/file/filesystem/inMemory";
@@ -45,6 +46,7 @@ export { EditFile } from "./implementation/tool/file/editFile";
 export { DeleteFile } from "./implementation/tool/file/deleteFile";
 export { ListFiles } from "./implementation/tool/file/listFiles";
 export { ListTemplates } from "./implementation/tool/subagent/listTemplates";
+export { SpawnAgent } from "./implementation/tool/subagent/spawn";
 export { CronCreate } from "./implementation/tool/cron/create";
 export { CronDelete } from "./implementation/tool/cron/delete";
 export { HttpRequest } from "./implementation/tool/http";
@@ -60,7 +62,8 @@ export type { ContentPart, Content } from "./application/agent/history";
 export { contentText, text } from "./application/agent/history";
 export type { FileSystem } from "./application/file/model";
 export type { Template } from "./application/agent/template/model";
-export type { OutputRouter, Compacted } from "./application/outputRouter/model";
+export type { OutputRouter, OutputEvent, Compacted, SerializedOutputRouter } from "./application/outputRouter/model";
+export { OutputRouterRegistry } from "./application/outputRouter/registry";
 export type { OrchestratorDeps };
 export type { Update } from "./implementation/inputAdopter/telegram";
 
@@ -81,10 +84,24 @@ export async function processEvent(
   event: MessageEvent,
   config: ArbetslagConfig,
 ): Promise<void> {
+  const outputRouterRegistry = new OutputRouterRegistry([
+    [
+      "telegram",
+      (
+        data: Record<string, unknown>,
+      ) =>
+        new Telegram(
+          config.telegram.botToken,
+          data.chatId as string,
+          data.apiBase as string | undefined,
+        ),
+    ],
+  ]);
   const orchestrator = new Orchestrator({
     fileSystem: config.fileSystem,
     agentRepository: await FileSystemAgentRepository.create(
       config.fileSystem,
+      outputRouterRegistry,
       config.directories?.agents ?? "agents/",
     ),
     templateRepository: await FileSystemTemplateRepository.create(
@@ -102,14 +119,7 @@ export async function processEvent(
     aiProviderRepository: new InMemoryAIProviderRepository([
       new OpenAIProvider(config.openai.apiKey, config.openai.baseUrl),
     ]),
-    outputRouter:
-      event.adapter === "telegram"
-        ? new Telegram(
-            config.telegram.botToken,
-            event.chat_id,
-            config.telegram.apiBase,
-          )
-        : null,
+    outputRouterRegistry,
   });
 
   orchestrator.push(event);
@@ -131,12 +141,12 @@ function createBuiltInTools(
     new GetTime(),
     ...(webSearchConfig
       ? [
-          new WebSearch(
-            webSearchConfig.searxngUrl,
-            webSearchConfig.timeoutMs,
-            webSearchConfig.maxResults,
-          ),
-        ]
+        new WebSearch(
+          webSearchConfig.searxngUrl,
+          webSearchConfig.timeoutMs,
+          webSearchConfig.maxResults,
+        ),
+      ]
       : []),
   ];
 }

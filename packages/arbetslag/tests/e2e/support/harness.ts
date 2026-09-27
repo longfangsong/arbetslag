@@ -8,12 +8,13 @@ import type { Template } from "@/application/agent/template/model";
 import type { Repository as AgentRepository } from "@/application/agent/repository";
 import type { Tool } from "@/application/tool/model";
 import { NodeFileSystem } from "@/implementation/tool/file/filesystem/nodeFs";
-import { FileSystemAgentRepository } from "@/implementation/agent/repository";
+import { FileSystemAgentRepository } from "@/implementation/agent/repository/fileSystem";
 import { FileSystemTemplateRepository } from "@/implementation/agent/template/repository";
 import { FileSystemToolStateRepository } from "@/implementation/tool/state";
 import { InMemoryToolRepository } from "@/implementation/tool/repository";
 import { InMemoryAIProviderRepository } from "@/implementation/aiProvider/inMemory";
 import { Telegram } from "@/implementation/outputRouter/telegram";
+import { OutputRouterRegistry } from "@/application/outputRouter/registry";
 import { text } from "@/application/agent/history";
 import { FakeLLM, type Behavior } from "./fake-llm";
 import { FakeApi, MOCK_TELEGRAM_BASE } from "./fake-api";
@@ -44,7 +45,17 @@ export async function createHarness(o: HarnessOptions): Promise<Harness> {
 	const api = new FakeApi();
 	api.install();
 
-	const agentRepository = await FileSystemAgentRepository.create(fileSystem, "agents/");
+	const outputRouterRegistry = new OutputRouterRegistry([
+		[
+			"telegram",
+			(config) => new Telegram("test-token", config.chatId as string, MOCK_TELEGRAM_BASE),
+		],
+	]);
+	const agentRepository = await FileSystemAgentRepository.create(
+		fileSystem,
+		outputRouterRegistry,
+		"agents/",
+	);
 	const templateRepository = await FileSystemTemplateRepository.create(fileSystem, "config/templates/");
 	for (const template of o.templates) await templateRepository.add(template);
 
@@ -55,7 +66,7 @@ export async function createHarness(o: HarnessOptions): Promise<Harness> {
 		toolRepository: new InMemoryToolRepository(o.tools),
 		toolState: new FileSystemToolStateRepository(fileSystem, "tool_state/"),
 		aiProviderRepository: new InMemoryAIProviderRepository([llm]),
-		outputRouter: new Telegram("test-token", "chat-1", MOCK_TELEGRAM_BASE),
+		outputRouterRegistry,
 	} satisfies OrchestratorDeps);
 
 	return {

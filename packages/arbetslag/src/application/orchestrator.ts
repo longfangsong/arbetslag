@@ -2,15 +2,15 @@ import { ok, err, Result } from "neverthrow";
 import { nanoid } from "nanoid";
 import z from "zod";
 import { EventBus } from "./event/bus";
-import { AgentOutput, Event, ToolCallRequest } from "./event/event";
+import { CompactRequest, Event, MessageEvent, ToolCallRequest } from "./event/event";
 import { unwrap } from "../utils";
 import { Agent } from "./agent/model";
 import type { Context } from "./context";
 import type { AIProvider } from "./aiProvider/model";
+import type { OutputEvent, OutputRouter } from "./outputRouter/model";
 import {
   DEFAULT_COMPACT_RETAIN_ROUNDS,
   DEFAULT_COMPACT_THRESHOLD,
-  type CompactResult,
   compactAgent,
   meteredTokens,
 } from "./agent/compact";
@@ -90,7 +90,7 @@ export class Orchestrator {
       case "compact_request":
         return this.compact(agent, await this.context.aiProviderRepository.getByName(agent.template.ai_provider));
       case "agent_output":
-        return this.routeOutput(event);
+        return this.routeOutput(agent, event);
       default:
         // Agent-scoped event: queue it so the agent's own ordering rules hold.
         return this.stepAgent(agent, event);
@@ -178,26 +178,19 @@ export class Orchestrator {
     });
     if (result.isErr()) return err(result.error);
     if (result.value.compacted) {
-      const notice = await this.notifyCompact(result.value);
+      const notice = await this.routeOutput(agent, {
+        kind: "history_compacted",
+        beforeTokens: result.value.beforeTokens,
+        afterTokens: result.value.afterTokens,
+      });
       if (notice.isErr()) return err(notice.error);
     }
     return ok(undefined);
   }
 
-  private async routeOutput(event: AgentOutput): Promise<Result<void, string>> {
-    if (!this.context.outputRouter) return ok(undefined);
-    return this.context.outputRouter.route(event);
-  }
-
-  /** Compact notices are routed by the orchestrator on the agent's behalf. */
-  private async notifyCompact(result: CompactResult): Promise<Result<void, string>> {
-    const router = this.context.outputRouter;
-    if (!router) return ok(undefined);
-    return router.route({
-      kind: "history_compacted",
-      beforeTokens: result.compacted ? result.beforeTokens : undefined,
-      afterTokens: result.compacted ? result.afterTokens : undefined,
-    });
+  /** An agent's output goes to the router that belongs to that agent. */
+  private async routeOutput(agent: Agent, event: OutputEvent): Promise<Result<void, string>> {
+    return await agent.outputRouter.route(event);
   }
 
   /** Checkpoint the agent, then hand the events it produced to the bus. */
@@ -216,7 +209,7 @@ export class Orchestrator {
       // a missing default template is a configuration error —
       // the one place we still throw (crash, don't silently misroute).
       const template = unwrap(await templateRepository.default());
-      const entryAgent = Agent.create(template);
+      const entryAgent = Agent.create(template, this.newEntryAgentRouter(event));
       entryAgent.chatId = event.chat_id;
       await agentRepository.setEntryAgent(event.chat_id, entryAgent);
       return entryAgent;
@@ -230,5 +223,16 @@ export class Orchestrator {
     }
     if (!agentId) return null;
     return agentRepository.getById(agentId);
+  }
+
+  /** A brand-new agent has no persisted router: take it from the event's adapter. */
+  private newEntryAgentRouter(event: MessageEvent | CompactRequest): OutputRouter {
+    if (!("adapter" in event)) {
+      throw "panic";
+    }
+    return this.context.outputRouterRegistry.resolve({
+      kind: event.adapter,
+      config: { chatId: event.chat_id },
+    });
   }
 }

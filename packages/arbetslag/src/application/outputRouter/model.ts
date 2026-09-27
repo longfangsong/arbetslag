@@ -15,6 +15,22 @@ export interface Compacted {
 	afterTokens?: number;
 }
 
+/** Everything an OutputRouter can receive: an agent's reply or a framework notice. */
+export type OutputEvent = AgentOutput | Compacted;
+
+/** Persisted form of a router: the implementation kind plus its own fields. */
+export interface SerializedOutputRouter {
+	kind: string;
+	config: Record<string, unknown>;
+}
+
+/**
+ * The channel one Agent replies on — a member of that Agent, so it must
+ * survive serialization: `kind` names the implementation and the Registry
+ * rebuilds the instance when the agent is loaded.
+ */
 export interface OutputRouter {
-	route(event: AgentOutput | Compacted): Promise<Result<void, string>>;
+	readonly kind: string;
+	serialize(): SerializedOutputRouter;
+	route(event: OutputEvent): Promise<Result<void, string>>;
 }
