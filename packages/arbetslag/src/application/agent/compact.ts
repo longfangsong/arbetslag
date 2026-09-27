@@ -58,6 +58,25 @@ export function estimateHistoryTokens(history: Array<HistoryEntry>): number {
   return history.reduce((sum, entry) => sum + estimateEntryTokens(entry), 0);
 }
 
+/**
+ * Metered size of the upcoming LLM request (ADR-0001): the real prompt_tokens
+ * of the last response plus an estimate of the entries added since it — the
+ * anchored value already covers the system prompt and the older history. With
+ * no anchor (new agent, provider without usage), the whole history is estimated.
+ */
+export function meteredTokens(agent: Agent): number {
+  if (agent.lastPromptTokens == null) return estimateHistoryTokens(agent.history);
+  // Every LLM call appends exactly one assistant entry (agent messages and
+  // api callbacks are stored as user entries), so the delta is the last
+  // assistant entry plus everything newer than it.
+  for (let i = agent.history.length - 1; i >= 0; i--) {
+    if (agent.history[i].role === "assistant") {
+      return agent.lastPromptTokens + estimateHistoryTokens(agent.history.slice(i));
+    }
+  }
+  return estimateHistoryTokens(agent.history);
+}
+
 // ── Rounds and waterline ────────────────────────────────────────────────────
 
 /**

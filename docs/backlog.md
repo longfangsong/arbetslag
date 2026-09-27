@@ -9,11 +9,11 @@
 ## Compaction 封装（见 docs/prd/0002-compact.md）
 
 - **[deferred] 把 compaction 的封装泄漏收敛进 Agent**：目前 compaction 由外部直接改写 `agent.history`，有封装泄漏。候选方案待定，等有其它架构需求时一起定。
-  - 泄漏点：(1) `compact.ts` 的自由函数 `compactAgent` 从外部改写 `agent.history`（2–3 次整体重写，并从 `agent.template.systemPrompt` 重建 system 条目，需知道 agent 内部布局）；(2) orchestrator 的 metering（`compactIfNeeded`）深入 `agent.history` 找最后一条 assistant 做增量估算——metering 是 agent 关注点却住在 orchestrator；(3) 摘要以 `SUMMARY_MARKER` 字符串埋在 system 条目里，由 `extractPreviousSummary` 反解析，两模块需约定格式。
+  - 泄漏点：(1) `compact.ts` 的自由函数 `compactAgent` 从外部改写 `agent.history`（2–3 次整体重写，并从 `agent.template.systemPrompt` 重建 system 条目，需知道 agent 内部布局）；(2) ~~metering 泄漏~~ **已解决**：事件边界决定后（Agent 只处理改变自身状态的事件，需要外部能力的事件归 Orchestrator），metering 住在 `compact.ts` 的 `meteredTokens(agent)`，由 orchestrator 在调 provider 前调用，Agent 不再拿 provider；(3) 摘要以 `SUMMARY_MARKER` 字符串埋在 system 条目里，由 `extractPreviousSummary` 反解析，两模块需约定格式。
   - **Option A（推荐）— Agent 方法**：`meteredTokens()` + `compact(provider)` 移进 Agent，agent 成为 history 唯一写入者；`compact.ts` 退化为纯函数工具（estimate/findWaterline/applyRuleBased/llmSummarize 已是纯函数）；orchestrator 只 `if (agent.meteredTokens() < threshold) skip; await agent.compact(provider); save()`。改动最小、最直接消除泄漏，无持久化迁移。
   - **Option B — 抽取 `History` 值对象**：新建 `History`（entries + lastPromptTokens + summary + 不变量校验，如 system 条目恒在 0、tool 与 tool_calls 配对），Agent 持有并委托（`agent.compact` / `agent.meteredTokens`）。最干净、不变量集中一处、agent 变薄；代价是新增类型 + 极小的 serialize 迁移。
   - **Option C — 最小改动**：`compactAgent` 改纯函数返回新状态（不碰 agent），Agent 加 `applyCompaction()` 作为单一写入点；metering 留在 orchestrator。对 `compact.ts` 改动最少、仍高度可测；但 metering 泄漏只修一半。
-  - **与已锁定点的冲突（先改 ADR/PRD 再选）**：PRD「Implementation Decisions」已锁定“压缩逻辑不进 Agent 类（Agent 拿不到 provider，保持其『处理单个事件』职责）”——Option A/B 均与之冲突，采用前需先更新该决策与 `docs/prd/0002-compact.md`。`history[0]` 恒为 system 条目 + marker 存储摘要是另一条锁定点，**建议保留**（保持 `agent.history` == 直接发给 LLM 的内容，无需发送时重建）。
+  - **与已锁定点的冲突（先改 ADR/PRD 再选）**：PRD「Implementation Decisions」已锁定“压缩逻辑不进 Agent 类（Agent 拿不到 provider，保持其『处理单个事件』职责）”——该锁定点已由事件边界决定确认（Agent 只处理改变自身状态的事件），所以 Option A 的 `agent.compact(provider)` 不再采用，metering + provider 调用留在 orchestrator；剩余可选的是把 history 唯一写入点收进 Agent（Option B/C）。`history[0]` 恒为 system 条目 + marker 存储摘要是另一条锁定点，**建议保留**（保持 `agent.history` == 直接发给 LLM 的内容，无需发送时重建）。
   - 建议顺序：先 A（最小、消除泄漏）→ 需要更强不变量时再上 B。
 
 ## Telegram 实现收敛（app → 库 backport）

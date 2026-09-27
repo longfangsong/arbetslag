@@ -22,31 +22,11 @@ import { GetTime } from "@/implementation/tool/getTime";
 import { CronCreate } from "@/implementation/tool/cron/create";
 import { CronDelete } from "@/implementation/tool/cron/delete";
 import { WebSearch } from "@/implementation/tool/webSearch";
-import { SimpleMemoryRead, SimpleMemoryUpdate } from "@/implementation/tool/memory";
-import {
-	ListEntities,
-	CreateEntity,
-	GetEntity,
-	PatchEntity,
-	DeleteEntity,
-	CreateRelationship,
-	GetRelationship,
-	GetEntityRelationships,
-} from "@/implementation/tool/ontology";
-import type { OntologyConfig } from "@/implementation/tool/ontology";
-import type { Tool } from "./application/tool/model";
+import { SimpleMemoryRead, SimpleMemoryUpdate } from "@/implementation/tool/memory";import type { Tool } from "./application/tool/model";
 import type { FileSystem } from "./application/file/model";
 
 export {
 	Orchestrator,
-	ListEntities,
-	CreateEntity,
-	GetEntity,
-	PatchEntity,
-	DeleteEntity,
-	CreateRelationship,
-	GetRelationship,
-	GetEntityRelationships,
 	// Infrastructure re-exported for library consumers (e.g. the telegram-bot app).
 	FileSystemAgentRepository,
 	FileSystemTemplateRepository,
@@ -81,7 +61,7 @@ export { contentText, text } from "./application/agent/history";
 export type { FileSystem } from "./application/file/model";
 export type { Template } from "./application/agent/template/model";
 export type { OutputRouter, Compacted } from "./application/outputRouter/model";
-export type { OrchestratorDeps, OntologyConfig };
+export type { OrchestratorDeps };
 export type { Update } from "./implementation/inputAdopter/telegram";
 
 export interface ArbetslagConfig {

@@ -10,6 +10,8 @@ A running instance of an AI agent. Has a unique ID, a template (defining its per
 
 Agents communicate with each other via tools (e.g., `spawn`). They share the same chat, runtime, and filesystem, but each agent has its own isolated context (message history, state).
 
+**Event handling scope**: An Agent only handles events that change its own state — writing history and counters. It has no access to providers, tools, or output channels, so it asks for the outside work by emitting events (`llm_completion_request`, `tool_call_request`, `agent_output`) which the Orchestrator executes.
+
 **Immortal**: Agents live forever once created. The `AgentRepository` is append-only — agents are never destroyed.
 
 ### AI Provider
@@ -83,6 +85,8 @@ The immutable infrastructure layer of the Context. Contains AI providers, reposi
 ## Orchestrator
 
 The event loop. Processes events from the queue one at a time via `step()`, repeating until the queue is empty (`stepUntilIdle`).
+
+**Event handling**: The Orchestrator executes every event that needs an external capability — the AI provider call (`llm_completion_request`), tool execution (`tool_call_request`), output routing (`agent_output`), and compaction (`compact_request`) — and dispatches the events an Agent can handle to that Agent's own queue.
 
 **Serverless model**: The program starts when an external event arrives, processes events until idle (or until stopped), and can be persisted/restored mid-processing. Single-threaded (JavaScript). External events can arrive while processing. The program may be stopped before the queue is fully drained — state must be serializable and restorable.
 

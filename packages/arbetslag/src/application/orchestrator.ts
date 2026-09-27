@@ -1,12 +1,23 @@
 import { ok, err, Result } from "neverthrow";
+import { nanoid } from "nanoid";
+import z from "zod";
 import { EventBus } from "./event/bus";
-import { Event } from "./event/event";
+import { AgentOutput, Event, ToolCallRequest } from "./event/event";
 import { unwrap } from "../utils";
 import { Agent } from "./agent/model";
 import type { Context } from "./context";
+import type { AIProvider } from "./aiProvider/model";
+import {
+  DEFAULT_COMPACT_RETAIN_ROUNDS,
+  DEFAULT_COMPACT_THRESHOLD,
+  type CompactResult,
+  compactAgent,
+  meteredTokens,
+} from "./agent/compact";
 import createDebug from "debug";
 
 const orchLog = createDebug("arbetslag:orchestrator");
+const toolLog = createDebug("arbetslag:tool");
 
 export type OrchestratorDeps = Omit<Context, "eventBus">;
 
@@ -32,7 +43,7 @@ export class Orchestrator {
     // Nothing on the bus: an agent may still hold pending events (e.g. its queue
     // was restored from a checkpoint), so drain whichever agent is not idle.
     for (const agent of await this.context.agentRepository.list()) {
-      if (!agent.idle()) return this.run(agent);
+      if (agent.hasEventToHandle()) return this.stepAgent(agent);
     }
     return ok(undefined);
   }
@@ -46,7 +57,7 @@ export class Orchestrator {
       iterations++;
     }
     if (!(await this.idle())) {
-      const pendingAgents = (await this.context.agentRepository.list()).filter((a) => !a.idle()).length;
+      const pendingAgents = (await this.context.agentRepository.list()).filter((a) => a.hasEventToHandle()).length;
       orchLog(`stopped at maxIterations=${maxIterations}, ${this.bus.queue.length} event(s) on the bus, ${pendingAgents} agent(s) with pending events`);
     }
     return ok(undefined);
@@ -55,27 +66,144 @@ export class Orchestrator {
   private async idle(): Promise<boolean> {
     if (!this.bus.empty()) return false;
     for (const agent of await this.context.agentRepository.list()) {
-      if (!agent.idle()) return false;
+      if (agent.hasEventToHandle()) return false;
     }
     return true;
   }
 
-  /** Deliver the event to the agent it belongs to — that agent dispatches it from its own queue. */
+  /**
+   * Deliver an event to the agent it belongs to. The agent handles only events
+   * that change its own state (its history and counters); anything that needs
+   * an external capability — AI provider, tool execution, output router — is
+   * handled here.
+   */
   private async dispatch(event: Event): Promise<Result<void, string>> {
     orchLog(`deliver ${event.event_type} id=${event.id}`);
     const agent = await this.resolveAgent(event);
     if (!agent) return err(`no agent for event ${event.event_type} id=${event.id}`);
-    agent.push(event);
-    return this.run(agent);
+
+    switch (event.event_type) {
+      case "llm_completion_request":
+        return this.complete(agent);
+      case "tool_call_request":
+        return this.executeTool(agent, event);
+      case "compact_request":
+        return this.compact(agent, await this.context.aiProviderRepository.getByName(agent.template.ai_provider));
+      case "agent_output":
+        return this.routeOutput(event);
+      default:
+        // Agent-scoped event: queue it so the agent's own ordering rules hold.
+        return this.stepAgent(agent, event);
+    }
   }
 
-  private async run(agent: Agent): Promise<Result<void, string>> {
-    const produced = await agent.dispatch(this.context);
+  private async stepAgent(agent: Agent, event?: Event): Promise<Result<void, string>> {
+    if (event) agent.pushEvent(event);
+    const produced = agent.stepAgent();
     if (produced.isErr()) return err(produced.error);
-    await this.context.agentRepository.save(agent);
-    for (const event of produced.value) {
-      this.bus.push(event);
+    return this.deliver(agent, produced.value);
+  }
+
+  private async complete(agent: Agent): Promise<Result<void, string>> {
+    const template = agent.template;
+    const aiProvider = await this.context.aiProviderRepository.getByName(template.ai_provider);
+    if (!aiProvider) {
+      // Configuration error: the template names a provider we don't have.
+      orchLog(`❌ AI provider not found: ${template.ai_provider}`);
+      throw new Error(`AI provider not found: ${template.ai_provider}`);
     }
+    if (meteredTokens(agent) >= (template.compactThreshold ?? DEFAULT_COMPACT_THRESHOLD)) {
+      const result = await this.compact(agent, aiProvider);
+      if (result.isErr()) return err(result.error);
+    }
+    const outputSchema = template.outputSchema ? z.fromJSONSchema(template.outputSchema) : undefined;
+    const completion = await aiProvider.complete(
+      template.model,
+      // agent.history, not the event's snapshot: compaction above may have rewritten it.
+      agent.history,
+      this.context.toolRepository.getByNames(template.allowedTools),
+      outputSchema,
+    );
+    if (completion.isErr()) return err(completion.error);
+    return this.deliver(agent, [
+      {
+        id: nanoid(10),
+        event_type: "llm_completion_response",
+        to_agent_id: agent.id,
+        content: completion.value.content,
+        tool_calls: completion.value.tool_calls,
+        usage: completion.value.usage,
+      },
+    ]);
+  }
+
+  private async executeTool(
+    agent: Agent,
+    event: ToolCallRequest,
+  ): Promise<Result<void, string>> {
+    const tool = await this.context.toolRepository.getByName(event.tool_call.tool_name);
+    if (!tool) {
+      toolLog(`❌ tool not found: ${event.tool_call.tool_name}`);
+    }
+    const result = await tool?.call(this.context, agent, event.tool_call.arguments);
+    const content =
+      result === undefined
+        ? "Tool not found"
+        : result.isOk()
+          ? JSON.stringify(result.value)
+          : JSON.stringify(result.error);
+    return this.deliver(agent, [
+      {
+        id: nanoid(10),
+        event_type: "tool_call_response",
+        to_agent_id: agent.id,
+        tool_call_id: event.tool_call.id,
+        name: tool?.name ?? event.tool_call.tool_name,
+        content,
+      },
+    ]);
+  }
+
+  private async compact(
+    agent: Agent,
+    provider: AIProvider | null,
+  ): Promise<Result<void, string>> {
+    const template = agent.template;
+    const result = await compactAgent({
+      agent,
+      provider,
+      threshold: template.compactThreshold ?? DEFAULT_COMPACT_THRESHOLD,
+      retainRounds: template.compactRetainRounds ?? DEFAULT_COMPACT_RETAIN_ROUNDS,
+      summaryPrompt: template.compactSummaryPrompt,
+    });
+    if (result.isErr()) return err(result.error);
+    if (result.value.compacted) {
+      const notice = await this.notifyCompact(result.value);
+      if (notice.isErr()) return err(notice.error);
+    }
+    return ok(undefined);
+  }
+
+  private async routeOutput(event: AgentOutput): Promise<Result<void, string>> {
+    if (!this.context.outputRouter) return ok(undefined);
+    return this.context.outputRouter.route(event);
+  }
+
+  /** Compact notices are routed by the orchestrator on the agent's behalf. */
+  private async notifyCompact(result: CompactResult): Promise<Result<void, string>> {
+    const router = this.context.outputRouter;
+    if (!router) return ok(undefined);
+    return router.route({
+      kind: "history_compacted",
+      beforeTokens: result.compacted ? result.beforeTokens : undefined,
+      afterTokens: result.compacted ? result.afterTokens : undefined,
+    });
+  }
+
+  /** Checkpoint the agent, then hand the events it produced to the bus. */
+  private async deliver(agent: Agent, produced: Array<Event>): Promise<Result<void, string>> {
+    await this.context.agentRepository.save(agent);
+    for (const event of produced) this.bus.push(event);
     return ok(undefined);
   }
 

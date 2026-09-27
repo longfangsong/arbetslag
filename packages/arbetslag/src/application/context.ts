@@ -4,9 +4,9 @@ import type { Repository as AIProviderRepository } from "./aiProvider/repository
 import type { OutputRouter } from "./outputRouter/model";
 
 /**
- * The runtime layer shared by the orchestrator and the agents: the tool
- * executing context plus what an agent needs to dispatch its own events
- * (tools, AI provider, output router).
+ * The runtime layer the Orchestrator executes external-capability events
+ * against (AI provider, tools, output router) — the same layer tools run in.
+ * Agents no longer need it: they only change their own state.
  */
 export interface Context extends ToolExecutingContext {
   toolRepository: ToolRepository;

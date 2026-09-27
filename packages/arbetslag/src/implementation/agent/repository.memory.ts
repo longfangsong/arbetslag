@@ -27,6 +27,7 @@ export class InMemoryAgentRepository implements Repository {
 	}
 
 	async setEntryAgent(chatId: string, agent: Agent): Promise<void> {
+		this.agents.set(agent.id, agent);
 		this.chatMap.set(chatId, agent.id);
 	}
 

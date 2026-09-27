@@ -56,10 +56,8 @@ export interface ApiCallbackEvent {
 export interface LLMCompletionRequest {
 	id: string;
 	event_type: "llm_completion_request";
-	
+
 	from_agent_id: string;
-	
-	history: Array<HistoryEntry>
 }
 
 export interface LLMCompletionResponse {
