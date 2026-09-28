@@ -275,15 +275,7 @@ async function processChatBatch(
 		new GetTime(),
 		new ReadFile(),
 		new FetchWebPage(),
-		...(process.env.SEARXNG_URL
-			? [
-				new WebSearch(
-					process.env.SEARXNG_URL,
-					30000,
-					10
-				),
-			]
-			: []),
+		new WebSearch(undefined, process.env.EXA_API_KEY),
 		new SimpleMemoryRead(),
 		new SimpleMemoryUpdate(),
 		...(process.env.CRON_JOB_API_KEY

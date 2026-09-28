@@ -44,6 +44,7 @@ pnpm demo:telegram
 | `WEBHOOK_URL`        | ✅       | Public HTTPS URL for Telegram webhooks (e.g. `https://abc.ngrok.io/webhook`) |
 | `OPENAI_BASE_URL`    | ❌       | OpenAI-compatible base URL (e.g. `http://localhost:11434/v1` for Ollama)     |
 | `MODEL_NAME`         | ❌       | Model name (default: `gpt-4o`)                                               |
+| `EXA_API_KEY`        | ❌       | Exa API key for web_search (works without one, at lower rate limits)        |
 | `PORT`               | ❌       | HTTP server port (default: `3000`)                                           |
 
 ## Features

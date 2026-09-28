@@ -27,3 +27,11 @@
   - **InputAdopter 时间戳前缀**：`[HH:mm:ss]` 目前由 app 的 `formatInputParts` 加；它给 LLM 的消息时序/批量边界是通用信息，可移进库 adapter 的 `assemble`。
   - **不 backport（留 app）**：`/compact` 命令识别与 `compact_request` 路由（app 自有命令）、STICKERS/PINS 数据、4h idle 重置、batch 合并策略、api_callback XML 渲染。
   - 执行时给新逻辑补 Vitest（token 解析、空内容、dry-run），app 改用库 `Telegram`（传目录/dryRun）后删除 `SmartTelegramRouter`。
+
+## 搜索：SearXNG + Exa 双引擎
+
+- **[todo] `web_search` 同时接 SearXNG 和 Exa 的方案**：当前 `webSearch.ts` 已换成 Exa MCP（匿名可用但有免费层限流，超限返回 `isError` 提示文案）；SearXNG 已移除（无 key 限制但极不稳）。目标是两者一起开。候选方向（未定）：
+  - **Exa 主、SearXNG 兜底**：Exa 限流/失败时降级到 SearXNG（可复用旧 SearXNG HTTP 客户端 + 10–20s 限流 hack）。实现简单，但 SearXNG 不稳时兜底意义有限。
+  - **双发取并/择优**：并发查两个引擎，合并去重（按 URL），互补短板（SearXNG 广、Exa 深）。延迟取慢的那个，需并发 + 各自超时。
+  - **可配置策略**：config 加 `engines: ["exa", "searxng"]` + 策略字段，默认 exa-only。
+  - 无论哪种：工具名/输入输出形状保持 `web_search` 不变（LLM 侧无感）；SearXNG 的 URL 应重新成为 config 可选字段。

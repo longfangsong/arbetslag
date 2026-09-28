@@ -87,7 +87,7 @@ export interface ArbetslagConfig {
   };
   openai: { apiKey: string; baseUrl?: string };
   telegram: { botToken: string; apiBase?: string };
-  webSearch?: { searxngUrl: string; timeoutMs?: number; maxResults?: number };
+  webSearch?: { url?: string; apiKey?: string; timeoutMs?: number; numResults?: number };
   customTools?: Array<Tool<unknown, unknown, unknown>>;
 }
 
@@ -141,9 +141,10 @@ function createBuiltInTools(
     ...(webSearchConfig
       ? [
           new WebSearch(
-            webSearchConfig.searxngUrl,
+            webSearchConfig.url,
+            webSearchConfig.apiKey,
             webSearchConfig.timeoutMs,
-            webSearchConfig.maxResults,
+            webSearchConfig.numResults,
           ),
         ]
       : []),
