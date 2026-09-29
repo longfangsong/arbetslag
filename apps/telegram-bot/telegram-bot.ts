@@ -331,9 +331,15 @@ async function processChatBatch(
 	const updatedAgent = await agentRepository.getByChatId(chatId);
 	if (updatedAgent) {
 		const prev = printedHistory.get(chatId) ?? 0;
-		if (updatedAgent.history.length > prev) {
+		// History length is not monotonic: compact shrinks it. A "> prev"
+		// gate would stay closed forever once a compact dropped the length
+		// below the high-water mark (the dump went silent after compaction).
+		// Growth prints only the new tail; a shrink (compact) prints the
+		// whole post-compact history — exactly the moment it is most wanted.
+		if (updatedAgent.history.length !== prev) {
+			const start = updatedAgent.history.length < prev ? 0 : prev;
 			for (const [i, h] of updatedAgent.history.entries()) {
-				if (i < prev) continue;
+				if (i < start) continue;
 				const extra =
 					h.role === "assistant" && h.tool_calls
 						? ` tool_calls=[${h.tool_calls.map((t) => `${t.tool_name}(${JSON.stringify(t.arguments)})`).join(", ")}]`
