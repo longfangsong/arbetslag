@@ -1,0 +1,4 @@
+{
+  "name": "arbetslag-monorepo",
+  "workspaces": ["packages/*"]
+}

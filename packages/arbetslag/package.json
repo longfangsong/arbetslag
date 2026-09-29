@@ -1,0 +1,35 @@
+{
+	"name": "arbetslag",
+	"version": "1.0.0",
+	"description": "",
+	"main": "dist/index.js",
+	"module": "dist/index.mjs",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.mjs"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsdown",
+		"lint": "biome lint --apply src",
+		"lint:check": "biome lint src tests",
+		"format": "biome format --write src tests",
+		"format:check": "biome format --check src tests",
+		"type-check": "tsc --noEmit"
+	},
+	"keywords": [],
+	"author": "Fangsong Long",
+	"license": "Unlicense",
+	"packageManager": "pnpm@10.6.5",
+	"type": "module",
+	"devDependencies": {
+		"typescript": "catalog:",
+		"biome": "catalog:",
+		"tsdown": "^0.23.0"
+	}
+}
