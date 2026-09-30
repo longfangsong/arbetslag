@@ -1,4 +1,6 @@
 {
   "name": "arbetslag-monorepo",
-  "workspaces": ["packages/*"]
+  "workspaces": [
+    "packages/*"
+  ]
 }

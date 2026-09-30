@@ -1,0 +1,119 @@
+{
+  "files": {
+    "includes": ["src/**"]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "trailingNewline": true
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "style": {
+        "noCommonJs": "error",
+        "noMultiAssign": "error",
+        "noNegationElse": "warn",
+        "noNestedTernary": "error",
+        "noUselessElse": "error",
+        "useConsistentArrayType": {
+          "level": "error",
+          "options": {
+            "syntax": "generic"
+          }
+        },
+        "useConsistentMethodSignatures": {
+          "level": "error",
+          "options": {
+            "style": "method"
+          }
+        },
+        "useExplicitLengthCheck": "error",
+        "useExportType": "error",
+        "useFilenamingConvention": {
+          "level": "on",
+          "options": {
+            "strictCase": false,
+            "requireAscii": true,
+            "filenameCases": ["camelCase", "export"]
+          }
+        },
+        "useForOf": "warn",
+        "useImportType": "error",
+        "useNamingConvention": {
+          "level": "error",
+          "options": {
+            "strictCase": false,
+            "requireAscii": true,
+            "conventions": [
+              {
+                "selector": {
+                  "kind": "const",
+                  "scope": "global"
+                },
+                "match": "(?:[A-Z][A-Z0-9]*(?:_[A-Z][A-Z0-9]*)*)|(?:[A-Z][A-Za-z0-9_]*Schema)",
+                "formats": ["CONSTANT_CASE"]
+              },
+              {
+                "selector": {
+                  "kind": "const"
+                },
+                "formats": ["camelCase"]
+              },
+              {
+                "selector": {
+                  "kind": "variable"
+                },
+                "formats": ["camelCase"]
+              },
+              {
+                "selector": {
+                  "kind": "function"
+                },
+                "formats": ["camelCase"]
+              },
+              {
+                "selector": {
+                  "kind": "classMember"
+                },
+                "formats": ["camelCase"]
+              },
+              {
+                "selector": {
+                  "kind": "interface"
+                },
+                "formats": ["PascalCase"]
+              },
+              {
+                "selector": {
+                  "kind": "class"
+                },
+                "formats": ["PascalCase"]
+              }
+            ]
+          }
+        },
+        "useNumberNamespace": "warn",
+        "useNumericSeparators": "warn",
+        "useObjectSpread": "error",
+        "useReadonlyClassProperties": "warn",
+        "useTemplate": "error",
+        "useUnifiedTypeSignatures": "error"
+      },
+      "suspicious": {
+        "noForIn": "warn",
+        "noNestedPromises": "error",
+        "noImportCycles": "warn",
+        "noReturnAssign": "error"
+      }
+    }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  }
+}

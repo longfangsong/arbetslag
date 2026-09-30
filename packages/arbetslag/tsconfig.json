@@ -1,21 +1,21 @@
 {
-    "compilerOptions": {
-        "target": "es2022",
-        "lib": ["ES2023"],
-        
-        "module": "preserve",
-        "moduleResolution": "bundler",
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["ES2023"],
 
-        "strict": true,
-        "noUncheckedIndexedAccess": true,
+    "module": "preserve",
+    "moduleResolution": "bundler",
 
-        "noEmit": true,
-        "skipLibCheck": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
 
-        "declaration": true,
-        "isolatedDeclarations": true,
-        "declarationMap": true,
-        "sourceMap": true
-    },
-    "include": ["src"]
+    "noEmit": true,
+    "skipLibCheck": true,
+
+    "declaration": true,
+    "isolatedDeclarations": false,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "include": ["src"]
 }
