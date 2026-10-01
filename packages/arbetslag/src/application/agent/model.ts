@@ -110,6 +110,22 @@ export class Agent {
   }
 
   handleMessage(event: MessageEvent): Array<Event> {
+    if (
+      this.template.singleImage &&
+      event.content.some((p) => p.type === "image")
+    ) {
+      // The endpoint can carry at most one image per request, including the
+      // history replayed with it: demote every image from earlier turns to a
+      // text marker before the new entry is pushed, so only this message's
+      // image(s) are sent.
+      for (const entry of this.history) {
+        if (entry.role === "user") {
+          entry.content = entry.content.map((p) =>
+            p.type === "image" ? { type: "text", text: "[Image]" } : p,
+          );
+        }
+      }
+    }
     this.history.push({
       role: "user",
       content: event.content,

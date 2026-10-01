@@ -4,6 +4,9 @@ templates:
     description: General-purpose assistant
     ai_provider: openai
     model: gemma-4-E4B-it-qat-UD-Q4_K_XL
+    # The endpoint rejects a request whose history holds more than one image:
+    # with this flag the framework demotes earlier images to [Image] text.
+    singleImage: true
     # systemPrompt is generated in code (telegram-bot.ts: BASE_SYSTEM_PROMPT + sticker section)
     allowedTools:
       - get_time

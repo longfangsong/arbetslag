@@ -68,7 +68,8 @@ function msg(chatId: string, content: Content): MessageEvent {
 async function runScenario(
 	name: string,
 	inputs: Array<MessageEvent>,
-): Promise<{ llmCalls: number; userEntries: Array<Array<{ type: string; text?: string }>>; totalImages: number }> {
+	singleImage = false,
+): Promise<{ llmCalls: number; callImages: Array<number>; userEntries: Array<Array<{ type: string; text?: string }>>; totalImages: number }> {
 	const fileSystem = new InMemoryFileSystem();
 	const templateRepository = await FileSystemTemplateRepository.create(fileSystem);
 	await templateRepository.add({
@@ -78,16 +79,31 @@ async function runScenario(
 		model: "fake-model",
 		systemPrompt: "you are a test bot",
 		allowedTools: [],
+		...(singleImage ? { singleImage: true } : {}),
 	} satisfies Template);
 
 	let llmCalls = 0;
+	const callImages: Array<number> = [];
 	const provider = {
 		name: "fake",
 		async complete(
 			_model: string,
-			history: Array<{ role: string }>,
+			history: Array<{ role: string; content?: unknown }>,
 		) {
 			llmCalls++;
+			// Images the endpoint would receive in THIS request: across the
+			// whole replayed history, not just the newest message.
+			callImages.push(
+				history.reduce((n, h) => {
+					if (h.role !== "user" || !Array.isArray(h.content)) return n;
+					return (
+						n +
+						(h.content as Array<{ type: string }>).filter(
+							(p) => p.type === "image",
+						).length
+					);
+				}, 0),
+			);
 			return ok({
 				role: "assistant",
 				content: `reply-${llmCalls}`,
@@ -131,7 +147,7 @@ async function runScenario(
 		const images = entry.filter((p) => p.type === "image").length;
 		assert(images <= 1, `${name}: user entry ${i} has ≤1 image (has ${images})`);
 	}
-	return { llmCalls, userEntries, totalImages };
+	return { llmCalls, callImages, userEntries, totalImages };
 }
 
 async function main(): Promise<void> {
@@ -178,6 +194,28 @@ async function main(): Promise<void> {
 		assert(r.totalImages === 3, `photo-quoting-photo: all 3 images present (got ${r.totalImages})`);
 		assert(r.userEntries.length === 3, `photo-quoting-photo: 3 user entries (got ${r.userEntries.length})`);
 		assert(r.llmCalls === 3, `photo-quoting-photo: 3 LLM calls (got ${r.llmCalls})`);
+	}
+
+	// D. Album of 3 photos with the template's singleImage flag: every request
+	//    sent to the endpoint must hold ≤1 image in the WHOLE history.
+	{
+		const inputs = [
+			msg("chat1", [t("[tester]: cap1"), img("data:image/jpeg;base64,A")]),
+			msg("chat1", [t("[tester]: cap2"), img("data:image/jpeg;base64,B")]),
+			msg("chat1", [t("[tester]: cap3"), img("data:image/jpeg;base64,C")]),
+		];
+		const r = await runScenario("singleImage album", inputs, true);
+		assert(
+			r.callImages.every((n) => n <= 1),
+			`singleImage: every request carries ≤1 image (got ${JSON.stringify(r.callImages)})`,
+		);
+		assert(
+			r.callImages[2] === 1,
+			`singleImage: the newest image is still sent in the last request (got ${r.callImages[2]})`,
+		);
+		assert(r.totalImages === 1, `singleImage: exactly 1 image left in history (got ${r.totalImages})`);
+		const markers = r.userEntries.flat().filter((p) => p.type === "text" && p.text === "[Image]").length;
+		assert(markers === 2, `singleImage: 2 earlier images demoted to [Image] (got ${markers})`);
 	}
 
 	if (failures > 0) {

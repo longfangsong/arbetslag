@@ -95,6 +95,7 @@ for (const t of config.templates ?? []) {
 		systemPrompt,
 		allowedTools: t.allowedTools ?? [],
 		outputSchema: t.outputSchema,
+		singleImage: t.singleImage,
 	});
 }
 

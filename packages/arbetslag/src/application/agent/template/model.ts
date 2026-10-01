@@ -19,4 +19,6 @@ export interface Template {
 	compactRetainRounds?: number;
 	/// Override the LLM-based compaction summary prompt. Default: built-in English prompt.
 	compactSummaryPrompt?: string;
+	/// The endpoint can carry at most one image per request: when set, every time a message with image parts arrives, all images already in the history are replaced with an `[Image]` text part.
+	singleImage?: boolean;
 }
