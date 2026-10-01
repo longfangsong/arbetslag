@@ -44,6 +44,7 @@ import {
 	contentText,
 } from "arbetslag";
 import { UpdateBatcher } from "./batcher";
+import { splitAtMostOneImage } from "./split-images";
 import { STICKERS } from "./prompt/sticker";
 import { PINS } from "./prompt/pin";
 import { buildSystemPrompt } from "./prompt";
@@ -249,20 +250,60 @@ async function processChatBatch(
 	const firstMessage = messageInputs.find(
 		(i): i is MessageEvent => i.event_type === "message",
 	);
-	let event: MessageEvent | null = null;
+	const events: Array<MessageEvent> = [];
 	if (messageInputs.length > 0) {
-		event =
-			firstMessage !== undefined
-				? firstMessage
-				: {
-					id: randomUUID(),
-					event_type: "message",
-					chat_id: chatId,
-					adapter: "system",
-					content: [],
-					send_time: Date.now(),
-				};
-		event.content = messageInputs.flatMap(formatInputParts);
+		const totalImages = messageInputs.reduce(
+			(n, i) =>
+				n +
+				(i.event_type === "message"
+					? i.content.filter((p) => p.type === "image").length
+					: 0),
+			0,
+		);
+		if (totalImages <= 1) {
+			// ≤1 image: merge the whole batch into one user message (one burst →
+			// one LLM call). The merged message never exceeds one image part.
+			const event: MessageEvent =
+				firstMessage !== undefined
+					? firstMessage
+					: {
+						id: randomUUID(),
+						event_type: "message",
+						chat_id: chatId,
+						adapter: "system",
+						content: [],
+						send_time: Date.now(),
+					};
+			event.content = messageInputs.flatMap(formatInputParts);
+			events.push(event);
+		} else {
+			// Workaround: the AI endpoint rejects a user message with multiple
+			// image parts, so each input rides as its own user message (a single
+			// Telegram photo carries ≤1 image). A photo quoting a photo can
+			// carry 2, which splitAtMostOneImage breaks into two messages.
+			// Cost: one LLM call + one routed output per message.
+			for (const input of messageInputs) {
+				for (const content of splitAtMostOneImage(
+					formatInputParts(input)
+				)) {
+					events.push({
+						id: randomUUID(),
+						event_type: "message",
+						chat_id: chatId,
+						adapter:
+							input.event_type === "message" ? input.adapter : "system",
+						content,
+						send_time:
+							input.event_type === "message" ? input.send_time : Date.now(),
+						sender:
+							input.event_type === "message" ? input.sender : undefined,
+					});
+				}
+			}
+			log(
+				`⚠️  ${totalImages} images in batch → ${events.length} separate user messages (endpoint cannot carry multiple images per message)`,
+				);
+		}
 	}
 
 	// Build orchestrator with custom OutputRouter.
@@ -304,7 +345,7 @@ async function processChatBatch(
 	};
 
 	const orchestrator = new Orchestrator(deps);
-	if (event) orchestrator.push(event);
+	for (const e of events) orchestrator.push(e);
 	if (hasCompactCommand) {
 		orchestrator.push({
 			id: randomUUID(),
