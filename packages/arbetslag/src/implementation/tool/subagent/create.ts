@@ -4,6 +4,7 @@ import { State } from "../../../model/state";
 import { Event } from "../../..";
 import { createFromTemplate } from "../../../model/agent";
 import { text } from "../../../model/history";
+import { LLMCompletionRequestEvent } from "../../../model/llmProvider";
 
 const CreateAgentInputSchema = z
 	.object({
@@ -55,6 +56,12 @@ export class CreateAgent implements Tool<
 				agentId: agent.id,
 			},
 		} as ToolCallDoneEvent<CreateAgentResult>);
+		state.runtime.eventBus.push({
+			type: "llmCompletionRequest",
+			llmProviderId: agent.modelId,
+			historyId: agent.historyId,
+			toolIds: agent.toolIds
+		} as LLMCompletionRequestEvent);
 
 		return state;
 	}
