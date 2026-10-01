@@ -35,6 +35,7 @@
   "dependencies": {
     "nanoid": "catalog:",
     "neverthrow": "^8.2.0",
+    "openai": "^7.25.0",
     "zod": "^4.6.5"
   }
 }

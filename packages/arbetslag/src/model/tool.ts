@@ -1,15 +1,22 @@
 import z from "zod";
-import { Agent } from "./agent";
-import { State } from "./state";
-import { Result } from "neverthrow";
+import { Event, Reducer } from "..";
 
-export interface Tool<I, O, E> {
+export interface ToolCallRequestEvent<I> extends Event {
+    type: string;
+	id: string;
+	callerId: string;
+	input: I;
+}
+
+export interface ToolCallDoneEvent<O> extends Event {
+	type: string;
+	id: string;
+	callerId: string;
+	output: O;
+}
+
+export interface Tool<I> extends Reducer {
 	id: string;
 	description: string;
 	inputSchema: z.ZodType<I>;
-	call(
-		context: State,
-		caller: Agent,
-		input: I,
-	): Promise<Result<O, E>>;
 }

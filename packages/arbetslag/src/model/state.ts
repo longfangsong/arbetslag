@@ -3,6 +3,7 @@ import type { Agent, Template } from "./agent";
 import type { History } from "./history";
 import { LLMProvider } from "./llmProvider";
 import { Tool } from "./tool";
+import { Event, Reducer } from "..";
 
 /**
  * Part of the state of the system which should be persistent directely
@@ -19,9 +20,9 @@ export interface Persistent {
  */
 export interface Runtime {
   llmProviders: Array<LLMProvider>;
-  waiting: Map<() => boolean, /* resolve */ () => void>,
-  pendingToolCalls: Array<{ caller: Agent, promise: Promise<Result<unknown, unknown>> }>,
-  tools: Array<Tool<unknown, unknown, unknown>>;
+  eventBus: Array<Event>;
+  waiting: Array<[(e: Event) => boolean, Reducer]>;
+  tools: Array<Tool<unknown>>;
 }
 
 /**

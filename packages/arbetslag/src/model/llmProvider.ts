@@ -1,14 +1,20 @@
 import z from "zod";
-import { CompletionResult, History } from "./history";
-import { Result } from "neverthrow";
-import { Tool } from "./tool";
+import { Event, Reducer } from "..";
+import { CompletionResult } from "./history";
 
-export interface LLMProvider {
+export interface LLMCompletionRequestEvent extends Event {
+    type: "llmCompletionRequest";
+    llmProviderId: string;
+    historyId: string;
+    toolIds: Array<string>;
+    outputSchema?: z.ZodType;
+}
+
+export interface LLMCompletionDoneEvent extends Event {
+    type: "llmCompletionDone";
+    result: CompletionResult;
+}
+
+export interface LLMProvider extends Reducer {
     id: string;
-    complete(
-        model: string,
-        history: History,
-        tools: Array<Tool<unknown, unknown, unknown>>,
-        outputSchema?: z.ZodType,
-    ): Promise<Result<CompletionResult, string>>;
 }
