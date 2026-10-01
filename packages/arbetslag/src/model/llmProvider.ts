@@ -15,6 +15,6 @@ export interface LLMCompletionDoneEvent extends Event {
     result: CompletionResult;
 }
 
-export interface LLMProvider extends Reducer {
+export interface LLMProvider extends Reducer<LLMCompletionRequestEvent> {
     id: string;
 }

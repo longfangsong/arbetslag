@@ -4,6 +4,6 @@ export interface Event {
     type: string;
 }
 
-export interface Reducer {
-    call(state: State, event: Event): Promise<State>;
+export interface Reducer<E extends Event> {
+    call(state: State, event: E): Promise<State>;
 }

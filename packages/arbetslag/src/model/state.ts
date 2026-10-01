@@ -21,7 +21,7 @@ export interface Persistent {
 export interface Runtime {
   llmProviders: Array<LLMProvider>;
   eventBus: Array<Event>;
-  waiting: Array<[(e: Event) => boolean, Reducer]>;
+  waiting: Array<[(e: Event) => boolean, Reducer<Event>]>;
   tools: Array<Tool<unknown>>;
 }
 

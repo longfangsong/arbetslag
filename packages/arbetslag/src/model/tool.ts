@@ -15,7 +15,7 @@ export interface ToolCallDoneEvent<O> extends Event {
 	output: O;
 }
 
-export interface Tool<I> extends Reducer {
+export interface Tool<I> extends Reducer<ToolCallRequestEvent<I>> {
 	id: string;
 	description: string;
 	inputSchema: z.ZodType<I>;
