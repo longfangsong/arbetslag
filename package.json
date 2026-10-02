@@ -1,6 +1,4 @@
 {
   "name": "arbetslag-monorepo",
-  "workspaces": [
-    "packages/*"
-  ]
+  "version": "1.0.0"
 }

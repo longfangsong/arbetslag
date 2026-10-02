@@ -38,7 +38,7 @@ export function createFromTemplate(template: Template): {
   const { agent, history } = create(template.modelId, template.toolIds);
   history.entries.push({
     role: "system",
-    content: text(template.systemPrompt)
+    content: text(template.systemPrompt),
   });
   return { agent, history };
 }
