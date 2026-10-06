@@ -40,8 +40,17 @@ export class WaitAgent implements Tool<
         _caller: Agent,
         input: z.infer<typeof WaitAgentInputSchema>,
     ): Promise<Result<WaitAgentResult, string>> {
-        const result = await (context.toolState["subagent_result"] as Record<string, Promise<string>>)[input.id];
-        delete (context.toolState["subagent_result"] as Record<string, Promise<string>>)[input.id];
-        return ok({ content: result });
+        const results = context.toolState["subagent_result"] as
+            | Record<string, Promise<string>>
+            | undefined;
+        const pending = results?.[input.id];
+        if (!pending) {
+            return err(
+                `no agent with id "${input.id}" was spawned by this agent`,
+            );
+        }
+        // Idempotent: the entry is kept, so waiting twice for the same agent
+        // returns the same final result.
+        return ok({ content: await pending });
     }
 }

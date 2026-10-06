@@ -47,7 +47,24 @@ export interface OrchestratorDeps {
 export class Orchestrator {
   private readonly bus = new EventBus();
 
+  /**
+   * Transient per-caller state shared across an agent's tool calls:
+   * spawn_agent stashes the sub-agent's result promise here for
+   * wait_agent to await. Lives in the orchestrator (not on Agent) because
+   * it references live promises and must never be serialized.
+   */
+  private readonly toolStates = new Map<string, Record<string, unknown>>();
+
   constructor(private readonly deps: OrchestratorDeps) {}
+
+  private toolStateFor(agentId: string): Record<string, unknown> {
+    let state = this.toolStates.get(agentId);
+    if (!state) {
+      state = {};
+      this.toolStates.set(agentId, state);
+    }
+    return state;
+  }
 
   push(event: Event) {
     this.bus.push(event);
@@ -183,7 +200,13 @@ export class Orchestrator {
         const tool = await toolRepository.getByName(e.tool_call.tool_name);
         const agent = await agentRepository.getById(e.from_agent_id);
         const result = await tool?.call(
-          { fileSystem },
+          {
+            fileSystem,
+            bus: this.bus,
+            agentRepository,
+            templateRepository,
+            toolState: this.toolStateFor(agent!.id),
+          },
           agent!,
           e.tool_call.arguments,
         );

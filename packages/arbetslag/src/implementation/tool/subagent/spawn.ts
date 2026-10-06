@@ -45,27 +45,42 @@ export class CreateAgent implements Tool<
         input: z.infer<typeof CreateAgentInputSchema>,
     ): Promise<Result<CreateAgentResult, string>> {
         const template = await context.templateRepository.getByName(input.template);
-        const created = Agent.create(template!);
+        if (!template) {
+            return err(`template not found: ${input.template}`);
+        }
+        const created = Agent.create(template);
         created.history.push({
             role: "user",
             content: text(input.task)
         });
         await context.agentRepository.add(created);
+        if (context.toolState["subagent_result"] === undefined) {
+            context.toolState["subagent_result"] = {};
+        }
+        // Register the result promise BEFORE pushing the request: the
+        // sub-agent's response can only fire the listener once it is
+        // subscribed, no matter how the loop schedules events.
+        //
+        // The sub-agent's task is done only on its final turn — a response
+        // without tool calls. Earlier turns are intermediate work (the agent
+        // is still calling tools) and must not be reported as the result.
+        (context.toolState["subagent_result"] as Record<string, Promise<string>>)[created.id] = new Promise(resolve => {
+            const unsubscribe = context.bus.listen(async (e: Event) => {
+                if (
+                    e.event_type === "llm_completion_response" &&
+                    e.to_agent_id === created.id &&
+                    !e.tool_calls?.length
+                ) {
+                    unsubscribe();
+                    resolve(e.content);
+                }
+            });
+        });
         context.bus.push({
             id: nanoid(10),
             event_type: "llm_completion_request",
             from_agent_id: created.id,
             history: created.history
-        });
-        if (context.toolState["subagent_result"] === undefined) {
-            context.toolState["subagent_result"] = {};
-        }
-        (context.toolState["subagent_result"] as Record<string, Promise<string>>)[created.id] = new Promise(resolve => {
-            context.bus.listen(async (e: Event) => {
-                if (e.event_type === "llm_completion_response" && e.to_agent_id === created.id) {
-                    resolve(e.content);
-                }
-            });
         });
         return ok({ agentId: created.id });
     }
