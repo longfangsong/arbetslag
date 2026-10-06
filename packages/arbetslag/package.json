@@ -1,0 +1,43 @@
+{
+  "name": "arbetslag",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "lint": "biome lint --write",
+    "lint:check": "biome lint",
+    "format": "biome format --write",
+    "format:check": "biome format --check src",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [],
+  "author": "Fangsong Long",
+  "license": "Unlicense",
+  "packageManager": "pnpm@10.6.5",
+  "type": "module",
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@grammyjs/types": "^5.0.0",
+    "tsdown": "^0.23.0",
+    "typescript": "catalog:"
+  },
+  "dependencies": {
+    "nanoid": "catalog:",
+    "neverthrow": "^8.2.0",
+    "openai": "^7.25.0",
+    "type-fest": "^5.10.0",
+    "zod": "^4.6.5"
+  }
+}
