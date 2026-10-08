@@ -2,13 +2,17 @@
   "name": "arbetslag",
   "version": "1.0.0",
   "description": "",
-  "main": "dist/index.js",
-  "module": "dist/index.mjs",
-  "types": "dist/index.d.ts",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "sideEffects": false,
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs"
+    },
+    "./node": {
+      "types": "./dist/node.d.mts",
+      "import": "./dist/node.mjs"
     }
   },
   "files": [
@@ -30,6 +34,7 @@
   "devDependencies": {
     "@biomejs/biome": "catalog:",
     "@grammyjs/types": "^5.0.0",
+    "@types/node": "catalog:",
     "tsdown": "^0.23.0",
     "typescript": "catalog:"
   },
