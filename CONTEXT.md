@@ -78,7 +78,7 @@ A unit of work in the system. Four kinds:
 - **tool_call_response** — the result of a tool call
 - **api_callback** — an external API callback
 
-Events flow through a queue and are processed one at a time.
+Events flow through a queue and are dispatched per chat: one chat's events are processed in order, different chats are processed concurrently (see Orchestrator).
 
 ## Input Adopter
 
@@ -88,7 +88,7 @@ A component that converts external service updates (Telegram, Slack, HTTP webhoo
 
 The full runtime environment passed to every tool and agent method. Formed by combining `Config` (immutable infrastructure) and `State` (mutable runtime data).
 
-**Host-controlled lifecycle**: The host program creates the Context, feeds events, calls `stepUntilIdle`, and handles checkpointing. The framework does not own the processing loop.
+**Framework-driven lifecycle**: The host program creates the Context and pushes events; the framework owns the dispatch loop (the Orchestrator's pump). `stepUntilIdle` is a wait for idle, not a driver.
 
 ## Config
 
@@ -104,10 +104,10 @@ The mutable runtime data that changes during agent execution. Contains agent rep
 
 ## Orchestrator
 
-The event loop. Processes events from the queue one at a time via `step()`, repeating until the queue is empty (`stepUntilIdle`).
+The event loop. `push(event)` enqueues and starts the self-driving **pump**; the pump attaches queued events to **per-chat lanes** — promise chains that dispatch one chat's events in strict FIFO order while different chats dispatch concurrently (ADR-0004). `stepUntilIdle` waits until the queue is empty and no event is in flight, then reports the first dispatch error collected since the last call.
 
-**Serverless model**: The program starts when an external event arrives, processes events until idle (or until stopped), and can be persisted/restored mid-processing. Single-threaded (JavaScript). External events can arrive while processing. The program may be stopped before the queue is fully drained — state must be serializable and restorable.
+**Long-lived model**: The host keeps one orchestrator for its lifetime. Webhooks push events and return immediately; the orchestrator drives its own dispatch. Single-threaded (JavaScript) — concurrency is between event dispatches, not between threads.
 
-**Automatic checkpointing**: After each `step` completes, the framework automatically persists state so the program can be restarted safely.
+**Automatic checkpointing**: After each dispatch completes, the affected agents are persisted to disk, so the system can be restarted safely at any point. The event queue itself is in-memory: an in-flight (already-popped) event is lost on a crash, and remaining work is re-driven from the input source after a restart.
 
-**Error handling**: Fail fast. Any unhandled error crashes the processing cycle. State is checkpointed, and the host program decides whether to restart, recover, or alert.
+**Error handling**: Fail fast per event, drain per system. A dispatch error is recorded; the lane and the queue keep processing. `stepUntilIdle` reports the error to the host, which decides whether to recover or alert. A single bad event can never wedge the orchestrator.

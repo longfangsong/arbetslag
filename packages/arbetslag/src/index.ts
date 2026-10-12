@@ -70,6 +70,7 @@ export { SimpleMemoryRead, SimpleMemoryUpdate } from "./implementation/tool/memo
 export { MEMORY_FILE } from "./implementation/tool/memory";
 export type { Tool } from "./application/tool/model";
 export type { Agent } from "./application/agent/model";
+export type { Repository as AgentRepository } from "./application/agent/repository";
 export type { MessageEvent, ApiCallbackEvent, CompactRequest, AgentOutput } from "./application/event/event";
 export type { ContentPart, Content } from "./application/agent/history";
 export { contentText, text } from "./application/agent/history";

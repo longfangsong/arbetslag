@@ -6,6 +6,10 @@ export class EventBus {
         this.queue.push(event);
     }
 
+    peek(): Event | undefined {
+        return this.queue[0];
+    }
+
     pop(): Event | undefined {
         return this.queue.shift();
     }

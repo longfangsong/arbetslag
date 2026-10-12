@@ -36,7 +36,6 @@ import {
 	CronDelete,
 	SimpleMemoryRead,
 	SimpleMemoryUpdate,
-	type OrchestratorDeps,
 	type Template,
 	type Update,
 	type ContentPart,
@@ -98,6 +97,45 @@ for (const t of config.templates ?? []) {
 		singleImage: t.singleImage,
 	});
 }
+
+// One long-lived orchestrator serves every chat (ADR-0004): pushes go to its
+// bus, its chat lanes do the serializing, batches for different chats run
+// concurrently. Agents are checkpointed on disk after every dispatch, so the
+// process can die at any point and restart clean.
+const agentRepository = await FileSystemAgentRepository.create(fileSystem, "agents/");
+
+const tools = [
+	new GetTime(),
+	new ReadFile(),
+	new FetchWebPage(),
+	new WebSearch(undefined, process.env.EXA_API_KEY),
+	new SimpleMemoryRead(),
+	new SimpleMemoryUpdate(),
+	...(process.env.CRON_JOB_API_KEY
+		? [
+			new CronCreate(
+				process.env.CRON_JOB_API_KEY,
+				`${WEBHOOK_URL}/cron`,
+				TELEGRAM_BOT_TOKEN,
+			),
+			new CronDelete(process.env.CRON_JOB_API_KEY),
+			]
+		: []),
+];
+
+const orchestrator = new Orchestrator({
+	fileSystem,
+	agentRepository,
+	templateRepository,
+	toolRepository: new InMemoryToolRepository(tools),
+	aiProviderRepository: new InMemoryAIProviderRepository([
+		new OpenAIProvider(
+			process.env.OPENAI_API_KEY!,
+			process.env.OPENAI_BASE_URL,
+		),
+	]),
+	outputRouter: new SmartTelegramRouter(TELEGRAM_BOT_TOKEN, agentRepository),
+});
 
 /** One item queued per chat: everything is a domain event. */
 type ChatInput = MessageEvent | ApiCallbackEvent;
@@ -191,23 +229,18 @@ async function deleteWebhook(): Promise<void> {
 // ── Process a Telegram update ───────────────────────────────────────────────
 const inputAdopter = new TelegramInputAdopter(TELEGRAM_BOT_TOKEN);
 const printedHistory = new Map<string, number>();
-let chain: Promise<void> = Promise.resolve();
-let chainBusy = false;
-let shuttingDown = false;
+// In-flight batch processes. Batches for different chats run concurrently;
+// same-chat events queue on the orchestrator's chat lane behind in-flight
+// work, so a flush arriving mid-LLM-call is ordered, not lost or raced.
+const activeBatches = new Set<Promise<void>>();
 const batcher = new UpdateBatcher<ChatInput>(FLUSH_QUIET_MS, (chatId, inputs) => {
-	if (chainBusy && !shuttingDown) {
-		// LLM is still busy: keep buffering in the batcher (re-debounced) instead
-		// of starting another LLM request right away.
-		for (const input of inputs) batcher.enqueue(chatId, input);
-		return;
-	}
-	chainBusy = true;
-	chain = chain
-		.then(() => processChatBatch(chatId, inputs))
-		.catch(error)
-		.finally(() => {
-			chainBusy = false;
-		});
+	const p = processChatBatch(chatId, inputs).catch((e) => {
+		error(
+			`[batch ${chatId}] ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`,
+		);
+	});
+	p.finally(() => activeBatches.delete(p));
+	activeBatches.add(p);
 });
 
 function handleUpdate(update: Update): Promise<void> {
@@ -221,10 +254,6 @@ async function processChatBatch(
 	chatId: string,
 	inputs: ChatInput[]
 ): Promise<void> {
-	const agentRepository = await FileSystemAgentRepository.create(
-		fileSystem,
-		"agents/",
-	);
 	const agent = await agentRepository.getByChatId(chatId);
 
 	// Callbacks ride the bus as api_callback events (Agent.handleApiCallback
@@ -307,45 +336,6 @@ async function processChatBatch(
 		}
 	}
 
-	// Build orchestrator with custom OutputRouter.
-	const outputRouter = new SmartTelegramRouter(
-		TELEGRAM_BOT_TOKEN,
-		chatId
-	);
-
-	const tools = [
-		new GetTime(),
-		new ReadFile(),
-		new FetchWebPage(),
-		new WebSearch(undefined, process.env.EXA_API_KEY),
-		new SimpleMemoryRead(),
-		new SimpleMemoryUpdate(),
-		...(process.env.CRON_JOB_API_KEY
-			? [
-				new CronCreate(
-					process.env.CRON_JOB_API_KEY,
-					`${WEBHOOK_URL}/cron`,
-					TELEGRAM_BOT_TOKEN
-				),
-				new CronDelete(process.env.CRON_JOB_API_KEY),
-			]
-			: []),
-	];
-	const deps: OrchestratorDeps = {
-		fileSystem,
-		agentRepository,
-		templateRepository,
-		toolRepository: new InMemoryToolRepository(tools),
-		aiProviderRepository: new InMemoryAIProviderRepository([
-			new OpenAIProvider(
-				process.env.OPENAI_API_KEY!,
-				process.env.OPENAI_BASE_URL,
-			),
-		]),
-		outputRouter,
-	};
-
-	const orchestrator = new Orchestrator(deps);
 	for (const e of events) orchestrator.push(e);
 	if (hasCompactCommand) {
 		orchestrator.push({
@@ -359,16 +349,13 @@ async function processChatBatch(
 			orchestrator.push({ ...cb, to_agent_id: agent.id });
 		}
 	}
+	// Wait for the queue to drain. Dispatch errors do not stop the pump —
+	// they are reported here and logged, and the system keeps serving: agents
+	// are checkpointed on disk after every dispatch, so nothing is lost.
 	const result = await orchestrator.stepUntilIdle();
-	result.match(
-		() => undefined,
-		(e) => {
-			// Fail fast at the app boundary: state is already checkpointed on
-			// disk, so a crash here loses nothing and a restart resumes.
-			error(`[Orchestrator] ${e}`);
-			throw new Error(`Orchestrator failed: ${e}`);
-		},
-	);
+	if (result.isErr()) {
+		error(`[Orchestrator] ${result.error}`);
+	}
 
 	const updatedAgent = await agentRepository.getByChatId(chatId);
 	if (updatedAgent) {
@@ -458,9 +445,9 @@ async function start(): Promise<void> {
 
 process.on("SIGINT", async () => {
 	log("\n🗑️  Flushing pending messages and shutting down...");
-	shuttingDown = true;
 	batcher.flushNow();
-	await chain;
+	await Promise.allSettled([...activeBatches]);
+	await orchestrator.stepUntilIdle();
 	await deleteWebhook();
 	process.exit(0);
 });

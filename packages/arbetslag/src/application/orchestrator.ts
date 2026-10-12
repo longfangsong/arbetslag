@@ -46,39 +46,146 @@ export interface OrchestratorDeps {
 
 export class Orchestrator {
   private readonly bus = new EventBus();
+  /**
+   * Per-chat serialization lanes: each lane is the promise chain of the
+   * events dispatched for one chat, so one chat's events run in strict FIFO
+   * order while different chats dispatch concurrently (ADR-0004).
+   */
+  private readonly lanes = new Map<string, Promise<void>>();
+  /** Re-entrancy guard: while a pump is running, pushes just enqueue. */
+  private pumping = false;
+  /** Dispatch errors since the last stepUntilIdle call. */
+  private errors: Array<string> = [];
 
   constructor(private readonly deps: OrchestratorDeps) {}
 
+  /** Queue an event and start dispatching. Never blocks on dispatch. */
   push(event: Event) {
     this.bus.push(event);
+    void this.pump();
   }
 
+  /** True when the orchestrator is idle: nothing queued and nothing in flight. */
   empty(): boolean {
-    return this.bus.empty();
+    return this.bus.empty() && this.lanes.size === 0;
   }
 
-  async step(): Promise<Result<Array<Event>, string>> {
-    const event = this.bus.pop();
-    if (!event) return ok([]);
-    const result = await this.dispatch(event);
-    if (result.isErr()) return result;
-    for (const e of result.value) {
-      this.bus.push(e);
-    }
-    return ok([]);
-  }
-
+  /**
+   * Wait until idle (queue empty, no event in flight), then report the first
+   * dispatch error collected since the last call, if any. The pump is
+   * self-driving — this only waits. Dispatch errors do not stop the pump:
+   * the rest of the queue still drains so the orchestrator always ends in a
+   * clean, restartable state (fail fast, then the host decides).
+   */
   async stepUntilIdle(maxIterations = 1024): Promise<Result<void, string>> {
     let iterations = 0;
-    while (!this.bus.empty() && iterations < maxIterations) {
-      const result = await this.step();
-      if (result.isErr()) return err(result.error);
+    while (!this.empty()) {
+      if (iterations >= maxIterations) {
+        orchLog(`stopped at maxIterations=${maxIterations}, ${this.bus.queue.length} event(s) left unprocessed`);
+        break;
+      }
+      // Wait for the current in-flight batch of lanes to settle, then
+      // re-check. Each iteration makes real progress, so this cannot spin.
+      if (this.lanes.size > 0) {
+        await Promise.allSettled([...this.lanes.values()]);
+      } else {
+        // Queued events but nothing in flight: a pump is starting (or stuck
+        // mid lane-key lookup) — yield to its microtasks before re-checking.
+        await new Promise((r) => setImmediate(r));
+      }
       iterations++;
     }
-    if (!this.bus.empty()) {
-      orchLog(`stopped at maxIterations=${maxIterations}, ${this.bus.queue.length} event(s) left unprocessed`);
-    }
+    if (this.errors.length > 0) return err(this.errors.shift()!);
     return ok(undefined);
+  }
+
+  /**
+   * Attach queued events to their chat lanes until the queue is empty. An
+   * event stays in the queue until it is attached, so a crash loses only
+   * truly in-flight work. The running pump also drains events pushed while
+   * it is awaiting a lane-key lookup; pushes arriving after it exits start
+   * a new pump (the guard flips inside a synchronous gap, so no push can be
+   * missed).
+   */
+  private async pump(): Promise<void> {
+    if (this.pumping) return;
+    this.pumping = true;
+    try {
+      while (true) {
+        const event = this.bus.peek();
+        if (!event) break;
+        const key = await this.laneKey(event);
+        const prev = this.lanes.get(key) ?? Promise.resolve();
+        const next = prev.then(() => this.dispatchAndRequeue(event));
+        this.lanes.set(key, next);
+        // Drop the lane entry once this tail has settled and no newer event
+        // has since chained onto it, so the map stays bounded.
+        void next.then(
+          () => {
+            if (this.lanes.get(key) === next) this.lanes.delete(key);
+          },
+          () => {
+            if (this.lanes.get(key) === next) this.lanes.delete(key);
+          },
+        );
+        this.bus.pop();
+      }
+    } finally {
+      this.pumping = false;
+    }
+  }
+
+  /**
+   * The chat an event's effects land in — its serialization lane. Every
+   * event that mutates a given agent lands on that agent's chat lane, so
+   * an agent's history is always modified in strict FIFO order.
+   */
+  private async laneKey(event: Event): Promise<string> {
+    switch (event.event_type) {
+      case "message":
+      case "compact_request":
+        return `chat:${event.chat_id}`;
+      case "tool_call_request":
+      case "llm_completion_request":
+        return this.agentChatLane(event.from_agent_id);
+      case "tool_call_response":
+      case "agent_message":
+      case "api_callback":
+      case "llm_completion_response":
+        return this.agentChatLane(event.to_agent_id);
+      case "agent_output":
+        // No state mutation, but the reply must reach the chat in order
+        // with the rest of that agent's conversation.
+        return this.agentChatLane(event.from_agent_id);
+    }
+  }
+
+  private async agentChatLane(
+    agentId: string | undefined,
+  ): Promise<string> {
+    if (!agentId) return "agent:unknown";
+    const agent = await this.deps.agentRepository.getById(agentId);
+    return agent?.chatId ? `chat:${agent.chatId}` : `agent:${agentId}`;
+  }
+
+  /**
+   * Run one dispatch on its lane, then requeue the events it produced.
+   * Never rejects: a single bad event must not poison the lane chain
+   * (fail fast per event, drain per system).
+   */
+  private async dispatchAndRequeue(event: Event): Promise<void> {
+    let result: Result<Array<Event>, string>;
+    try {
+      result = await this.dispatch(event);
+    } catch (cause) {
+      result = err(cause instanceof Error ? cause.message : String(cause));
+    }
+    if (result.isErr()) {
+      this.errors.push(result.error);
+      return;
+    }
+    for (const e of result.value) this.bus.push(e);
+    if (this.bus.queue.length > 0) void this.pump();
   }
 
   private notifyCompact(result: CompactResult): Promise<Result<void, string>> {

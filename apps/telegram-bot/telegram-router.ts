@@ -1,17 +1,22 @@
 import { PINS } from "./prompt/pin";
 import { STICKERS } from "./prompt/sticker";
-import type { AgentOutput, Compacted } from "arbetslag";
+import type { AgentOutput, AgentRepository, Compacted } from "arbetslag";
 import { Result, ok, err } from "neverthrow";
 import { log, warn } from "./logger";
 
+/**
+ * Output router for the whole bot, not one chat: the target chat is resolved
+ * per event from the producing agent, so outputs of concurrent chats are all
+ * served by this single instance.
+ */
 export class SmartTelegramRouter {
 	private readonly botToken: string;
-	private readonly chatId: string;
+	private readonly agentRepository: AgentRepository;
     private readonly TEST_MODE = process.env.TEST_MODE === "true" || process.env.TEST_MODE === "1";
 
-	constructor(botToken: string, chatId: string) {
+	constructor(botToken: string, agentRepository: AgentRepository) {
 		this.botToken = botToken;
-		this.chatId = chatId;
+		this.agentRepository = agentRepository;
 	}
 
 	async route(event: AgentOutput | Compacted): Promise<Result<void, string>> {
@@ -22,6 +27,15 @@ export class SmartTelegramRouter {
 					? ` ${event.beforeTokens} -> ${event.afterTokens} tokens`
 					: " (nothing to compact)";
 			log(`    [SmartTelegramRouter] ${event.kind}${detail}`);
+			return ok(undefined);
+		}
+		const chatId = await this.agentRepository.getChatIdByAgentId(
+			event.from_agent_id,
+		);
+		if (!chatId) {
+			warn(
+				`    [SmartTelegramRouter] no chat for agent ${event.from_agent_id}; dropping output`,
+			);
 			return ok(undefined);
 		}
 		let content: string | undefined = event.content;
@@ -56,7 +70,7 @@ export class SmartTelegramRouter {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body: JSON.stringify({
-					chat_id: this.chatId,
+					chat_id: chatId,
 					rich_message: { markdown: text },
 					...(pin ? { reply_to_message_id: pin.messageId } : {}),
 				}),
@@ -80,7 +94,7 @@ export class SmartTelegramRouter {
 					method: "POST",
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify({
-						chat_id: this.chatId,
+						chat_id: chatId,
 						sticker: sticker.fileId,
 					}),
 				},
