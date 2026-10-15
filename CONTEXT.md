@@ -8,6 +8,10 @@ A TypeScript agent framework. Provides the core abstractions for building, orche
 
 A running instance of an AI agent. Has a unique ID, a template (defining its personality/capabilities), and a message history. Agents process events and interact with the world through tools.
 
+**Actor**: An Agent is an actor. It owns its own **inbox** — the queue of Events targeted at it. An agent processes its inbox one event at a time; different agents process concurrently. The inbox is live-only: it is never serialized.
+
+**Inbox ordering**: plain FIFO — derived events are appended to the tail of the same inbox, so a burst of user messages is answered strictly in turn (each reply sees only the messages up to it); events pushed while the agent is busy queue behind what is already there.
+
 Agents communicate with each other via tools (e.g., `spawn`). They share the same chat, runtime, and filesystem, but each agent has its own isolated context (message history, state).
 
 **Immortal**: Agents live forever once created. The `AgentRepository` is append-only — agents are never destroyed.
@@ -71,14 +75,12 @@ A chat message that quotes an earlier message in the same chat. The LLM sees the
 
 ## Event
 
-A unit of work in the system. Four kinds:
+A unit of work in the system. Two directions:
 
-- **message** — a user message into a chat
-- **tool_call** — the agent requesting a tool invocation
-- **tool_call_response** — the result of a tool call
-- **api_callback** — an external API callback
+- **User-initiated**: `message` (a user message into a chat), `api_callback` (an external API callback), `agent_message` (a message from another agent), `compact_request` (a user-requested compaction).
+- **Agent-generated**: `llm_completion_request` / `llm_completion_response` (an LLM round-trip), `tool_call_request` / `tool_call_response` (a tool round-trip), `agent_output` (the agent's reply, routed to the chat).
 
-Events flow through a queue and are dispatched per chat: one chat's events are processed in order, different chats are processed concurrently (see Orchestrator).
+An event is routed to the target **Agent**'s inbox at push time: user-initiated events target a chat (its entry agent) or a named agent, and agent-generated events always target the agent that generated them. Events for one agent are processed one at a time in inbox order, and different agents process concurrently (see Orchestrator).
 
 ## Input Adopter
 
@@ -88,7 +90,7 @@ A component that converts external service updates (Telegram, Slack, HTTP webhoo
 
 The full runtime environment passed to every tool and agent method. Formed by combining `Config` (immutable infrastructure) and `State` (mutable runtime data).
 
-**Framework-driven lifecycle**: The host program creates the Context and pushes events; the framework owns the dispatch loop (the Orchestrator's pump). `stepUntilIdle` is a wait for idle, not a driver.
+**Framework-driven lifecycle**: The host program creates the Context and pushes events; the framework owns dispatch (the Orchestrator routes events to agent inboxes, and agents drive their own loops). `stepUntilIdle` is a wait for idle, not a driver.
 
 ## Config
 
@@ -96,7 +98,7 @@ The immutable infrastructure layer of the Context. Contains AI providers, reposi
 
 ## State
 
-The mutable runtime data that changes during agent execution. Contains agent repositories, chat repositories, the event queue, and per-tool state.
+The mutable runtime data that changes during agent execution. Contains agent repositories, chat repositories, the orchestrator's live agent table, and per-tool state.
 
 **Mutable**: Unlike `Config`, the `State` is modified as agents process events — agents are spawned, chats evolve, events are consumed. The framework handles serialization and checkpointing of the `State`.
 
@@ -104,10 +106,12 @@ The mutable runtime data that changes during agent execution. Contains agent rep
 
 ## Orchestrator
 
-The event loop. `push(event)` enqueues and starts the self-driving **pump**; the pump attaches queued events to **per-chat lanes** — promise chains that dispatch one chat's events in strict FIFO order while different chats dispatch concurrently (ADR-0004). `stepUntilIdle` waits until the queue is empty and no event is in flight, then reports the first dispatch error collected since the last call.
+The event loop. `push(event)` synchronously routes the event to the target **Agent** (`receive`), which appends it to the agent's inbox and wakes the agent's self-driving loop; the loop pops one event at a time, runs the dispatch state machine, appends the derived events to the same inbox, and checkpoints the agent after each dispatch. Different agents dispatch concurrently (ADR-0004). `stepUntilIdle` waits until no agent loop is running, then reports the first dispatch error collected since the last call.
 
-**Long-lived model**: The host keeps one orchestrator for its lifetime. Webhooks push events and return immediately; the orchestrator drives its own dispatch. Single-threaded (JavaScript) — concurrency is between event dispatches, not between threads.
+**Live agent table**: The orchestrator owns the in-memory table of live agents, hydrated from the `AgentRepository` at init time. Routing is synchronous, so two racing messages into a new chat resolve to the same agent: the entry agent is created at routing time (in `push`), not at dispatch time. The default template is resolved once at init — a missing default template fails the orchestrator at startup. Unroutable events (unknown agent id, `api_callback` without `to_agent_id`) are dropped with a warning.
 
-**Automatic checkpointing**: After each dispatch completes, the affected agents are persisted to disk, so the system can be restarted safely at any point. The event queue itself is in-memory: an in-flight (already-popped) event is lost on a crash, and remaining work is re-driven from the input source after a restart.
+**Long-lived model**: The host keeps one orchestrator for its lifetime. Webhooks push events and return immediately; the agents drive their own dispatch. Single-threaded (JavaScript) — concurrency is between event dispatches, not between threads.
 
-**Error handling**: Fail fast per event, drain per system. A dispatch error is recorded; the lane and the queue keep processing. `stepUntilIdle` reports the error to the host, which decides whether to recover or alert. A single bad event can never wedge the orchestrator.
+**Automatic checkpointing**: After each dispatch completes, the affected agent is persisted to disk, so the system can be restarted safely at any point. The inboxes themselves are in-memory: an in-flight (already-popped) event is lost on a crash, and remaining work is re-driven from the input source after a restart.
+
+**Error handling**: Fail fast per event, drain per system. A dispatch error is recorded; the agent's loop keeps processing. `stepUntilIdle` reports the error to the host, which decides whether to recover or alert. A single bad event can never wedge the orchestrator.

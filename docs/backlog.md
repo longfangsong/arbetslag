@@ -1,5 +1,20 @@
 # Backlog
 
+## Agent as actor（见 docs/adr/0004-agents-as-actors.md）
+
+- **[todo] 实现 actor 重构**（直接取代 `concurrent-lanes` 分支的 lane 机制；该分支未合入 main，在分支上原地改，不叠加）：
+  - **Live agent table**：orchestrator 内存持有 chat→agent 与 id→agent 两张表；init 时从 `AgentRepository` 一次性 hydrate 全部 agent。路由只用 live table；repository 退化为持久化边界（hydrate / checkpoint / chat map）。
+  - **`Orchestrator.create(deps)`**：async static（house style，同 `FileSystemAgentRepository.create`）。init 做 hydrate + 解析默认模板，**缺默认模板在 init 即失败**（不拖到首条消息）。替换 host 与测试里的 `new Orchestrator`。
+  - **entry agent 创建从 dispatch 移到 routing（push）**：`push()` 按 chatId 同步 getOrCreate（默认模板 init 时已缓存），两条竞态消息进新 chat 只会创建一个 agent。不可路由事件（未知 agent id、无 `to_agent_id` 的 `api_callback`）→ warn log + 丢弃。
+  - **`Agent.receive(event)` + 自驱动循环**：Agent 持 `inbox` + `processing` 标志。循环 = pop → 每事件 handler（orchestrator 注入：dispatch 状态机 + 成功后一次统一 `save(agent)`；error 记录后继续处理，由 `stepUntilIdle` 上报）→ 派生事件追加到同一 inbox 尾部。wake 封装在 `receive` 内（orchestrator 不碰标志）。**plain FIFO**。
+  - **dispatch 状态机改为 `dispatch(agent, event)`**：agent 是 inbox 的主人；取消 per-case 的 `getById` 查找与 per-case `save`。
+  - **`empty()` / `stepUntilIdle`**：idle = 无 agent 循环在跑（active-loop set）；错误上报契约不变。删除 `EventBus`（`application/event/bus.ts`）。
+  - **`Repository` 接口收缩**：去掉 `getById` 与 `add`（与 `save` 重复）；保留 `save`、`list`、`setEntryAgent`、`getByChatId`、`getChatIdByAgentId`（host 的 idle 后读取与 `SmartTelegramRouter` 仍用后两者）。
+  - **保留 `llm_completion_request.history`**（deprecated live reference），与上方 compaction 封装条目一起再议。
+  - **测试**：并发测试 “derived events appended” 改写为 `system, u:q1, a:1, u:q2, a:2, u:q3, a:3`（改名以陈述新不变量：单一 FIFO inbox，派生事件追加到尾部）；其余 4 个并发测试与 `loop.test.ts` 不变通过（loop 测试顺带覆盖 hydrate 路径）。
+  - 更新两处仍写 lane 措辞的 ADR-0004 代码注释（`orchestrator.ts` 头注、`telegram-bot.ts`）。
+  - **已知行为变化（有意为之，见 ADR）**：同 tick burst N 条消息改为按序 u1, a1, u2, a2… 应答，每次 LLM 调用只看到自己之前的消息（旧语义下每次都能看到全部 N 条 user 条目）；多图片场景因此变对（第 k 个回复真正看到第 k 张图，旧顺序下 `singleImage` demotion 可能让第 1 个回复看到第 2 张图而非自己的图）。
+
 ## 虚拟群友（见 docs/prd/0001-virtual-group-member.md）
 
 - **[deferred] 定时主动抛话（A2）**：bot 在没人触发时自己主动冒泡发言。本次不做。
