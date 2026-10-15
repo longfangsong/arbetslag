@@ -1,54 +1,17 @@
-export interface ToolCall {
-	id?: string;
-	tool_name: string;
-	arguments: Record<string, any>;
+import { JsonValue } from "type-fest";
+import { CompletionAPI } from "./abstraction/completion";
+import { Tool } from "./abstraction/tool";
+
+export interface Runtime {
+	completionAPIs: Array<CompletionAPI>,
+	tools: Array<Tool<any, any>>,
 }
 
-export interface ToolCallResult {
-	role: "tool";
-	tool_call_id?: string;
-	name: string;
-	content: string;
+export interface InputAdapter<I> {
+  readonly id: string;
+  convert: (from: I) => JsonValue;
 }
 
-export interface CompletionResult {
-	role: "assistant";
-	content: string;
-	tool_calls?: Array<ToolCall>;
-	usage?: { prompt_tokens: number };
-}
-
-export type ContentPart =
-	| { type: "text"; text: string }
-	| { type: "image"; url: string };
-
-export type Content = Array<ContentPart>;
-
-export function imageCount(content: Content): number {
-	return content.filter((p) => p.type === "image").length;
-}
-
-export function text(s: string): Content {
-	return [{ type: "text", text: s }];
-}
-
-export function contentText(content: Content): string {
-	return content
-		.filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text")
-		.map((p) => p.text)
-		.join("\n");
-}
-
-export type HistoryEntry =
-	| {
-			role: "system" | "user";
-			content: Content;
-	  }
-	| ToolCallResult
-	| CompletionResult;
-
-export function hasToolCalls(
-	entry: HistoryEntry,
-): entry is CompletionResult & { tool_calls: Array<ToolCall> } {
-	return entry.role === "assistant" && entry.tool_calls !== undefined;
+export class Orchestrator {
+	
 }
