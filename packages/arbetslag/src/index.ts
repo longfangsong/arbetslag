@@ -1,54 +1,56 @@
-export interface ToolCall {
-	id?: string;
-	tool_name: string;
-	arguments: Record<string, any>;
+import { CompletionAPI } from "./abstraction/completion";
+import { Tool } from "./abstraction/tool";
+import { ChooseAPI } from "./abstraction/choose";
+import { Store } from "./abstraction/store";
+import { InputAdapter } from "./abstraction/inputAdapter";
+import { OutputAdapter } from "./abstraction/outputAdapter";
+import { UserFunction } from "./abstraction/userFunction";
+
+/** Adapters are plain interfaces, so they are told apart by their methods. */
+function isInputAdapter(value: object): value is InputAdapter {
+	return typeof (value as InputAdapter).processable === "function";
 }
 
-export interface ToolCallResult {
-	role: "tool";
-	tool_call_id?: string;
-	name: string;
-	content: string;
+function isOutputAdapter(value: object): value is OutputAdapter {
+	return typeof (value as OutputAdapter).deliver === "function";
 }
 
-export interface CompletionResult {
-	role: "assistant";
-	content: string;
-	tool_calls?: Array<ToolCall>;
-	usage?: { prompt_tokens: number };
-}
+export class Runtime {
+	public completionAPIs: Array<CompletionAPI> = [];
+	public chooseAPIs: Array<ChooseAPI> = [];
+	public tools: Array<Tool<any, any>> = [];
+	public userFunctions: Array<UserFunction> = [];
+	public inputs: Array<InputAdapter> = [];
+	public outputs: Array<OutputAdapter> = [];
+	constructor(public store: Store) {}
 
-export type ContentPart =
-	| { type: "text"; text: string }
-	| { type: "image"; url: string };
-
-export type Content = Array<ContentPart>;
-
-export function imageCount(content: Content): number {
-	return content.filter((p) => p.type === "image").length;
-}
-
-export function text(s: string): Content {
-	return [{ type: "text", text: s }];
-}
-
-export function contentText(content: Content): string {
-	return content
-		.filter((p): p is Extract<ContentPart, { type: "text" }> => p.type === "text")
-		.map((p) => p.text)
-		.join("\n");
-}
-
-export type HistoryEntry =
-	| {
-			role: "system" | "user";
-			content: Content;
-	  }
-	| ToolCallResult
-	| CompletionResult;
-
-export function hasToolCalls(
-	entry: HistoryEntry,
-): entry is CompletionResult & { tool_calls: Array<ToolCall> } {
-	return entry.role === "assistant" && entry.tool_calls !== undefined;
+	/**
+	 * Register an actor or adapter by identity, so a serialized `Project` can
+	 * resolve it back by id (see `Project.fromSerialized`).
+	 */
+	register(
+		registrable:
+			| CompletionAPI
+			| ChooseAPI
+			| Tool<any, any>
+			| UserFunction
+			| InputAdapter
+			| OutputAdapter,
+	): void {
+		if (registrable instanceof Tool) {
+			this.tools.push(registrable);
+		} else if (registrable instanceof CompletionAPI) {
+			this.completionAPIs.push(registrable);
+		} else if (registrable instanceof ChooseAPI) {
+			this.chooseAPIs.push(registrable);
+		} else if (registrable instanceof UserFunction) {
+			this.userFunctions.push(registrable);
+		} else if (isInputAdapter(registrable)) {
+			this.inputs.push(registrable);
+		} else if (isOutputAdapter(registrable)) {
+			this.outputs.push(registrable);
+		} else {
+			throw new Error(`Cannot register unknown kind: ${registrable}`);
+		}
+	}
 }

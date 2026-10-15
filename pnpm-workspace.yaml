@@ -1,6 +1,11 @@
 packages:
   - "packages/*"
 
+allowBuilds:
+  core-js: true
+
 catalog:
+  '@types/node': ^26.6.5
   biome: ^0.3.3
   typescript: ^7.0.2
+  nanoid: ^6.0.1
