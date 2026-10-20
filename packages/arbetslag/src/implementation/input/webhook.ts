@@ -97,10 +97,17 @@ async function readJsonBody(request: IncomingMessage): Promise<JsonValue> {
 export class WebhookInputAdapter extends InputAdapter {
 	private readonly server: WebhookServer;
 
+	/**
+	 * The path is the only constructor argument a project file can hold; the
+	 * server is supplied by whoever registered this class with the `Runtime`.
+	 */
+	readonly config: JsonValue;
+
 	/** Claiming the path is the constructor's job; nothing else is global here. */
 	constructor(server: WebhookServer, path: string) {
 		super();
 		this.server = server;
+		this.config = { path };
 		server.register(path, this);
 	}
 

@@ -1,39 +1,31 @@
 import type { JsonValue } from "type-fest";
 import type { OutputAdapter } from "./abstraction/outputAdapter";
 import type { UserFunction } from "./abstraction/userFunction";
-import type { CompletionAgent, DecisionAgent } from "./agent";
 import type { InputAdapter } from "./abstraction/inputAdapter";
-import type { NodeKind, ProjectNode, Registrable } from "./projectNode";
+import type { NodeKind, NodeOfKind, Registrable, SerializedNode } from "./projectNode";
 import type { Sink, Source } from "./messageBox";
 import type { Runtime } from "./index";
+import { classNameOf } from "./utils";
 
 /**
- * A project on disk. `kind` is not serialized: which array a node appears in
- * already says what it is.
+ * A project on disk.
+ *
+ * A node's identity is its position in `nodes` — nothing is named, indexed or
+ * minted, so `connections` is a pair of array positions. The flip side is that
+ * the order of `nodes` is load-bearing: rewriting the file must be done by
+ * whoever owns it, and merging two versions by hand silently rewires the graph.
  */
 export interface SerializedProject {
-	completionAgents: Array<Omit<CompletionAgent, "kind">>,
-	decisionAgents: Array<Omit<DecisionAgent, "kind">>,
-	userFunctions: Array<string>,
-	inputs: Array<string>,
-	outputs: Array<string>,
-	connections: Array<[string, string]>,
-	toolsState: Record<string, JsonValue>
-}
-
-type NodeOfKind<K extends NodeKind> = Extract<Registrable, { readonly kind: K }>;
-
-function findById<T extends { readonly id: string }>(items: Array<T>, id: string): T {
-	const item = items.find((it) => it.id === id);
-	if (!item) throw new Error(`Nothing registered with id: ${id}`);
-	return item;
+	nodes: Array<SerializedNode>;
+	connections: Array<[number, number]>;
+	toolsState: Record<string, JsonValue>;
 }
 
 export class Project {
-	/** The single source of truth: every node, by id. */
-	private readonly nodes: Map<string, Registrable> = new Map();
+	/** The graph, in file order: the position *is* the node's identity. */
+	private readonly nodes: Array<Registrable> = [];
 
-	connections: Array<[string, string]> = [];
+	connections: Array<[number, number]> = [];
 	toolsState: Record<string, JsonValue> = {};
 
 	/** Set by `start`, so `stop` can reach the runtime-provided actors. */
@@ -54,46 +46,52 @@ export class Project {
 		return this.ofKind("userFunction");
 	}
 
-	get completionAgents(): Array<CompletionAgent> {
+	get completionAgents(): Array<NodeOfKind<"completion">> {
 		return this.ofKind("completion");
 	}
 
-	get decisionAgents(): Array<DecisionAgent> {
+	get decisionAgents(): Array<NodeOfKind<"decision">> {
 		return this.ofKind("decision");
 	}
 
 	/**
-	 * Rebuild a `Project` from its serialized form. Agents are plain data and
-	 * come along; actors and adapters are looked up in `runtime` by id, since
-	 * they cannot be serialized.
+	 * Rebuild a `Project` from its serialized form. Agents are plain data and come
+	 * along as they are; everything else is rebuilt from its class, so the runtime
+	 * must know every class the file names.
 	 */
 	static fromSerialized(serialized: SerializedProject, runtime: Runtime): Project {
 		const project = new Project();
-		for (const agent of serialized.completionAgents) {
-			project.register({ ...agent, kind: "completion" });
-		}
-		for (const agent of serialized.decisionAgents) {
-			project.register({ ...agent, kind: "decision" });
-		}
-		for (const id of serialized.userFunctions) {
-			project.register(findById(runtime.userFunctions, id));
-		}
-		for (const id of serialized.inputs) {
-			project.register(findById(runtime.inputs, id));
-		}
-		for (const id of serialized.outputs) {
-			project.register(findById(runtime.outputs, id));
+		for (const node of serialized.nodes) {
+			if (node.kind === "completion" || node.kind === "decision") {
+				project.register({ ...node });
+			} else {
+				project.register(runtime.build(node));
+			}
 		}
 		project.connections.push(...serialized.connections);
 		project.toolsState = { ...serialized.toolsState };
 		return project;
 	}
 
+	/** The inverse of `fromSerialized`: same nodes, same order, same wiring. */
+	toSerialized(): SerializedProject {
+		return {
+			nodes: this.nodes.map((node): SerializedNode => {
+				if (node.kind === "completion" || node.kind === "decision") {
+					return { ...node };
+				}
+				return { kind: node.kind, class: classNameOf(node), config: node.config };
+			}),
+			connections: this.connections.map(([from, to]): [number, number] => [from, to]),
+			toolsState: { ...this.toolsState },
+		};
+	}
+
 	register(node: Registrable): void {
-		if (this.nodes.has(node.id)) {
-			throw new Error(`Duplicate node id: ${node.id}`);
+		if (this.nodes.includes(node)) {
+			throw new Error(`Already in this project: ${node.kind}`);
 		}
-		this.nodes.set(node.id, node);
+		this.nodes.push(node);
 	}
 
 	/**
@@ -135,29 +133,40 @@ export class Project {
 		await Promise.allSettled(this.actorDrives);
 	}
 
-	connect(from: ProjectNode, to: ProjectNode): void {
-		this.connections.push([from.id, to.id]);
+	/** Wire two nodes by identity: the positions are the whole edge. */
+	connect(from: Registrable, to: Registrable): void {
+		this.connections.push([this.position(from), this.position(to)]);
+	}
+
+	private position(node: Registrable): number {
+		const index = this.nodes.indexOf(node);
+		if (index < 0) throw new Error(`Not registered in this project: ${node.kind}`);
+		return index;
 	}
 
 	private ofKind<K extends NodeKind>(kind: K): Array<NodeOfKind<K>> {
-		return [...this.nodes.values()].filter(
-			(node): node is NodeOfKind<K> => node.kind === kind,
-		);
+		return this.nodes.filter((node): node is NodeOfKind<K> => node.kind === kind);
 	}
 
-	private node(id: string): Registrable {
-		const node = this.nodes.get(id);
-		if (!node) throw new Error(`No node with id: ${id}`);
+	private node(index: number): Registrable {
+		const node = this.nodes[index];
+		if (!node) throw new Error(`No node at position: ${index}`);
 		return node;
 	}
 
-	/** Everything inside the graph that both receives and emits. */
+	/**
+	 * Everything inside the graph that both receives and emits.
+	 *
+	 * Runtime tools and providers are driven too, because that is what starts
+	 * their consume loop — but no edge can name them, so whatever they emit is
+	 * dropped (see `deliver`).
+	 */
 	private actors(runtime: Runtime): Array<Source<unknown>> {
 		return [
 			...this.userFunctions,
-			...runtime.tools,
-			...runtime.completionAPIs,
-			...runtime.chooseAPIs,
+			...Object.values(runtime.tools),
+			...Object.values(runtime.completionAPIs),
+			...Object.values(runtime.chooseAPIs),
 		];
 	}
 
@@ -175,35 +184,43 @@ export class Project {
 	}
 
 	private async deliver(
-		from: { readonly id: string },
+		from: Source<unknown>,
 		message: unknown,
 		runtime: Runtime,
 	): Promise<void> {
-		for (const [fromId, toId] of this.connections) {
-			if (fromId !== from.id) continue;
-			await this.sink(toId, runtime).send(message);
+		for (const [fromIndex, toIndex] of this.connections) {
+			// Reference comparison: a runtime implementation is not a node, so it
+			// matches nothing and its output goes nowhere.
+			if (this.nodes[fromIndex] !== from) continue;
+			await this.sink(toIndex, runtime).send(message);
 		}
 	}
 
 	/**
 	 * Where a message lands: an actor or an output.
 	 *
-	 * Typed as `Sink<any>` on purpose — the wire format is `JsonValue` while each
-	 * node takes its own request shape, and that mismatch predates this class.
+	 * Typed as `Sink<unknown>` on purpose — the wire format is `JsonValue` while
+	 * each node takes its own request shape, and that mismatch predates this class.
 	 */
-	private sink(id: string, runtime: Runtime): Sink<any> {
-		const node = this.node(id);
+	private sink(index: number, runtime: Runtime): Sink<unknown> {
+		const node = this.node(index);
 		switch (node.kind) {
 			case "output":
 				return node;
 			case "userFunction":
 				return node;
-			case "completion":
-				return findById(runtime.completionAPIs, node.apiId);
-			case "decision":
-				return findById(runtime.chooseAPIs, node.apiId);
+			case "completion": {
+				const api = runtime.completionAPIs[node.api];
+				if (!api) throw new Error(`No completion API registered as: ${node.api}`);
+				return api;
+			}
+			case "decision": {
+				const api = runtime.chooseAPIs[node.api];
+				if (!api) throw new Error(`No choose API registered as: ${node.api}`);
+				return api;
+			}
 			case "input":
-				throw new Error(`An input is a source, not a sink: ${id}`);
+				throw new Error(`An input is a source, not a sink (position ${index})`);
 		}
 	}
 }

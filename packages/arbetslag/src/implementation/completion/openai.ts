@@ -25,7 +25,6 @@ export function contentToStringOrParts(
 }
 
 export class OpenAIProvider extends CompletionAPI {
-    readonly id: string = "openai";
     private client: OpenAI;
     private model: string;
 

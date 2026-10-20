@@ -1,16 +1,17 @@
 import type { JsonValue } from "type-fest";
 import { Actor } from "../actor";
-import { nanoid } from "../utils";
 
 /**
  * A plain function wired into the graph.
  *
- * The id is minted here, once per instance: two functions of the same class in
- * one project are two distinct nodes, and subclasses must not declare their own.
+ * `config` is what a project file needs to rebuild this node — anything the
+ * function needs that is data rather than code. Two instances of one class are
+ * two separate nodes; what tells them apart is their position in the project,
+ * not a name either of them carries.
  */
 export abstract class UserFunction extends Actor<JsonValue, JsonValue> {
   readonly kind = "userFunction" as const;
-  readonly id: string = nanoid();
+  readonly config?: JsonValue;
 
   abstract function: (input: JsonValue) => Promise<JsonValue>;
 

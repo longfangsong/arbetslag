@@ -1,5 +1,6 @@
 import type z from "zod";
 import { Actor } from "../actor";
+import { nodeName } from "../utils";
 
 export interface ToolMetadata {
     name: string;
@@ -7,6 +8,12 @@ export interface ToolMetadata {
     inputSchema: z.ZodType<unknown>
 }
 
+/**
+ * One tool call, as the model issued it.
+ *
+ * `id` is the model's correlation handle for *this call* — it goes back out with
+ * the response so the history can pair them up. It is not a node identity.
+ */
 export interface ToolCallRequest<I> {
   id: string;
   input: I;
@@ -30,9 +37,10 @@ export abstract class Tool<I, O> extends Actor<ToolCallRequest<I>, ToolCallRespo
     return [{ id: input.id, output }];
   }
 
+  /** The model sees `name`, so it is derived from the class rather than minted. */
   public metadata(): ToolMetadata {
     return {
-      name: this.id,
+      name: nodeName(this),
       description: this.description,
       inputSchema: this.inputSchema
     };

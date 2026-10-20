@@ -8,13 +8,11 @@ import { Chan } from "ts-chan";
 
 /** Anything the graph can push a message into. */
 export interface Sink<I> {
-	readonly id: string;
 	send(input: I): Promise<void>;
 }
 
 /** Anything the graph can pull messages out of. */
 export interface Source<O> extends AsyncIterable<O> {
-	readonly id: string;
 	stop(): Promise<void>;
 }
 

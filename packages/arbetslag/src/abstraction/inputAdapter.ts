@@ -1,6 +1,5 @@
 import type { JsonValue } from "type-fest";
 import { Outbox, type Source } from "../messageBox";
-import { nanoid } from "../utils";
 
 /**
  * A pure entry point: requests from an external system flow into the graph.
@@ -8,12 +7,13 @@ import { nanoid } from "../utils";
  * Nothing in the graph ever sends to an input, so it is not an `Actor` — there
  * is no inbound queue and no `process` step, only an outbound stream.
  *
- * The id is minted here, once per instance: two inputs of the same class in one
- * project are two distinct nodes, and subclasses must not declare their own.
+ * `config` is what a project file needs to rebuild this node; it carries the
+ * constructor arguments that are data. Anything else (an open server, a client)
+ * is supplied by whoever registers the class with the `Runtime`.
  */
 export abstract class InputAdapter implements Source<JsonValue> {
 	readonly kind = "input" as const;
-	readonly id: string = nanoid();
+	readonly config?: JsonValue;
 
 	private readonly outbox: Outbox<JsonValue> = new Outbox<JsonValue>();
 

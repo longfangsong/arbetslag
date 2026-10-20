@@ -9,9 +9,6 @@ import { Inbox, Outbox, type Sink, type Source } from "./messageBox";
  * is a `Sink`.
  */
 export abstract class Actor<I, O> implements Sink<I>, Source<O> {
-	/** Stable identity of the actor, used to route messages through a `Project`. */
-	abstract readonly id: string;
-
 	private readonly inbox: Inbox<I> = new Inbox<I>();
 	private readonly outbox: Outbox<O> = new Outbox<O>();
 

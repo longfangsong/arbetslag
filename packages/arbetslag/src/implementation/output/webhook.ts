@@ -1,7 +1,7 @@
 import type { JsonValue } from "type-fest";
 import { OutputAdapter } from "../../abstraction/outputAdapter";
 
-export interface WebhookDeliveryOptions {
+export type WebhookDeliveryOptions = {
 	/** HTTP method used for delivery. Defaults to `POST`. */
 	method?: string;
 	/** Extra request headers. `content-type: application/json` is always sent. */
@@ -11,7 +11,7 @@ export interface WebhookDeliveryOptions {
 	 * deadline a hanging endpoint would stall the graph's delivery loop forever.
 	 */
 	timeoutMs?: number;
-}
+};
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -26,6 +26,9 @@ const MAX_ERROR_BODY = 500;
  * adding retries is the caller's decision, not a hidden policy here.
  */
 export class WebhookOutputAdapter extends OutputAdapter {
+	/** Everything a project file needs to rebuild this node: it is all data. */
+	readonly config: JsonValue;
+
 	private readonly url: string;
 	private readonly options: WebhookDeliveryOptions;
 
@@ -33,6 +36,7 @@ export class WebhookOutputAdapter extends OutputAdapter {
 		super();
 		this.url = url;
 		this.options = options;
+		this.config = { url, options };
 	}
 
 	async send(payload: JsonValue): Promise<void> {
