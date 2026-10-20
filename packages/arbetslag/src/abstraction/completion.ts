@@ -9,13 +9,14 @@ export interface CompletionRequest {
 }
 
 export abstract class CompletionAPI extends Actor<CompletionRequest, CompletionResponse> {
+    readonly kind = "completionAPI" as const;
+
     abstract complete(
         history: History,
         tools: Array<ToolMetadata>,
     ): Promise<CompletionResponse>;
 
-    protected async process(input: CompletionRequest): Promise<void> {
-        const result = await this.complete(input.history, input.tools);
-        await this.outputChannel.send(result);
+    protected async process(input: CompletionRequest): Promise<ReadonlyArray<CompletionResponse>> {
+        return [await this.complete(input.history, input.tools)];
     }
 }

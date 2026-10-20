@@ -1,19 +1,26 @@
 import { CompletionAPI } from "./abstraction/completion";
 import { Tool } from "./abstraction/tool";
 import { ChooseAPI } from "./abstraction/choose";
-import { Store } from "./abstraction/store";
+import type { Store } from "./abstraction/store";
 import { InputAdapter } from "./abstraction/inputAdapter";
 import { OutputAdapter } from "./abstraction/outputAdapter";
 import { UserFunction } from "./abstraction/userFunction";
 
-/** Adapters are plain interfaces, so they are told apart by their methods. */
-function isInputAdapter(value: object): value is InputAdapter {
-	return typeof (value as InputAdapter).processable === "function";
-}
+export { Inbox, Outbox, type Sink, type Source } from "./messageBox";
 
-function isOutputAdapter(value: object): value is OutputAdapter {
-	return typeof (value as OutputAdapter).deliver === "function";
-}
+export { InputAdapter } from "./abstraction/inputAdapter";
+export { OutputAdapter } from "./abstraction/outputAdapter";
+export { WebhookOutputAdapter } from "./implementation/output/webhook";
+export type { WebhookDeliveryOptions } from "./implementation/output/webhook";
+
+/** Everything a `Runtime` can hold: graph nodes that run, plus provider APIs. */
+export type Runnable =
+	| InputAdapter
+	| OutputAdapter
+	| UserFunction
+	| Tool<any, any>
+	| CompletionAPI
+	| ChooseAPI;
 
 export class Runtime {
 	public completionAPIs: Array<CompletionAPI> = [];
@@ -27,30 +34,37 @@ export class Runtime {
 	/**
 	 * Register an actor or adapter by identity, so a serialized `Project` can
 	 * resolve it back by id (see `Project.fromSerialized`).
+	 *
+	 * Dispatch is on `kind`, so a new subclass needs no change here.
 	 */
-	register(
-		registrable:
-			| CompletionAPI
-			| ChooseAPI
-			| Tool<any, any>
-			| UserFunction
-			| InputAdapter
-			| OutputAdapter,
-	): void {
-		if (registrable instanceof Tool) {
-			this.tools.push(registrable);
-		} else if (registrable instanceof CompletionAPI) {
-			this.completionAPIs.push(registrable);
-		} else if (registrable instanceof ChooseAPI) {
-			this.chooseAPIs.push(registrable);
-		} else if (registrable instanceof UserFunction) {
-			this.userFunctions.push(registrable);
-		} else if (isInputAdapter(registrable)) {
-			this.inputs.push(registrable);
-		} else if (isOutputAdapter(registrable)) {
-			this.outputs.push(registrable);
-		} else {
-			throw new Error(`Cannot register unknown kind: ${registrable}`);
+	register(registrable: Runnable): void {
+		switch (registrable.kind) {
+			case "tool":
+				this.add(this.tools, registrable);
+				return;
+			case "completionAPI":
+				this.add(this.completionAPIs, registrable);
+				return;
+			case "chooseAPI":
+				this.add(this.chooseAPIs, registrable);
+				return;
+			case "userFunction":
+				this.add(this.userFunctions, registrable);
+				return;
+			case "input":
+				this.add(this.inputs, registrable);
+				return;
+			case "output":
+				this.add(this.outputs, registrable);
+				return;
 		}
+	}
+
+	/** Two registrations under one id would make `fromSerialized` ambiguous. */
+	private add<T extends { readonly id: string }>(list: Array<T>, item: T): void {
+		if (list.some((existing) => existing.id === item.id)) {
+			throw new Error(`Already registered: ${item.id}`);
+		}
+		list.push(item);
 	}
 }

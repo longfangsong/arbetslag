@@ -1,32 +1,29 @@
-import { InputAdapter } from "./abstraction/inputAdapter";
-import { OutputAdapter } from "./abstraction/outputAdapter";
-import { UserFunction } from "./abstraction/userFunction";
-import { CompletionAgent, DecisionAgent } from "./agent";
-import { type as typeOfId } from "./utils";
+import type { InputAdapter } from "./abstraction/inputAdapter";
+import type { OutputAdapter } from "./abstraction/outputAdapter";
+import type { UserFunction } from "./abstraction/userFunction";
+import type { CompletionAgent, DecisionAgent } from "./agent";
 
 /**
- * Anything that can be registered in a `Project`. The kind of a node is encoded
- * in its id, see `idForType`.
+ * The kinds that can appear as a node in a `Project` graph.
+ *
+ * Kind is a field, not a prefix in the id: nothing has to parse an id to learn
+ * what a node is, and the compiler narrows `switch (node.kind)` for us.
  */
+export type NodeKind = "input" | "output" | "userFunction" | "completion" | "decision";
+
+/** Anything a `Project` can hold and wire to something else. */
 export interface ProjectNode {
 	readonly id: string;
+	readonly kind: NodeKind;
 }
 
-interface NodeOfType {
-	userFunction: UserFunction;
-	input: InputAdapter;
-	output: OutputAdapter;
-	completion: CompletionAgent;
-	decision: DecisionAgent;
-}
-
-export type NodeType = keyof NodeOfType;
-
-export type Registrable = NodeOfType[NodeType];
-
-export function isKind<T extends NodeType>(
-	node: Registrable,
-	kind: T,
-): node is NodeOfType[T] {
-	return typeOfId(node.id) === kind;
-}
+/**
+ * The node union. Tools and provider APIs are deliberately absent: they are
+ * runtime implementations, not graph nodes, so they cannot be connected.
+ */
+export type Registrable =
+	| InputAdapter
+	| OutputAdapter
+	| UserFunction
+	| CompletionAgent
+	| DecisionAgent;

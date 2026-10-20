@@ -18,14 +18,16 @@ export interface ToolCallResponse<O> {
 }
 
 export abstract class Tool<I, O> extends Actor<ToolCallRequest<I>, ToolCallResponse<O>> {
+  readonly kind = "tool" as const;
+
   abstract description: string;
   abstract inputSchema: z.ZodType<I>;
 
   abstract call(input: I): Promise<O>;
 
-  async process(input: ToolCallRequest<I>): Promise<void> {
+  async process(input: ToolCallRequest<I>): Promise<ReadonlyArray<ToolCallResponse<O>>> {
     const output = await this.call(input.input);
-    await this.outputChannel.send({ id: input.id, output });
+    return [{ id: input.id, output }];
   }
 
   public metadata(): ToolMetadata {

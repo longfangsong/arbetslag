@@ -4,3 +4,4 @@
  * runtime-agnostic exports in `index.ts` instead.
  */
 export { NodeFsStore } from "./implementation/store/nodeFsStore";
+export { WebhookInputAdapter, WebhookServer } from "./implementation/input/webhook";

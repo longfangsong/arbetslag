@@ -24,7 +24,8 @@
 		"lint:check": "biome lint src tests",
 		"format": "biome format --write src tests",
 		"format:check": "biome format --check src tests",
-		"type-check": "tsc --noEmit"
+		"type-check": "tsc --noEmit",
+		"test": "rolldown tests/smoke.ts --format esm --platform node -o .tmp/smoke.mjs && node .tmp/smoke.mjs"
 	},
 	"keywords": [],
 	"author": "Fangsong Long",

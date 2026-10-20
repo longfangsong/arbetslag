@@ -14,14 +14,15 @@ export interface ChooseResponse {
 }
 
 export abstract class ChooseAPI extends Actor<ChooseRequest, ChooseResponse> {
+    readonly kind = "chooseAPI" as const;
+
     abstract choose(
         history: History,
         question: string,
         choices: Array<string>,
     ): Promise<ChooseResponse>;
 
-    protected async process(input: ChooseRequest): Promise<void> {
-        const result = await this.choose(input.history, input.question, input.choices);
-        await this.outputChannel.send(result);
+    protected async process(input: ChooseRequest): Promise<ReadonlyArray<ChooseResponse>> {
+        return [await this.choose(input.history, input.question, input.choices)];
     }
 }

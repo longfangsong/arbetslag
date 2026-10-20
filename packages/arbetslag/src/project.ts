@@ -1,16 +1,19 @@
-import { JsonValue } from "type-fest";
-import { OutputAdapter } from "./abstraction/outputAdapter";
-import { UserFunction } from "./abstraction/userFunction";
-import { CompletionAgent, DecisionAgent } from "./agent";
-import { InputAdapter } from "./abstraction/inputAdapter";
-import { isKind, ProjectNode, Registrable } from "./projectNode";
-import { Actor } from "./actor";
+import type { JsonValue } from "type-fest";
+import type { OutputAdapter } from "./abstraction/outputAdapter";
+import type { UserFunction } from "./abstraction/userFunction";
+import type { CompletionAgent, DecisionAgent } from "./agent";
+import type { InputAdapter } from "./abstraction/inputAdapter";
+import type { NodeKind, ProjectNode, Registrable } from "./projectNode";
+import type { Sink, Source } from "./messageBox";
 import type { Runtime } from "./index";
-import { type, unimplemented } from "./utils";
 
+/**
+ * A project on disk. `kind` is not serialized: which array a node appears in
+ * already says what it is.
+ */
 export interface SerializedProject {
-	completionAgents: Array<CompletionAgent>,
-	decisionAgents: Array<DecisionAgent>,
+	completionAgents: Array<Omit<CompletionAgent, "kind">>,
+	decisionAgents: Array<Omit<DecisionAgent, "kind">>,
 	userFunctions: Array<string>,
 	inputs: Array<string>,
 	outputs: Array<string>,
@@ -18,21 +21,46 @@ export interface SerializedProject {
 	toolsState: Record<string, JsonValue>
 }
 
+type NodeOfKind<K extends NodeKind> = Extract<Registrable, { readonly kind: K }>;
 
-function findById<T extends { id: string }>(items: Array<T>, id: string): T {
+function findById<T extends { readonly id: string }>(items: Array<T>, id: string): T {
 	const item = items.find((it) => it.id === id);
-	if (!item) throw new Error(`No registered ${type(id)} with id: ${id}`);
+	if (!item) throw new Error(`Nothing registered with id: ${id}`);
 	return item;
 }
 
 export class Project {
-	completionAgents: Array<CompletionAgent> = [];
-	decisionAgents: Array<DecisionAgent> = [];
-	userFunctions: Array<UserFunction> = [];
-	inputs: Array<InputAdapter> = [];
-	outputs: Array<OutputAdapter> = [];
+	/** The single source of truth: every node, by id. */
+	private readonly nodes: Map<string, Registrable> = new Map();
+
 	connections: Array<[string, string]> = [];
 	toolsState: Record<string, JsonValue> = {};
+
+	/** Set by `start`, so `stop` can reach the runtime-provided actors. */
+	private runtime: Runtime | undefined;
+	private inputDrives: Array<Promise<void>> = [];
+	private actorDrives: Array<Promise<void>> = [];
+	private shutdown: Promise<void> | undefined;
+
+	get inputs(): Array<InputAdapter> {
+		return this.ofKind("input");
+	}
+
+	get outputs(): Array<OutputAdapter> {
+		return this.ofKind("output");
+	}
+
+	get userFunctions(): Array<UserFunction> {
+		return this.ofKind("userFunction");
+	}
+
+	get completionAgents(): Array<CompletionAgent> {
+		return this.ofKind("completion");
+	}
+
+	get decisionAgents(): Array<DecisionAgent> {
+		return this.ofKind("decision");
+	}
 
 	/**
 	 * Rebuild a `Project` from its serialized form. Agents are plain data and
@@ -41,108 +69,141 @@ export class Project {
 	 */
 	static fromSerialized(serialized: SerializedProject, runtime: Runtime): Project {
 		const project = new Project();
-		project.completionAgents.push(...serialized.completionAgents);
-		project.decisionAgents.push(...serialized.decisionAgents);
-		project.userFunctions.push(
-			...serialized.userFunctions.map((id) => findById(runtime.userFunctions, id)),
-		);
-		project.inputs.push(...serialized.inputs.map((id) => findById(runtime.inputs, id)));
-		project.outputs.push(
-			...serialized.outputs.map((id) => findById(runtime.outputs, id)),
-		);
+		for (const agent of serialized.completionAgents) {
+			project.register({ ...agent, kind: "completion" });
+		}
+		for (const agent of serialized.decisionAgents) {
+			project.register({ ...agent, kind: "decision" });
+		}
+		for (const id of serialized.userFunctions) {
+			project.register(findById(runtime.userFunctions, id));
+		}
+		for (const id of serialized.inputs) {
+			project.register(findById(runtime.inputs, id));
+		}
+		for (const id of serialized.outputs) {
+			project.register(findById(runtime.outputs, id));
+		}
 		project.connections.push(...serialized.connections);
 		project.toolsState = { ...serialized.toolsState };
 		return project;
 	}
 
 	register(node: Registrable): void {
-		// The kind of a node is encoded in its id, see `idForType`.
-		const id = node.id;
-		if (isKind(node, "userFunction")) {
-			this.userFunctions.push(node);
-		} else if (isKind(node, "input")) {
-			this.inputs.push(node);
-		} else if (isKind(node, "output")) {
-			this.outputs.push(node);
-		} else if (isKind(node, "completion")) {
-			this.completionAgents.push(node);
-		} else if (isKind(node, "decision")) {
-			this.decisionAgents.push(node);
-		} else {
-			throw new Error(`Unknown node id: ${id}`);
+		if (this.nodes.has(node.id)) {
+			throw new Error(`Duplicate node id: ${node.id}`);
 		}
+		this.nodes.set(node.id, node);
 	}
 
-	start(runtime: Runtime): void {
-		const actors: Array<Actor<any, any>> = [
-			...this.userFunctions,
-			...runtime.tools,
-			...runtime.completionAPIs,
-			...runtime.chooseAPIs,
-		];
-		for (const actor of actors) {
-			const receiver = actor.start();
-			(async () => {
-				for await (const input of receiver) {
-                	this.deliver(input, runtime, input);
-            	}
-			})();
-		}
+	/**
+	 * Run the graph: one loop per `Source`, pushing whatever it emits to the
+	 * sinks named by `connections`.
+	 *
+	 * Resolves once every source has ended, rejects with the first error after
+	 * stopping the rest of the graph.
+	 */
+	async start(runtime: Runtime): Promise<void> {
+		this.runtime = runtime;
+		this.inputDrives = this.inputs.map((input) => this.drive(input, runtime));
+		this.actorDrives = this.actors(runtime).map((actor) => this.drive(actor, runtime));
+		const results = await Promise.allSettled([...this.inputDrives, ...this.actorDrives]);
+		const failed = results.find(
+			(result): result is PromiseRejectedResult => result.status === "rejected",
+		);
+		if (failed) throw failed.reason;
 	}
 
-	private deliver(
-		fromActor: Actor<unknown, unknown> | InputAdapter,
-		runtime: Runtime,
-		message: JsonValue,
-	): void {
-		const deliverTo = this.connections.filter(([from, _]) => from === fromActor.id);
-		for (const [_, to] of deliverTo) {
-			if(type(to) === "output") {
-				const output = this.outputs.find(it => it.id === to)!;
-				output.deliver(message);
-			}
-			const actor = this.findActor(to, runtime);
-			actor.send(message);
-		}
+	/**
+	 * Graceful shutdown: close the entry points, let their in-flight payloads
+	 * reach the graph, then close the actors so their loops drain and end.
+	 *
+	 * Deliveries already in flight *between* actors are not covered — with a cycle
+	 * in the graph there is no order that would.
+	 */
+	stop(): Promise<void> {
+		this.shutdown ??= this.shutdownGraph();
+		return this.shutdown;
+	}
+
+	private async shutdownGraph(): Promise<void> {
+		const runtime = this.runtime;
+		if (!runtime) return;
+		await Promise.all(this.inputs.map((input) => input.stop()));
+		await Promise.allSettled(this.inputDrives);
+		await Promise.all(this.actors(runtime).map((actor) => actor.stop()));
+		await Promise.allSettled(this.actorDrives);
 	}
 
 	connect(from: ProjectNode, to: ProjectNode): void {
 		this.connections.push([from.id, to.id]);
 	}
 
-	findActor(id: string, runtime: Runtime): Actor<any, any> {
-		switch (type(id)) {
-			case "userFunction": {
-				const userFunction = this.userFunctions.find((node) => node.id === id);
-				return userFunction!;
+	private ofKind<K extends NodeKind>(kind: K): Array<NodeOfKind<K>> {
+		return [...this.nodes.values()].filter(
+			(node): node is NodeOfKind<K> => node.kind === kind,
+		);
+	}
+
+	private node(id: string): Registrable {
+		const node = this.nodes.get(id);
+		if (!node) throw new Error(`No node with id: ${id}`);
+		return node;
+	}
+
+	/** Everything inside the graph that both receives and emits. */
+	private actors(runtime: Runtime): Array<Source<unknown>> {
+		return [
+			...this.userFunctions,
+			...runtime.tools,
+			...runtime.completionAPIs,
+			...runtime.chooseAPIs,
+		];
+	}
+
+	private async drive(source: Source<unknown>, runtime: Runtime): Promise<void> {
+		try {
+			for await (const message of source) {
+				await this.deliver(source, message, runtime);
 			}
-			case "completion": {
-				const agent = this.completionAgents.find((node) => node.id === id);
-				if (!agent) return unimplemented();
-				return runtime.completionAPIs.find((api) => api.id === agent.apiId)!;
-			}
-			case "decision": {
-				const agent = this.decisionAgents.find((node) => node.id === id);
-				if (!agent) return unimplemented();
-				return runtime.chooseAPIs.find((api) => api.id === agent.apiId)!;
-			}
-			case "tool":
-				return runtime.tools.find((tool) => tool.id === id)!;
-			default:
-				// Inputs and outputs are not actors yet.
-				return unimplemented();
+		} catch (error) {
+			// One broken edge stops the whole graph. Not awaited: `stop` waits for
+			// this very drive, so awaiting it here would deadlock the shutdown.
+			void this.stop();
+			throw error;
 		}
 	}
 
-	async handleInput(runtime: Runtime, input: JsonValue): Promise<void> {
-		for (let adapter of this.inputs) {
-			if (await adapter.processable(input)) {
-				const result = await adapter.receive(input);
-				const targets = this.connections.filter(([from, _]) => from === adapter.id)!;
-				for (const target of targets) {
-					this.deliver(adapter, runtime, result);
-				}
-			}
+	private async deliver(
+		from: { readonly id: string },
+		message: unknown,
+		runtime: Runtime,
+	): Promise<void> {
+		for (const [fromId, toId] of this.connections) {
+			if (fromId !== from.id) continue;
+			await this.sink(toId, runtime).send(message);
+		}
+	}
+
+	/**
+	 * Where a message lands: an actor or an output.
+	 *
+	 * Typed as `Sink<any>` on purpose — the wire format is `JsonValue` while each
+	 * node takes its own request shape, and that mismatch predates this class.
+	 */
+	private sink(id: string, runtime: Runtime): Sink<any> {
+		const node = this.node(id);
+		switch (node.kind) {
+			case "output":
+				return node;
+			case "userFunction":
+				return node;
+			case "completion":
+				return findById(runtime.completionAPIs, node.apiId);
+			case "decision":
+				return findById(runtime.chooseAPIs, node.apiId);
+			case "input":
+				throw new Error(`An input is a source, not a sink: ${id}`);
 		}
 	}
 }
