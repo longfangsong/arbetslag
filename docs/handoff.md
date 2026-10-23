@@ -82,14 +82,15 @@ type Transition<S> = {
   awaiting?: Await[];        // 我在等谁，内核据此在对象消失时叫醒我
 };
 
-type Message      = { from?: NodeId; type: string; body: JsonValue; correlation?: string };
-type Outgoing     = { port?: string; to?: NodeId; type: string; body: JsonValue; correlation?: string };
-type EffectRequest= { kind: string; input: JsonValue; correlation?: string };
+type Message      = { from?: NodeId; type: string; body: JsonValue };
+type Outgoing     = { port: string; to?: NodeId; body: JsonValue };
+type EffectRequest= { kind: string; input: JsonValue; ref?: string };
 ```
 
 - 节点是**纯的、同步的状态机**：不许 await、不许 fetch、不许依赖外部结果（Run 不等 effect 让这条更硬）。
 - `from` 由内核盖章，外部投递与 effect 结果都没有 `from`。
-- `correlation` 内核透传，并发发 N 个 effect 时靠它配对。
+- 信封只有 `from` / `type` / `body` 三个字段（ADR-0008、ADR-0009）：应答配对靠 `from`，应用自己的关联 id 放 `body`；效果侧另有一个作者给的 `ref`，由 `@effect.end` 原样带回。
+- **端口名就是消息的 `type`**：一条发射口只有一个名字，接线与接收方分派共用它；`port` 必填，`to` 可选（用于运行时新增的节点）。**入站形状归应用**（共享 schema、节点自己收窄）；`@` 前缀归内核，节点发出即隔离。
 - 路由两种寻址并存：`{port}`（静态、图解析、可校验）与 `{to: NodeId}`（动态，用于 spawn 出的子节点）。
 
 **Run 与并行**
@@ -103,10 +104,13 @@ type EffectRequest= { kind: string; input: JsonValue; correlation?: string };
 - **执行器是注入的协作者**；内核只产生"待办 effect"。常驻宿主在本地并发跑；无状态宿主交给请求 / `waitUntil` / DO alarm。
 - **失败一律是值**：协作面返回 `Result`，effect 的结果是消息，`step` 是总函数（没有失败语义，业务上的坏消息本身就是一条普通消息）。`step` 里的 bug 仍然会 throw，内核捕获它 → **隔离整份工作流**。
 - performer 内部可以任意 async（fetch→解析→重试）：内核只保证 effect 级的重试语义。
-- 幂等：`effectId` 即幂等键；崩溃重启后用同一 id 重发（at-least-once，绕不过去）。
-- **流式 = 订阅式 effect**：`@effect.chunk / @effect.end / @effect.error`。chunk 引发的转移**易失、不落盘**；事实以 `@effect.end` 为准。崩溃后整段重发，`generation` 变化 → 文本重置而非拼接。
+- 幂等：`effectId` 即幂等键；崩溃重启后用同一 id 重发（对外部世界 at-least-once，绕不过去）。
+- **回执回到发起它的节点**，发起时定死（在飞记录里的 `origin`）：不需要边，`@effect.end` 没有 `from`；origin 已被回收则结果丢弃。
+- **信封只有一条 `@effect.end`**：成功与失败是它 body 的两种形状。**没有 chunk**——图不承载增量，界面流式由宿主在执行器侧旁路推（ADR-0008）。
+- **对图 exactly-once**：追加邮箱与删在飞记录是同一次 CAS 写，那条记录是一次性令牌；回来即删，不留历史。
+- **出口型效果也一定有回执**（body 可为空）："要不要等结果"这个问题因此消失，快照写次数没有可变分支。
+- **作者责任**：发了效果就得在 step 里认识 `@effect.end`，内核不检查；漏接的表现是静止（与死锁同形），不是隔离。
 - 逃生门：`compute.run` effect，把重活挪出 step。
-- **未定**：出口型 effect（`telegram.send` 这类）要不要等结果 —— 用户暂定交给出口实现者自定，等概念 7（effect）+ 概念 9（出口）对齐再定。它决定一条消息是 4 次还是 6 次全量快照写。
 
 **等待与失败**
 
@@ -151,17 +155,17 @@ type Store = {
 
 ## 5. spawn + await 子 agent 的参考时序（**尚未核对**，概念 11 会用）
 
-`SubagentTool` 是框架内置节点类，把"spawn + await + correlation"打包。
+`SubagentTool` 是内置的一份节点定义，把“新增节点 + 接线 + 等结果”打包成一次转移。（此段是对旧时序的草稿，概念 11 会重写；`sends` 里 `port` 与 `type` 是否同一个词尚未定。）
 
 ```ts
 if (msg.type === "call") {
-  const child = newId();
+  const child = `${ctx.id}/w1`;
   return {
-    state: { caller: msg.from, callId: msg.callId, awaiting: [child] },
-    spawn:   [{ id: child, class: "builtin.agent", config: this.config.template }],
-    connect: [{ from: child, to: this.id }],
-    sends:   [{ to: child, message: { type: "inbound", content: msg.args.query } }],
-    effects: [{ kind: "timer.wait", input: { at: Date.now() + this.config.timeoutMs } }],
+    state: { caller: msg.from, callId: msg.body.callId, awaiting: [child] },
+    spawn:   [{ id: child, class: "builtin.agent", config: ctx.config.template }],
+    connect: [{ from: child, to: ctx.id }],
+    sends:   [{ to: child, type: "inbound", body: { query: msg.body.query } }],
+    effects: [{ kind: "timer.wait", input: { ms: ctx.config.timeoutMs }, ref: "timeout" }],
   };
 }
 ```
@@ -209,13 +213,15 @@ if (msg.type === "call") {
 
 ## 8. 逐概念核对进度（主线）
 
-已完成：**1. 模板**、**2. 工作流**、**3. 形状**、**4. 节点**、**5. 边与端口**（3 与 5 一并 grill，见 `docs/adr/0002-shape-is-state.md`）：边是 `{from, to, port?}` 三元组；端口在发送侧、单值、扇出要靠节点；id 由创建者命名、活节点内唯一、回收后不禁止复用；任何节点都能改图，回收连带删边；没有父子关系、没有 supervisor；投递无路则丢弃并记录，改图非法则隔离。
+已完成：**1. 模板**、**2. 工作流**、**3. 形状**、**4. 节点**、**5. 边与端口**、**6. 消息**、**7. 效果**（ADR-0002 / 0007 / 0008 / 0009）：
 
-节点定义（本轮改写了 ADR-0007）：能力清单收到六个字段（`describe` 出局）；注册表只放最新一版、快照节点记录带 `(name, version)`；`migrate(state, fromVersion)` 单函数、只向前；state 每次转移后与载入时都校验；“纯”只指无副作用，可以读时钟与随机。
+- 形状：边是 `{from, to, port?}` 三元组；端口在发送侧、单值、扇出要靠节点；id 由创建者命名、活节点内唯一、回收后不禁止复用；任何节点都能改图，回收连带删边；没有父子关系、没有 supervisor；投递无路则丢弃并记录，改图非法则隔离。
+- 节点定义（本轮改写了 ADR-0007）：能力清单收到六个字段（`describe` 出局）；注册表只放最新一版、快照节点记录带 `(name, version)`；`migrate(state, fromVersion)` 单函数、只向前；state 每次转移后与载入时都校验；“纯”只指无副作用，可以读时钟与随机。
+- 消息（ADR-0009）：信封三个字段，目标不在信封上、没有内核 id；端口名就是消息的类别；入站形状归应用（共享 schema、节点自己收窄）；`@` 前缀归内核。
 
-下一个：**6. 消息**
+下一个：**8. 触发器**
 
-之后：7. Effect / 8. 触发器 / 9. 出口节点 / 10. 静止、Run / 11. agents 包 / 12. 失败与隔离。
+之后：9. 出口节点 / 10. 静止、Run / 11. agents 包 / 12. 失败与隔离。
 
 ---
 
@@ -224,7 +230,7 @@ if (msg.type === "call") {
 **概念 2 留下的挂起项**（用户明确要求先不定）：
 
 1. **快照体积上限的具体数值**（原则已定：硬上限 + 显式隔离，绝不截断；`inspect` 分报 state/inbox/effects 三处字节）。等有可动原型。
-2. **出口 effect 是否等结果**（概念 7 + 9）。
+2. ~~出口 effect 是否等结果~~ → 已定：一定有回执，出口型也是（ADR-0008）。
 3. **`schema` / `quarantine` 外壳的具体形态**：用户要求"不要钉死"，后续概念可能推翻。
 4. **隔离原因的结构化载荷** → 概念 12。
 5. **`awaiting` 的具体表示** → 概念 10。
