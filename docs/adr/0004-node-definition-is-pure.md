@@ -6,7 +6,7 @@
 
 ## 决定
 
-- **节点定义是 interface，不是 class**。内核只见七样：`name` / `version` / `state` schema / `config` schema / `ports` / `step` / 可选 `migrate`。`ports(config)` 是 config 的纯函数，返回 `{ 端口名: body schema }`：同样的 config 永远得到同样的端口，内核据此校验接线与发送（ADR-0002、ADR-0009）。能力清单封闭，没有 `init`、`start`、`onRetire`、`dispose`、`describe`。
+- **节点定义是 interface，不是 class**。内核只见七样：`name` / `version` / `state` schema / `config` schema / `ports` / `step` / 可选 `migrate`。`ports(config)` 是 config 的纯函数，返回 `{ 端口名: body schema }`：同样的 config 永远得到同样的端口，内核据此校验接线与发送（ADR-0002、ADR-0005）。能力清单封闭，没有 `init`、`start`、`onRetire`、`dispose`、`describe`。
 - **config 有 schema**，在实例化与新增节点时校验。写错模板在落盘之前就被拒，不等到第一条消息进来。
 - **`state` 在每次转移之后（落盘之前）与每次载入时各校验一次**。过不了就是"内核无法继续" → 隔离；坏状态绝不进快照。
 - **版本是可比较的标签，内核只比较、从不解释**。快照里每条节点记录带着 `(name, version)`；注册表里每个名字只有一份定义——**当前部署的那一版**。
