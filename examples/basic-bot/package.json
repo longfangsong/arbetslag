@@ -1,0 +1,11 @@
+{
+	"name": "@arbetslag/example-basic-bot",
+	"private": true,
+	"type": "module",
+	"dependencies": {
+		"@arbetslag/kernel": "workspace:*",
+		"@arbetslag/agents": "workspace:*",
+		"@arbetslag/llm": "workspace:*",
+		"@arbetslag/host-node": "workspace:*"
+	}
+}

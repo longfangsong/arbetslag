@@ -1,0 +1,44 @@
+{
+	"name": "@arbetslag/llm",
+	"version": "0.0.0",
+	"private": true,
+	"description": "LLM provider performers for model.complete; one subpath per vendor.",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.mts",
+			"import": "./dist/index.mjs"
+		},
+		"./openai": {
+			"types": "./dist/openai.d.mts",
+			"import": "./dist/openai.mjs"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsdown",
+		"type-check": "tsc --noEmit",
+		"lint:check": "biome lint src tests",
+		"format": "biome format --write src tests"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"biome": "catalog:",
+		"tsdown": "^0.23.0",
+		"typescript": "catalog:"
+	},
+	"dependencies": {
+		"@arbetslag/kernel": "workspace:*",
+		"@arbetslag/agents": "workspace:*"
+	},
+	"peerDependencies": {
+		"openai": "^7.33.0"
+	},
+	"peerDependenciesMeta": {
+		"openai": {
+			"optional": true
+		}
+	}
+}

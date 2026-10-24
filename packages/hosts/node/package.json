@@ -1,0 +1,31 @@
+{
+	"name": "@arbetslag/host-node",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Node host: fs Store, serial entry, recovery scan, trigger reconciliation, effect executor.",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.mts",
+			"import": "./dist/index.mjs"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsdown",
+		"type-check": "tsc --noEmit",
+		"lint:check": "biome lint src tests",
+		"format": "biome format --write src tests"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"biome": "catalog:",
+		"tsdown": "^0.23.0",
+		"typescript": "catalog:"
+	},
+	"dependencies": {
+		"@arbetslag/kernel": "workspace:*"
+	}
+}

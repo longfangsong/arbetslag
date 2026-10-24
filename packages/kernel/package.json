@@ -1,0 +1,31 @@
+{
+	"name": "@arbetslag/kernel",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Pure kernel: run, deliver, instantiate, registry, Store interface. No platform deps.",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.mts",
+			"import": "./dist/index.mjs"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsdown",
+		"type-check": "tsc --noEmit",
+		"lint:check": "biome lint src tests",
+		"format": "biome format --write src tests"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"biome": "catalog:",
+		"tsdown": "^0.23.0",
+		"typescript": "catalog:"
+	},
+	"dependencies": {
+		"zod": "catalog:"
+	}
+}
