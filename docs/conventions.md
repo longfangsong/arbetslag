@@ -8,3 +8,23 @@
 2. **`kind` 只表示宿主注册表里的键。** 即效果种类、触发器种类。它总是和一份 schema 配对，并带一个载荷字段（`config` 或 `input`）。节点没有 kind（ADR-0004）。
 3. **其它内部的判别联合不用这两个词。** 按领域选更具体的词：违规、停住原因、错误用 `code`。改图操作用 `op`（`spawn`、`retire`、`connect`、`disconnect`、`addTrigger`、`removeTrigger`）。其余的（history 内容块等）在实现到时再定，定了补进这里。
 4. **新增注册表时沿用 `kind`**，并在 `CONTEXT.md` 里给它起一个对应的术语。
+
+## 宿主侧的词
+
+宿主那一侧的概念（**Performer**、执行器、未就绪、恢复扫描、串行入口……）也是**术语**，定义在 `CONTEXT.md` 的「宿主」。这里只留两处纯命名的选择：
+
+1. **`Performer` 不翻译。** 中文候选「执行者」与「执行器」（Executor）一字之差，读代码时分不清；写成英文，两样东西至少长得不一样。
+2. **「串行入口」的实现叫 `KeyedQueue`，那只是机制的名字，不是术语。** 它按 key 分组：同一个 key 内按进入顺序串行，不同 key 并行；排队的单位是一段代码，不是数据。
+   - 不叫 `WorkflowQueue`：读成「某份工作流的队列」（所有权），而它是「按工作流 id 分组的一堆队列」。
+   - 不叫 `TaskQueue`：`task` 是**效果**的 `_Avoid_` 词（`CONTEXT.md`）；而且 `TaskQueue` 读成**一条**全局队列，说不出「每个 key 一条」。
+   - 不叫 `Lock` / `Mutex`：没有「持有」这回事，只有「排到队尾」。
+   - 方法不叫 `run`：那是内核动词（`run(store, registry, id)`），用 `add`。
+
+## 动词：`run` / `drive` / `submit` / `recover` / `reconcile`
+
+1. **`run`** 只在核心里：把**图**推一步，直到**静止**或预算用完。宿主不叫它。
+2. **`drive`** 是宿主的：把一份**工作流**推到静止——先补交在飞**效果**、再 `run` 到没得推。执行器里叫 `driveWorkflow`，入口里叫 `drive(host, id)`（走**串行入口**）。
+3. **`submit`** = 投递 + `drive`，一次调用（ADR-0001：投递 = 一次写 + 一次 Run）。`submitFromTrigger` 是它的触发器版本。
+4. **`recover`** 是一次**恢复扫描**（多份工作流），内部对每份调 `drive`。
+5. **`reconcile`** 是**对账**（一份工作流）：声明 vs 正在跑的监听。
+6. 不叫 `advance` 当宿主动词：核心里已经有一个 `advance`（推进图的一步）。
