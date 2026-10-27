@@ -26,7 +26,9 @@ export class SmartTelegramRouter {
 		}
 		let content: string | undefined = event.content;
     content = content?.trim();
-		content = content?.replace(/^"(.*)"$/, "$1");
+		// Strip leading/trailing quotes (handles both matched pairs and a lone
+		// unmatched quote the model left open).
+		content = content?.replace(/^["']+|["']+$/g, "");
 		if (!content || content === '""' || content === "''") {
 			return ok(undefined);
 		}
