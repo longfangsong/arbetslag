@@ -26,6 +26,11 @@ export class SmartTelegramRouter {
 		}
 		let content: string | undefined = event.content;
     content = content?.trim();
+		// If the model opens with an empty quote pair it tends to paste the whole
+		// conversation history right after it. Drop the entire message.
+		if (content?.startsWith('""')) {
+			return ok(undefined);
+		}
 		// Strip leading/trailing quotes (handles both matched pairs and a lone
 		// unmatched quote the model left open).
 		content = content?.replace(/^["']+|["']+$/g, "");
