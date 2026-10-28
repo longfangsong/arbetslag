@@ -21,7 +21,8 @@
 		"build": "tsdown",
 		"type-check": "tsc --noEmit",
 		"lint:check": "biome lint src tests",
-		"format": "biome format --write src tests"
+		"format": "biome format --write src tests",
+		"test": "node --test \"tests/**/*.test.ts\""
 	},
 	"devDependencies": {
 		"@types/node": "catalog:",
@@ -30,8 +31,10 @@
 		"typescript": "catalog:"
 	},
 	"dependencies": {
+		"@arbetslag/agents": "workspace:*",
 		"@arbetslag/kernel": "workspace:*",
-		"@arbetslag/agents": "workspace:*"
+		"type-fest": "catalog:",
+		"zod": "catalog:"
 	},
 	"peerDependencies": {
 		"openai": "^7.33.0"

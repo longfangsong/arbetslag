@@ -17,7 +17,8 @@
 		"build": "tsdown",
 		"type-check": "tsc --noEmit",
 		"lint:check": "biome lint src tests",
-		"format": "biome format --write src tests"
+		"format": "biome format --write src tests",
+		"test": "node --test \"tests/**/*.test.ts\""
 	},
 	"devDependencies": {
 		"@types/node": "catalog:",
@@ -26,6 +27,8 @@
 		"typescript": "catalog:"
 	},
 	"dependencies": {
-		"@arbetslag/kernel": "workspace:*"
+		"@arbetslag/kernel": "workspace:*",
+		"type-fest": "catalog:",
+		"zod": "catalog:"
 	}
 }

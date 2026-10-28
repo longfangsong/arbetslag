@@ -27,6 +27,7 @@
 		"typescript": "catalog:"
 	},
 	"dependencies": {
+		"@arbetslag/agents": "workspace:*",
 		"@arbetslag/kernel": "workspace:*",
 		"type-fest": "catalog:",
 		"zod": "catalog:"

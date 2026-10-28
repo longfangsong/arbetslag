@@ -7,4 +7,5 @@ export * from "./reconcile.ts";
 export * from "./executor.ts";
 export * from "./triggers/runtime.ts";
 export * from "./triggers/webhook.ts";
+export * from "./triggers/telegram.ts";
 export * from "./performers/timer.ts";

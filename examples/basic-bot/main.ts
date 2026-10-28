@@ -2,8 +2,10 @@
  * 最小可跑的 demo：模板 → 实例化 → 投递 → 推进 → 效果 → 回执 → 打印，
  * 外加宿主那一侧的两件事：**触发器对账**（webhook）与**恢复扫描**。
  *
- * 这里没有真的模型：`llm.complete` 由本文件里的假 **Performer** 实现（5ms 的"网络延迟"）。
- * 换成真模型只需要换一个 Performer（`packages/llm`），图、内核、宿主都不用动。
+ * 这里的 agent 是 `@arbetslag/agents` 的节点定义（ADR-0009）：一个普通节点，
+ * 循环在图里——问模型、调一个工具、拿到结果再问，最后沿 `reply` 回话。
+ * 模型仍然是假的（本文件里的假 **Performer**，5ms 的"网络延迟"），换成真模型
+ * 只需要把 `modelPerformer(fakeModel)` 换成 `@arbetslag/llm/openai` 的实现，图不用动。
  */
 import { z } from "zod";
 import {
@@ -17,6 +19,14 @@ import {
 	deliverToNode,
 } from "@arbetslag/kernel";
 import {
+	type ModelCompleteResult,
+	agent,
+	agentLayout,
+	defineTool,
+	modelCompleteKind,
+	textOf,
+} from "@arbetslag/agents";
+import {
 	type Performers,
 	createHost,
 	createMemoryIndex,
@@ -25,64 +35,24 @@ import {
 	submit,
 	webhookKind,
 } from "@arbetslag/host-node";
+import { type ModelCall, modelPerformer } from "@arbetslag/llm";
 
 /** 监听端口；被占就演示「未就绪」（ADR-0001）。 */
 const PORT = Number(process.env.PORT ?? 8787);
 
 // ── 节点定义 ────────────────────────────────────────────────────────────────
 
-/** 最小的"agent"节点：收到 `chat` 就问模型，收到回执把回答转给 printer。 */
-const bot = defineNode({
-	name: "bot",
-	version: 1,
-	state: z.object({ asked: z.number() }).default({ asked: 0 }),
-	config: z.object({ model: z.string() }),
-	ports: () => ({ reply: z.object({ text: z.string() }) }),
-	step: ({ state, config, message }) => {
-		switch (message.type) {
-			case "chat": {
-				const { text } = message.body as { text: string };
-				const asked = state.asked + 1;
-				return {
-					state: { asked },
-					effects: [
-						{
-							kind: "llm.complete",
-							input: { model: config.model, prompt: text },
-							correlationId: `ask-${asked}`,
-						},
-					],
-				};
-			}
-			case "@effect.end": {
-				// 回执按 `correlationId` 配对：改图的回执没有后续，别当成模型的话。
-				const { correlationId, result } = message.body as {
-					correlationId: string;
-					result: { ok: true; text: string } | { ok: false; error: string };
-				};
-				if (correlationId === "unhook") return { state };
-				const text = result.ok ? result.text : `（模型挂了：${result.error}）`;
-				return { state, sends: [{ port: "reply", body: { text } }] };
-			}
-			case "unhook":
-				// 改图也是效果：拆掉 webhook 触发器，宿主推完之后会对账、把监听关掉（ADR-0001）。
-				return {
-					state,
-					effects: [
-						{
-							kind: "graph.mutate",
-							input: { ops: [{ op: "removeTrigger", id: "hook" }] },
-							correlationId: "unhook",
-						},
-					],
-				};
-			default:
-				return { state };
-		}
-	},
+/** 一个工具：普通节点定义 + 元数据（ADR-0009）。同步、纯，所以不来效果。 */
+const clock = defineTool({
+	name: "clock",
+	description: "看看现在几点",
+	input: z.object({}),
+	state: z.null().default(null),
+	config: z.null(),
+	run: () => ({ state: null, result: { time: new Date().toISOString().slice(11, 19) } }),
 });
 
-/** 收到 `reply` 就往世界外写一行（也是效果，因为写 stdout 是副作用）。 */
+/** 收到 `reply` 就往世界外写一行（写 stdout 是副作用，所以走效果）。 */
 const printer = defineNode({
 	name: "printer",
 	version: 1,
@@ -105,43 +75,98 @@ const printer = defineNode({
 	},
 });
 
+/** 运维用的小节点：收到 `unhook` 就拆触发器（改图也是效果）。 */
+const admin = defineNode({
+	name: "admin",
+	version: 1,
+	state: z.null().default(null),
+	config: z.null(),
+	ports: () => ({}),
+	step: ({ state, message }) => {
+		if (message.type !== "unhook") return { state };
+		return {
+			state,
+			effects: [
+				{
+					kind: "graph.mutate",
+					input: { ops: [{ op: "removeTrigger", id: "hook" }] },
+					correlationId: "unhook",
+				},
+			],
+		};
+	},
+});
+
 // ── 模板、注册表、Performer ─────────────────────────────────────────────────
+
+/** 工具只写一遍：schema 抄进 agent config，边也一并生成（ADR-0009）。 */
+const layout = agentLayout({
+	agent: "bot",
+	config: { model: "fake-model-1", system: "你是个简洁的助手" },
+	tools: [{ tool: clock }],
+});
 
 const template: WorkflowTemplate = {
 	nodes: {
-		bot: { definition: "bot", config: { model: "fake-echo-1" } },
+		...layout.nodes,
 		printer: { definition: "printer", config: null },
+		admin: { definition: "admin", config: null },
 	},
 	edges: [
+		...layout.edges,
 		{ from: "bot", to: "printer", port: "reply" },
-		// 触发器的输出就是端口：webhook 进来的 body 变成一条 `chat` 消息（ADR-0001）。
-		{ from: "hook", to: "bot", port: "chat" },
+		// 触发器的输出就是端口：webhook 进来的 body 变成一条 `user` 消息（ADR-0001）。
+		{ from: "hook", to: "bot", port: "user" },
 	],
-	triggers: [{ id: "hook", kind: "webhook", config: { port: PORT, path: "/hook", output: "chat" } }],
+	triggers: [{ id: "hook", kind: "webhook", config: { port: PORT, path: "/hook", output: "user" } }],
 };
 
 const registry = createRegistry({
-	nodes: [bot, printer],
+	nodes: [agent, clock, printer, admin],
 	effects: [
-		{
-			kind: "llm.complete",
-			input: z.object({ model: z.string(), prompt: z.string() }),
-			result: z.union([
-				z.object({ ok: z.literal(true), text: z.string() }),
-				z.object({ ok: z.literal(false), error: z.string() }),
-			]),
-		},
+		modelCompleteKind,
+		// `graph.mutate` 是内核自带的效果种类，不用注册。
 		{ kind: "log.line", input: z.object({ text: z.string() }), result: z.null() },
 	],
 	triggers: [webhookKind],
 });
 
+/**
+ * 假模型：第一次要 `clock`，看到工具结果就把时间说出来。
+ * 这段"剧本"就是宿主里 Performer 该做的事——真模型换掉它，图一个字节都不用改。
+ */
+const fakeModel: ModelCall = async ({ input }) => {
+	await new Promise((resolve) => setTimeout(resolve, 5)); // 假装有网络
+	// 只看这一轮（最后一句 user 之后）发生过什么：历史里的旧工具结果不算数。
+	const askedAt = input.messages.reduce((at, message, index) => (message.role === "user" ? index : at), 0);
+	const asked = input.messages[askedAt];
+	const results = input.messages
+		.slice(askedAt)
+		.flatMap((message) => message.blocks)
+		.filter((block) => block.type === "tool-result");
+
+	if (results.length === 0) {
+		return {
+			ok: true,
+			message: {
+				role: "assistant",
+				blocks: [{ type: "tool-call", callId: "c1", name: "clock", input: {} }],
+			},
+		} satisfies ModelCompleteResult;
+	}
+
+	const last = results.at(-1) as { result: { time?: string } };
+	return {
+		ok: true,
+		message: {
+			role: "assistant",
+			blocks: [{ type: "text", text: `现在是 ${last.result.time}（你问的是「${asked === undefined ? "" : textOf(asked)}」）` }],
+		},
+	};
+};
+
 const performers: Performers = {
-	"llm.complete": async (input) => {
-		const { prompt } = input as { prompt: string };
-		await new Promise((resolve) => setTimeout(resolve, 5)); // 假装有网络
-		return { ok: true, text: `（echo）你说的是「${prompt}」` };
-	},
+	"model.complete": modelPerformer(fakeModel),
 	"log.line": (input) => {
 		console.log(`      🖨  ${(input as { text: string }).text}`);
 		return null;
@@ -184,7 +209,7 @@ const host = createHost({
 	triggers: {
 		runtimes: { webhook: createWebhookRuntime() },
 		retryMs: 200,
-		onUnready: (info) => console.log(`      ! 未就绪 ${info.trigger}：${info.reason}（会在 ${200}ms 后重试）`),
+		onUnready: (info) => console.log(`      ! 未就绪 ${info.trigger}：${info.reason}（会在 200ms 后重试）`),
 	},
 });
 
@@ -205,9 +230,11 @@ console.log("① 三条消息同时投递给同一份工作流，串行入口让
 const questions = ["你好", "今天几号", "再见"];
 const results = await Promise.all(
 	questions.map(async (text) => {
-		console.log(`→ 投递 chat：${text}`);
-		const result = await submit(host, id, "bot", { type: "chat", body: { text } });
-		console.log(`← 静止（${result.rounds} 轮、结算 ${result.settled} 个效果：问模型 + 打印）\n`);
+		console.log(`→ 投递 user：${text}`);
+		const result = await submit(host, id, "bot", { type: "user", body: { text } });
+		console.log(
+			`← 静止（${result.rounds} 轮、结算 ${result.settled} 个效果：问模型 ×2 + 打印）\n`,
+		);
 		return result;
 	}),
 );
@@ -232,7 +259,7 @@ if (sync !== undefined && sync.unready.length > 0) {
 // ── 3. 改图拆触发器：对账把监听关掉 ─────────────────────────────────────────
 
 console.log("③ 节点出一个 graph.mutate 拆掉触发器，宿主在同一轮里关掉监听");
-await submit(host, id, "bot", { type: "unhook", body: null });
+await submit(host, id, "admin", { type: "unhook", body: null });
 console.log(`   现在开着的触发器：${JSON.stringify(host.triggers?.running(id))}\n`);
 
 // ── 4. 恢复扫描：投递成功、Run 没跑的悬挂态 ─────────────────────────────────
@@ -240,7 +267,7 @@ console.log(`   现在开着的触发器：${JSON.stringify(host.triggers?.runni
 console.log("④ 恢复扫描：只落了邮件、还没 Run 的工作流（模拟进程在中间被杀）");
 const hanging = await createWorkflow(store, registry, template, { id: "recover-me" });
 ids.push(hanging.id);
-await deliverToNode(store, hanging.id, "bot", { type: "chat", body: { text: "崩溃前的最后一句" } });
+await deliverToNode(store, hanging.id, "bot", { type: "user", body: { text: "崩溃前的最后一句" } });
 
 const report = await recover(host, index);
 console.log(
@@ -253,10 +280,12 @@ console.log(`   捡起来的是：${report.advanced.map((entry) => entry.id).joi
 await host.triggers?.stop();
 
 const final = await snapshot();
+const botState = final.graph.nodeStates.bot?.state as { history: { role: string }[] };
 console.log("最终快照");
-console.log(`  bot      ${JSON.stringify(final.graph.nodeStates.bot?.state)}`);
+console.log(`  bot      history ${botState.history.length} 条：${botState.history.map((m) => m.role).join("、")}`);
 console.log(`  printer  ${JSON.stringify(final.graph.nodeStates.printer?.state)}`);
 console.log(
 	`  在飞效果 ${final.inFlight.length} 个；每条消息都推到了静止：${results.every((r) => r.status === "quiescent")}`,
 );
-console.log(`  每条消息各自结算了两个效果（问模型 + 打印）：${results.every((r) => r.settled === 2)}`);
+// 一次提问结算三个效果：问模型（要工具）→ 问模型（有结果了）→ 打印。
+console.log(`  每条消息各自结算了三个效果：${results.every((r) => r.settled === 3)}`);

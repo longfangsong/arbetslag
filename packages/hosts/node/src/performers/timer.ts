@@ -1,18 +1,11 @@
-import { z } from "zod";
-import type { EffectKindDefinition } from "@arbetslag/kernel";
+import { timerWaitKind } from "@arbetslag/agents";
 import type { Performer } from "../executor.ts";
 
 /**
- * 最小的一种宿主内效果：等一段时间。回执是 `null`。
- *
- * 它的用处是让图里出现「真会耗时」的步骤而不必依赖网络；也是写自定义效果种类
- * 时的最小样板：一个 kind 定义（名字 + input/result schema）+ 一个 **Performer**。
+ * `timer.wait` 的声明在 `@arbetslag/agents`（发它的人声明它），这里只有**实现**。
+ * 也是写自定义效果种类时的最小样板：一份 kind 声明 + 一个 **Performer**。
  */
-export const timerKind: EffectKindDefinition = {
-	kind: "timer.wait",
-	input: z.object({ ms: z.number().int().nonnegative() }),
-	result: z.null(),
-};
+export { timerWaitKind as timerKind };
 
 export const timerPerformer: Performer = async (input) => {
 	const { ms } = input as { ms: number };

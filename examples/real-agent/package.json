@@ -1,0 +1,22 @@
+{
+	"name": "@arbetslag/example-real-agent",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"start": "node --env-file-if-exists=.env main.ts",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@arbetslag/agents": "workspace:*",
+		"@arbetslag/host-node": "workspace:*",
+		"@arbetslag/kernel": "workspace:*",
+		"@arbetslag/llm": "workspace:*",
+		"openai": "^7.33.0",
+		"type-fest": "catalog:",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"typescript": "catalog:"
+	}
+}
