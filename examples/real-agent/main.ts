@@ -19,7 +19,17 @@ import {
 	createWorkflow,
 	defineNode,
 } from "@arbetslag/kernel";
-import { agent, agentLayout, defineTool, modelCompleteKind, timerWaitKind } from "@arbetslag/agents";
+import {
+	APPEND_PORT,
+	CONVERSATION_NAME,
+	HISTORY_PORT,
+	agent,
+	agentLayout,
+	conversation,
+	defineTool,
+	modelCompleteKind,
+	timerWaitKind,
+} from "@arbetslag/agents";
 import { createHost, submit } from "@arbetslag/host-node";
 import { modelPerformer } from "@arbetslag/llm";
 import { createOpenAIModel } from "@arbetslag/llm/openai";
@@ -71,12 +81,22 @@ const layout = agentLayout({
 });
 
 const template: WorkflowTemplate = {
-	nodes: { ...layout.nodes, printer: { definition: "printer", config: null } },
-	edges: [...layout.edges, { from: "bot", to: "printer", port: "reply" }],
+	nodes: {
+		...layout.nodes,
+		// 对话历史在 `chat` 里（ADR-0010）：agent 只管问模型。
+		chat: { definition: CONVERSATION_NAME, config: null },
+		printer: { definition: "printer", config: null },
+	},
+	edges: [
+		...layout.edges,
+		{ from: "chat", to: "bot", port: HISTORY_PORT },
+		{ from: "bot", to: "chat", port: APPEND_PORT },
+		{ from: "bot", to: "printer", port: "reply" },
+	],
 };
 
 const registry = createRegistry({
-	nodes: [agent, clock, printer],
+	nodes: [agent, conversation, clock, printer],
 	effects: [
 		modelCompleteKind,
 		timerWaitKind,
@@ -117,11 +137,12 @@ console.log(`模型 ${model} @ ${baseURL}\n`);
 
 const question = process.argv[2] ?? "现在几点了？查一下再告诉我。";
 console.log(`→ ${question}`);
-const result = await submit(host, id, "bot", { type: "user", body: { text: question } });
+const result = await submit(host, id, "chat", { type: "user", body: { text: question } });
 console.log(`← ${result.status}（${result.rounds} 轮、结算 ${result.settled} 个效果）`);
 
 const loaded = await store.load(id);
-const state = loaded?.snapshot.graph.nodeStates.bot?.state as
+// 历史在 conversation（节点 id `chat`）身上，不在 agent 上（ADR-0010）。
+const state = loaded?.snapshot.graph.nodeStates.chat?.state as
 	| { history: { role: string; blocks: { type: string }[] }[] }
 	| undefined;
 console.log(`\nhistory：${state?.history.map((message) => message.role).join("、")}`);

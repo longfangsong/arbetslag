@@ -20,8 +20,12 @@ import {
 } from "@arbetslag/kernel";
 import {
 	type ModelCompleteResult,
+	APPEND_PORT,
+	CONVERSATION_NAME,
+	HISTORY_PORT,
 	agent,
 	agentLayout,
+	conversation,
 	defineTool,
 	modelCompleteKind,
 	textOf,
@@ -109,20 +113,24 @@ const layout = agentLayout({
 const template: WorkflowTemplate = {
 	nodes: {
 		...layout.nodes,
+		// 对话历史在 `chat` 这个节点里（ADR-0010）：agent 自己不再存 history。
+		chat: { definition: CONVERSATION_NAME, config: null },
 		printer: { definition: "printer", config: null },
 		admin: { definition: "admin", config: null },
 	},
 	edges: [
 		...layout.edges,
+		{ from: "chat", to: "bot", port: HISTORY_PORT },
+		{ from: "bot", to: "chat", port: APPEND_PORT },
 		{ from: "bot", to: "printer", port: "reply" },
 		// 触发器的输出就是端口：webhook 进来的 body 变成一条 `user` 消息（ADR-0001）。
-		{ from: "hook", to: "bot", port: "user" },
+		{ from: "hook", to: "chat", port: "user" },
 	],
 	triggers: [{ id: "hook", kind: "webhook", config: { port: PORT, path: "/hook", output: "user" } }],
 };
 
 const registry = createRegistry({
-	nodes: [agent, clock, printer, admin],
+	nodes: [agent, conversation, clock, printer, admin],
 	effects: [
 		modelCompleteKind,
 		// `graph.mutate` 是内核自带的效果种类，不用注册。
@@ -231,7 +239,7 @@ const questions = ["你好", "今天几号", "再见"];
 const results = await Promise.all(
 	questions.map(async (text) => {
 		console.log(`→ 投递 user：${text}`);
-		const result = await submit(host, id, "bot", { type: "user", body: { text } });
+		const result = await submit(host, id, "chat", { type: "user", body: { text } });
 		console.log(
 			`← 静止（${result.rounds} 轮、结算 ${result.settled} 个效果：问模型 ×2 + 打印）\n`,
 		);
@@ -267,7 +275,7 @@ console.log(`   现在开着的触发器：${JSON.stringify(host.triggers?.runni
 console.log("④ 恢复扫描：只落了邮件、还没 Run 的工作流（模拟进程在中间被杀）");
 const hanging = await createWorkflow(store, registry, template, { id: "recover-me" });
 ids.push(hanging.id);
-await deliverToNode(store, hanging.id, "bot", { type: "user", body: { text: "崩溃前的最后一句" } });
+await deliverToNode(store, hanging.id, "chat", { type: "user", body: { text: "崩溃前的最后一句" } });
 
 const report = await recover(host, index);
 console.log(
@@ -280,9 +288,9 @@ console.log(`   捡起来的是：${report.advanced.map((entry) => entry.id).joi
 await host.triggers?.stop();
 
 const final = await snapshot();
-const botState = final.graph.nodeStates.bot?.state as { history: { role: string }[] };
+const chatState = final.graph.nodeStates.chat?.state as { history: { role: string }[] };
 console.log("最终快照");
-console.log(`  bot      history ${botState.history.length} 条：${botState.history.map((m) => m.role).join("、")}`);
+console.log(`  chat     history ${chatState.history.length} 条：${chatState.history.map((m) => m.role).join("、")}`);
 console.log(`  printer  ${JSON.stringify(final.graph.nodeStates.printer?.state)}`);
 console.log(
 	`  在飞效果 ${final.inFlight.length} 个；每条消息都推到了静止：${results.every((r) => r.status === "quiescent")}`,

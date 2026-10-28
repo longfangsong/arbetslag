@@ -97,7 +97,8 @@ await Promise.race([answered, timeout]);
 await host.triggers?.stop();
 
 const loaded = await store.load(id);
-const state = loaded?.snapshot.graph.nodeStates.bot?.state as
+// 历史在 conversation（节点 id `chat`）身上，不在 agent 上（ADR-0010）。
+const state = loaded?.snapshot.graph.nodeStates.chat?.state as
 	| { history: { role: string; blocks: { type: string }[] }[] }
 	| undefined;
 const roles = state?.history.map((message) => message.role) ?? [];

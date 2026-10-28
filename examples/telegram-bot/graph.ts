@@ -4,7 +4,17 @@
  */
 import { z } from "zod";
 import { type WorkflowTemplate, createRegistry, defineNode } from "@arbetslag/kernel";
-import { agent, agentLayout, defineTool, modelCompleteKind, timerWaitKind } from "@arbetslag/agents";
+import {
+	APPEND_PORT,
+	CONVERSATION_NAME,
+	HISTORY_PORT,
+	agent,
+	agentLayout,
+	conversation,
+	defineTool,
+	modelCompleteKind,
+	timerWaitKind,
+} from "@arbetslag/agents";
 import { telegramKind } from "@arbetslag/host-node";
 
 /** 把一句话发回 Telegram：chat id 由 relay 从聊天消息里记住。 */
@@ -66,11 +76,18 @@ export function buildGraph(options: { model: string; system: string }) {
 	});
 
 	const template: WorkflowTemplate = {
-		nodes: { ...layout.nodes, relay: { definition: "relay", config: null } },
+		nodes: {
+			...layout.nodes,
+			// 对话历史在 `chat` 里（ADR-0010）；relay 只管把话换成 Telegram 消息。
+			chat: { definition: CONVERSATION_NAME, config: null },
+			relay: { definition: "relay", config: null },
+		},
 		edges: [
 			...layout.edges,
+			{ from: "chat", to: "bot", port: HISTORY_PORT },
+			{ from: "bot", to: "chat", port: APPEND_PORT },
 			{ from: "bot", to: "relay", port: "reply" },
-			{ from: "relay", to: "bot", port: "user" },
+			{ from: "relay", to: "chat", port: "user" },
 			// 触发器的一条输出就是一条边：聊天消息从 `message` 这个端口进 relay。
 			{ from: "tg", to: "relay", port: "message" },
 		],
@@ -78,7 +95,7 @@ export function buildGraph(options: { model: string; system: string }) {
 	};
 
 	const registry = createRegistry({
-		nodes: [agent, clock, relay],
+		nodes: [agent, conversation, clock, relay],
 		effects: [modelCompleteKind, timerWaitKind, telegramSendKind],
 		triggers: [telegramKind],
 	});

@@ -2,7 +2,16 @@ import type { JsonValue } from "type-fest";
 import { type EffectKindDefinition, defineNode, type Transition } from "@arbetslag/kernel";
 import { z } from "zod";
 import { AGENT_NAME, agentConfigSchema } from "./agent.ts";
-import { type ToolCallBlock, type ToolResultBlock, toolResult, toolResultBlockSchema } from "./history.ts";
+import { CONVERSATION_NAME } from "./conversation.ts";
+import {
+	APPEND_PORT,
+	HISTORY_PORT,
+	type ToolCallBlock,
+	type ToolResultBlock,
+	USER_PORT,
+	toolResult,
+	toolResultBlockSchema,
+} from "./history.ts";
 import { type AgentLayoutOptions, placeAgent } from "./template.ts";
 import { TOOL_RESULT_PORT, type ToolNode, toolPort } from "./tool.ts";
 
@@ -78,8 +87,12 @@ export type SubagentOptions = {
 	input: z.ZodType<JsonValue>;
 };
 
-/** 起一个子 agent 的那批操作：新增节点 + 接线（ADR-0002、0009）。 */
+/** 子 agent 的 conversation 用这个相对后缀；实际节点 id 是 `${childId}.conversation`。 */
+const conversationIdOf = (childId: string): string => `${childId}.conversation`;
+
+/** 起一个子 agent 的那批操作：新增节点 + 接线（ADR-0002、0009、0010）。 */
 function spawnOps(self: string, childId: string, fragment: SubagentFragment): JsonValue[] {
+	const conversationId = conversationIdOf(childId);
 	const ops: JsonValue[] = [
 		{
 			op: "spawn",
@@ -87,6 +100,10 @@ function spawnOps(self: string, childId: string, fragment: SubagentFragment): Js
 			definition: fragment.agent.definition,
 			config: fragment.agent.config,
 		},
+		// 子 agent 的 history 和自己的 conversation 成对起（ADR-0010）。
+		{ op: "spawn", id: conversationId, definition: CONVERSATION_NAME, config: null },
+		{ op: "connect", from: conversationId, to: childId, port: HISTORY_PORT },
+		{ op: "connect", from: childId, to: conversationId, port: APPEND_PORT },
 	];
 	for (const tool of fragment.tools) {
 		ops.push({
@@ -103,12 +120,11 @@ function spawnOps(self: string, childId: string, fragment: SubagentFragment): Js
 	return ops;
 }
 
-/** 回收一个子 agent：连带它的工具，边一并删掉（`retire` 的语义）。 */
+/** 回收一个子 agent：连带它的 conversation 与工具，边一并删掉（`retire` 的语义）。 */
 function retireOps(childId: string, fragment: SubagentFragment): JsonValue[] {
-	return [childId, ...fragment.tools.map((tool) => `${childId}.${tool.id}`)].map((id) => ({
-		op: "retire",
-		id,
-	}));
+	return [childId, conversationIdOf(childId), ...fragment.tools.map((tool) => `${childId}.${tool.id}`)].map(
+		(id) => ({ op: "retire", id }),
+	);
 }
 
 const without = (children: SubagentState["children"], callId: string): SubagentState["children"] => {
@@ -134,8 +150,8 @@ export function defineSubagent(options: SubagentOptions): ToolNode {
 		state: subagentStateSchema,
 		config: subagentConfigSchema,
 		ports: () => ({
-			/** 发给子 agent 的任务：子 agent 收到的类别是 `user`（端口名就是类别）。 */
-			user: z.object({ text: z.string() }),
+			/** 发给子 agent 的话：它的 conversation 收到的类别是 `user`（端口名就是类别）。 */
+			[USER_PORT]: z.object({ text: z.string() }),
 			/** 子 agent 的回复（`from` 是哪个子 agent）。 */
 			reply: z.object({ text: z.string() }),
 			[TOOL_RESULT_PORT]: toolResultBlockSchema,
@@ -207,7 +223,7 @@ export function defineSubagent(options: SubagentOptions): ToolNode {
 								...state,
 								children: { ...state.children, [callId]: { ...child, phase: "running" } },
 							},
-							sends: [{ port: "user", to: child.childId, body: { text: child.task } }],
+							sends: [{ port: USER_PORT, to: conversationIdOf(child.childId), body: { text: child.task } }],
 							effects: [
 								{
 									kind: TIMER_WAIT,

@@ -47,6 +47,19 @@ export type HistoryBlock = z.infer<typeof historyBlockSchema>;
 export type HistoryMessage = z.infer<typeof historyMessageSchema>;
 export type History = z.infer<typeof historySchema>;
 
+/**
+ * history 在端口上的三个名字（端口名就是消息类别，ADR-0005）。
+ *
+ * - `user`：外面有人说了一句话（触发器与入口节点用它，body 是 `{ text }`）；
+ * - `append`：要把一条消息记进 history（body 是一条 `HistoryMessage`）；
+ * - `history`：history 此刻的样子（body 是整份 `History`）。
+ *
+ * `user` 与 `append` 进 conversation，`history` 出 conversation 进消费者（ADR-0010）。
+ */
+export const USER_PORT = "user";
+export const APPEND_PORT = "append";
+export const HISTORY_PORT = "history";
+
 export const text = (content: string): TextBlock => ({ type: "text", text: content });
 
 export const textMessage = (role: "system" | "user" | "assistant" | "tool", content: string): HistoryMessage => ({
@@ -73,3 +86,12 @@ export const textOf = (message: HistoryMessage): string =>
 
 export const toolCallsOf = (message: HistoryMessage): ToolCallBlock[] =>
 	message.blocks.filter((block): block is ToolCallBlock => block.type === "tool-call");
+
+/**
+ * 「有没有话要回」：最后一条是 user 说的、还是 tool 回的，都要问模型；
+ * 最后一条是 assistant 说的就不必再问（否则自己写完的回复会把自己叫醒，ADR-0010）。
+ */
+export const answerable = (history: History): boolean => {
+	const last = history.at(-1);
+	return last !== undefined && (last.role === "user" || last.role === "tool");
+};

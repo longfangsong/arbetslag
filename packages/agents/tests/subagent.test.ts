@@ -18,6 +18,7 @@ import {
 } from "@arbetslag/kernel";
 import {
 	agent,
+	conversation,
 	defineSubagent,
 	defineTool,
 	modelCompleteKind,
@@ -59,7 +60,7 @@ const subagent = defineSubagent({
 });
 
 const registry = createRegistry({
-	nodes: [agent, clock, recorder, subagent],
+	nodes: [agent, conversation, clock, recorder, subagent],
 	effects: [modelCompleteKind, timerWaitKind],
 });
 
@@ -112,19 +113,27 @@ test("a call spawns a child agent, wires it, and sends it the task", async () =>
 
 	const s = await snapshot(store);
 	const nodes = Object.keys(s.graph.shape.nodes);
-	assert.deepEqual(nodes.sort(), ["out", "sub", "sub.child1", "sub.child1.clock"]);
+	assert.deepEqual(nodes.sort(), [
+		"out",
+		"sub",
+		"sub.child1",
+		"sub.child1.clock",
+		"sub.child1.conversation",
+	]);
 	assert.deepEqual(
 		s.graph.shape.edges.map((edge) => `${edge.from}→${edge.to}:${edge.port}`).sort(),
 		[
 			"sub.child1.clock→sub.child1:tool.result",
+			"sub.child1.conversation→sub.child1:history",
 			"sub.child1→sub.child1.clock:tool.clock",
+			"sub.child1→sub.child1.conversation:append",
 			"sub.child1→sub:reply",
 			"sub→out:tool.result",
 		],
 	);
 
-	// 任务发到了子 agent 的邮箱里，子 agent 已经去问模型了；超时也在飞。
-	const child = s.graph.nodeStates["sub.child1"];
+	// 任务发到了子 agent 的 conversation 里；子 agent 拿到快照已经去问模型了，超时也在飞。
+	const child = s.graph.nodeStates["sub.child1.conversation"];
 	assert.deepEqual(
 		(child?.state as { history: { role: string }[] }).history.map((message) => message.role),
 		["user"],
