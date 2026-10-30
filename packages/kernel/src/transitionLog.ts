@@ -5,7 +5,8 @@ import type { HaltCode } from "./halt.ts";
  * 可丢、可截断，从来不是事实来源。
  */
 export type LogEntry = { at: string } & (
-	| { type: "transition"; node: string; messageType: string; seq: number; sends: number; effects: number }
+	/** `sends` 是 send 的条数，`delivered` 是实际投出的消息数：沿边发时等于订阅者个数（ADR-0011）。 */
+	| { type: "transition"; node: string; messageType: string; seq: number; sends: number; delivered: number; effects: number }
 	/** 发出的消息没有去处：端口没接线，或显式目标不存在（ADR-0002）。`from` 可以是触发器。 */
 	| { type: "dropped"; from: string; port: string; reason: "no_edge" | "no_target" }
 	| { type: "migrated"; node: string; from: number; to: number }

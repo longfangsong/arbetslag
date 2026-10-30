@@ -26,14 +26,14 @@ test("a valid shape has no violations; self loops are legal", () => {
 	assert.ok(workflowShapeSchema.safeParse(s).success);
 });
 
-test("(from, port) is at most one edge", () => {
+test("one port can feed several targets: the edge table is the cardinality (ADR-0011)", () => {
 	const s = shape({
 		edges: [
 			{ from: "a", to: "b", port: "p" },
 			{ from: "a", to: "a", port: "p" },
 		],
 	});
-	assert.deepEqual(codes(s), ["edge_port_taken"]);
+	assert.deepEqual(codes(s), []);
 });
 
 test("same port from different nodes is fine", () => {
@@ -46,7 +46,7 @@ test("same port from different nodes is fine", () => {
 	assert.deepEqual(codes(s), []);
 });
 
-test("an exact duplicate edge is rejected: it takes the same (from, port) twice", () => {
+test("an exact duplicate edge is rejected: the same (from, port, to) twice", () => {
 	assert.deepEqual(
 		codes(
 			shape({
@@ -56,7 +56,7 @@ test("an exact duplicate edge is rejected: it takes the same (from, port) twice"
 				],
 			}),
 		),
-		["edge_port_taken"],
+		["edge_duplicate"],
 	);
 });
 
@@ -89,7 +89,7 @@ test("edges must start at a live node or trigger and end at a live node", () => 
 	);
 });
 
-test("a trigger output has at most one target, like a node port", () => {
+test("a trigger output can feed several targets, like a node port (ADR-0011)", () => {
 	const s = shape({
 		triggers: [{ id: "t", kind: "k", config: null }],
 		edges: [
@@ -97,7 +97,7 @@ test("a trigger output has at most one target, like a node port", () => {
 			{ from: "t", to: "b", port: "text" },
 		],
 	});
-	assert.deepEqual(codes(s), ["edge_port_taken"]);
+	assert.deepEqual(codes(s), []);
 });
 
 test("trigger ids are unique and do not collide with node ids", () => {

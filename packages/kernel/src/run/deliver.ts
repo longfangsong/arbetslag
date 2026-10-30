@@ -44,7 +44,8 @@ export async function deliverToNode(
 /**
  * 触发器把外部事件投进工作流（ADR-0001）：`output` 是触发器种类声明的输出名，
  * body 按它的 schema 校验——不合规拒绝投递（`InvalidDelivery`），不停住；
- * 从 `(trigger, output)` 出发的边决定去哪个节点，没接线就丢弃并记一条日志，返回 `false`。
+ * 从 `(trigger, output)` 出发的边决定去哪些节点（边是订阅，可以有多个，ADR-0011），
+ * 没接线就丢弃并记一条日志，返回 `false`。
  */
 export async function deliverFromTrigger(
 	store: SnapshotStore,
@@ -68,9 +69,13 @@ export async function deliverFromTrigger(
 		const parsed = schema.safeParse(body);
 		if (!parsed.success) throw new InvalidDelivery(`body does not match output ${JSON.stringify(output)}`);
 
-		const edge = snapshot.graph.shape.edges.find((e) => e.from === trigger && e.port === output);
-		if (edge === undefined) return { value: false }; // 没人订阅：丢弃，不写
-		append(snapshot, edge.to, output, parsed.data as JsonValue);
+		// 订阅者可以有多个；按目标 id 升序取 `seq`，与边的书写顺序无关（ADR-0012）。
+		const targets = snapshot.graph.shape.edges
+			.filter((e) => e.from === trigger && e.port === output)
+			.map((e) => e.to)
+			.sort();
+		if (targets.length === 0) return { value: false }; // 没人订阅：丢弃，不写
+		for (const target of targets) append(snapshot, target, output, parsed.data as JsonValue);
 		return { snapshot, value: true };
 	});
 	if (!delivered) {

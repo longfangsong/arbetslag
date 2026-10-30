@@ -193,26 +193,33 @@ function transition(
 	const log: LogEntry[] = [];
 	const at = () => options.now().toISOString();
 
+	// 沿边发是**订阅**（ADR-0011）：接了几个目标就投几份；显式 `to` 是**寻址**，只有一个目标。
+	// 投递序按目标 id 升序，使 `seq` 只由快照决定，与边的书写顺序无关（ADR-0012）。
+	let delivered = 0;
 	sends.data.forEach((send, i) => {
-		const target =
+		const targets =
 			send.to !== undefined
-				? send.to
-				: shape.edges.find((edge) => edge.from === nodeId && edge.port === send.port)?.to;
-		const targetState = target === undefined ? undefined : nodeStates[target];
-		if (targetState === undefined) {
-			log.push({
-				type: "dropped",
-				from: nodeId,
-				port: send.port,
-				reason: target === undefined ? "no_edge" : "no_target",
-				at: at(),
-			});
+				? [send.to]
+				: shape.edges
+						.filter((edge) => edge.from === nodeId && edge.port === send.port)
+						.map((edge) => edge.to)
+						.sort();
+		if (targets.length === 0) {
+			log.push({ type: "dropped", from: nodeId, port: send.port, reason: "no_edge", at: at() });
 			return;
 		}
-		targetState.mailbox.push({
-			seq: draft.nextSeq++,
-			message: { from: nodeId, type: send.port, body: bodies[i] as never },
-		});
+		for (const target of targets) {
+			const targetState = nodeStates[target];
+			if (targetState === undefined) {
+				log.push({ type: "dropped", from: nodeId, port: send.port, reason: "no_target", at: at() });
+				continue;
+			}
+			targetState.mailbox.push({
+				seq: draft.nextSeq++,
+				message: { from: nodeId, type: send.port, body: bodies[i] as never },
+			});
+			delivered++;
+		}
 	});
 
 	const effects: InFlightEffect[] = requests.data.map((request) => ({
@@ -230,6 +237,7 @@ function transition(
 		messageType: head.message.type,
 		seq: head.seq,
 		sends: sends.data.length,
+		delivered,
 		effects: effects.length,
 		at: at(),
 	});

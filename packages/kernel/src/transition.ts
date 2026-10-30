@@ -2,7 +2,12 @@ import type { JsonValue } from "type-fest";
 import type { EffectRequest } from "./effect/index.ts";
 import type { Message } from "./message.ts";
 
-/** 沿某个端口发出一条消息（ADR-0005）；`to` 只用于运行时新增的节点。 */
+/**
+ * 沿某个端口发出一条消息（ADR-0005）。
+ *
+ * 不给 `to` 就是**订阅**：沿形状里从 `(自己, port)` 出发的每条边各投一份，零个订阅者则丢弃（ADR-0011）。
+ * 给 `to` 就是**寻址**：只投给那一个节点，不经过边——用于运行时刚新增、形状里还没接线的节点。
+ */
 export type Send = {
 	port: string;
 	body: JsonValue;

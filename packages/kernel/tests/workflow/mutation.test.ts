@@ -72,8 +72,16 @@ test("a port can be re-wired in one batch: disconnect runs before connect", () =
 	assert.deepEqual(s.graph.shape.edges, [{ from: "a", to: "a", port: "out" }]);
 });
 
-test("without the disconnect the same connect is rejected: one target per port", () => {
-	assert.deepEqual(codes([{ op: "connect", from: "a", to: "a", port: "out" }]), ["edge_port_taken"]);
+test("a second target on the same port is a second subscriber, not a violation (ADR-0011)", () => {
+	const s = okSnapshot([{ op: "connect", from: "a", to: "a", port: "out" }]);
+	assert.deepEqual(s.graph.shape.edges, [
+		{ from: "a", to: "b", port: "out" },
+		{ from: "a", to: "a", port: "out" },
+	]);
+});
+
+test("the very same edge twice is still rejected: the same (from, port, to)", () => {
+	assert.deepEqual(codes([{ op: "connect", from: "a", to: "b", port: "out" }]), ["edge_duplicate"]);
 });
 
 test("retire removes the node, its state and mailbox, and every edge touching it", () => {
