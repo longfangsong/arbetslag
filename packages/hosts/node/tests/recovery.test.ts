@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -14,12 +14,12 @@ import {
 	deliverToNode,
 	run,
 } from "@arbetslag/kernel";
+import { DatabaseSync } from "node:sqlite";
 import { MissingPerformer, type Performers } from "../src/executor.ts";
-import { snapshotFile } from "../src/fsStore.ts";
 import { createHost } from "../src/host.ts";
 import { recover } from "../src/recovery.ts";
-import { createMemoryIndex, createFsIndex } from "../src/workflowIndex.ts";
-import { createFsStore } from "../src/fsStore.ts";
+import { createSqliteStore } from "../src/sqliteStore.ts";
+import { createMemoryIndex } from "../src/workflowIndex.ts";
 
 const anyJson: z.ZodType<JsonValue> = z.json();
 
@@ -112,8 +112,8 @@ test("each workflow lands in exactly one bucket, and the ones with work get adva
 
 	assert.deepEqual(calls, [{ n: 2 }, { n: 3 }], "both the hanging run and the leftover effect were performed");
 	const recovered = await store.load("effect");
-	assert.deepEqual(recovered?.snapshot.inFlight, [], "the leftover effect is settled");
-	assert.deepEqual(recovered?.snapshot.graph.nodeStates.w?.state, { done: [{ correlationId: "c", result: { ok: true } }] });
+	assert.deepEqual(recovered?.inFlight, [], "the leftover effect is settled");
+	assert.deepEqual(recovered?.graph.nodeStates.w?.state, { done: [{ correlationId: "c", result: { ok: true } }] });
 });
 
 test("a second scan finds nothing left to do", async () => {
@@ -156,18 +156,22 @@ test("a workflow with no performer for its in-flight effect fails alone", async 
 	assert.deepEqual(report.quiescent, ["fine"], "one broken workflow does not stop the scan");
 });
 
-test("a corrupt snapshot on disk is reported, not thrown", async () => {
-	const dir = await mkdtemp(join(tmpdir(), "arbetslag-recovery-"));
-	const store = createFsStore({ dir });
-	const index = createFsIndex({ dir });
+test("a corrupt snapshot in the store is reported, not thrown", async () => {
+	const file = join(await mkdtemp(join(tmpdir(), "arbetslag-recovery-")), "snapshots.db");
+	const store = createSqliteStore({ file });
 	const host = createHost({ store, registry, performers: spy().performers });
 
 	await createWorkflow(store, registry, workerTemplate, { id: "good" });
-	await writeFile(snapshotFile(dir, "bad"), "{ this is not json", "utf8");
+	// 有人拿 sqlite3 手改坏了一行：扫描要把它记成失败，不挡下一条。
+	const raw = new DatabaseSync(file);
+	raw.prepare("INSERT INTO snapshots (id, snapshot) VALUES (?, ?)").run("bad", "{ this is not json");
+	raw.close();
 
-	const report = await recover(host, index);
+	// 索引就是 store 自己的 `SELECT id`——不需要适配器（ADR-0013）。
+	const report = await recover(host, store);
 
 	assert.deepEqual(report.quiescent, ["good"]);
 	assert.equal(report.failed.length, 1);
 	assert.equal(report.failed[0]?.id, "bad");
+	store.close();
 });

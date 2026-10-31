@@ -105,9 +105,9 @@ export async function performInFlight(
 ): Promise<{ settled: number }> {
 	const loaded = await store.load(id);
 	if (loaded === undefined) throw new WorkflowNotFound(id);
-	if (loaded.snapshot.halted !== undefined) return { settled: 0 };
-	if (loaded.snapshot.inFlight.length === 0) return { settled: 0 };
-	return { settled: await settleRound(store, registry, id, performers, loaded.snapshot.inFlight) };
+	if (loaded.halted !== undefined) return { settled: 0 };
+	if (loaded.inFlight.length === 0) return { settled: 0 };
+	return { settled: await settleRound(store, registry, id, performers, loaded.inFlight) };
 }
 
 /** 宿主侧的护栏：轮数上限。内核不区分“静止”与“死锁”（ADR-0003），跑不动的图得有人喊停。 */
@@ -141,7 +141,7 @@ export type DriveResult = {
 async function countInFlight(store: SnapshotStore, id: string): Promise<number> {
 	const loaded = await store.load(id);
 	if (loaded === undefined) throw new WorkflowNotFound(id);
-	return loaded.snapshot.inFlight.length;
+	return loaded.inFlight.length;
 }
 
 /**

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { defineNode } from "../../src/nodeDefinition.ts";
 import { createMemoryStore } from "../../src/memoryStore.ts";
 import { createRegistry } from "../../src/registry.ts";
-import { Conflict } from "../../src/snapshotStore.ts";
+import { WorkflowExists } from "../../src/errors.ts";
 import { checkSnapshot } from "../../src/workflow/snapshot.ts";
 import { createWorkflow, instantiate, InstantiateError } from "../../src/workflow/template/index.ts";
 
@@ -150,18 +150,18 @@ test("a malformed template is one violation, not a crash", () => {
 	assert.deepEqual(codes(() => instantiate(registry, { nodes: { bot: { config: null } } } as never)), ["template_malformed"]);
 });
 
-test("createWorkflow saves under the given or a generated id; a taken id is a Conflict", async () => {
+test("createWorkflow saves under the given or a generated id; a taken id is refused", async () => {
 	const store = createMemoryStore();
 	const template = { nodes: { bot: { definition: "agent", config: {} } } };
 
 	const a = await createWorkflow(store, registry, template, { id: "w1" });
 	assert.equal(a.id, "w1");
-	assert.ok((await store.load("w1"))?.snapshot);
+	assert.ok((await store.load("w1")) !== undefined);
 
 	const b = await createWorkflow(store, registry, template);
 	assert.ok(b.id.length > 0 && b.id !== "w1");
 
-	await assert.rejects(createWorkflow(store, registry, template, { id: "w1" }), Conflict);
+	await assert.rejects(createWorkflow(store, registry, template, { id: "w1" }), WorkflowExists);
 });
 
 test("an invalid template saves nothing", async () => {

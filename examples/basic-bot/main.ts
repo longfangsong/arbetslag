@@ -221,15 +221,15 @@ const host = createHost({
 	},
 });
 
-const { id, revision } = await createWorkflow(store, registry, template, { id: "demo" });
+const { id } = await createWorkflow(store, registry, template, { id: "demo" });
 ids.push(id);
 const snapshot = async (workflowId = id) => {
 	const loaded = await store.load(workflowId);
 	if (loaded === undefined) throw new Error("工作流不见了");
-	return loaded.snapshot;
+	return loaded;
 };
 
-console.log(`工作流 ${id} 实例化完成（revision ${revision}）`);
+console.log(`工作流 ${id} 实例化完成`);
 console.log(`形状：${Object.keys((await snapshot()).graph.shape.nodes).join("、")}\n`);
 
 // ── 1. 直接投递：串行入口 ───────────────────────────────────────────────────

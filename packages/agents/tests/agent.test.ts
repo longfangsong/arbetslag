@@ -101,7 +101,7 @@ async function setup(withJudge = false) {
 const snapshot = async (store: SnapshotStore, id = "w") => {
 	const loaded = await store.load(id);
 	if (loaded === undefined) throw new Error("missing workflow");
-	return loaded.snapshot;
+	return loaded;
 };
 
 const agentStateOf = async (store: SnapshotStore): Promise<AgentState> => {

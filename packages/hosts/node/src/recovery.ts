@@ -57,11 +57,11 @@ export async function recover(
 				report.missing.push(id);
 				continue;
 			}
-			if (isHalted(loaded.snapshot)) {
+			if (isHalted(loaded)) {
 				report.halted.push(id);
 				continue;
 			}
-			const need = needsRecovery(loaded.snapshot);
+			const need = needsRecovery(loaded);
 			if (!need.run && !need.effects) {
 				report.quiescent.push(id);
 				continue;

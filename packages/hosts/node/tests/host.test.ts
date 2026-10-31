@@ -98,7 +98,7 @@ async function setup(template: WorkflowTemplate, id = "w") {
 const stateOf = async (store: ReturnType<typeof createMemoryStore>, node: string, id = "w") => {
 	const loaded = await store.load(id);
 	if (loaded === undefined) throw new Error("missing workflow");
-	return loaded.snapshot.graph.nodeStates[node]?.state;
+	return loaded.graph.nodeStates[node]?.state;
 };
 
 const oneWorker: WorkflowTemplate = { nodes: { w: { definition: "worker", config: null } } };

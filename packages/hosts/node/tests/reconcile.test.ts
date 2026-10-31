@@ -75,13 +75,13 @@ async function setup(triggers: Trigger[], id = "w") {
 }
 
 async function setTriggers(store: ReturnType<typeof createMemoryStore>, triggers: Trigger[], id = "w") {
-	const loaded = await store.load(id);
-	if (loaded === undefined) throw new Error("missing workflow");
-	const snapshot: Snapshot = {
-		...loaded.snapshot,
-		graph: { ...loaded.snapshot.graph, shape: { ...loaded.snapshot.graph.shape, triggers } },
-	};
-	await store.save(id, snapshot, loaded.revision);
+	await store.commit(id, (snapshot) => {
+		const next: Snapshot = {
+			...snapshot,
+			graph: { ...snapshot.graph, shape: { ...snapshot.graph.shape, triggers } },
+		};
+		return { snapshot: next, value: undefined };
+	});
 }
 
 const noDeliver = async () => null;

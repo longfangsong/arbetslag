@@ -1,4 +1,4 @@
-export * from "./fsStore.ts";
+export * from "./sqliteStore.ts";
 export * from "./queue.ts";
 export * from "./workflowIndex.ts";
 export * from "./host.ts";

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { WorkflowExists, WorkflowNotFound } from "../src/errors.ts";
 import { createMemoryStore } from "../src/memoryStore.ts";
 import type { Snapshot } from "../src/workflow/snapshot.ts";
-import { Conflict } from "../src/snapshotStore.ts";
 
 const snap = (nextSeq = 0): Snapshot => ({
 	graph: { shape: { nodes: {}, edges: [], triggers: [] }, nodeStates: {} },
@@ -10,56 +10,72 @@ const snap = (nextSeq = 0): Snapshot => ({
 	nextSeq,
 });
 
-const conflictReason = (p: Promise<unknown>) =>
+const rejection = (p: Promise<unknown>) =>
 	p.then(
-		() => "no conflict",
-		(e) => (e instanceof Conflict ? e.reason : `other: ${e}`),
+		() => "no error",
+		(e) => (e instanceof WorkflowExists ? "exists" : e instanceof WorkflowNotFound ? "missing" : `other: ${e}`),
 	);
 
 test("load of an unknown id is undefined", async () => {
 	assert.equal(await createMemoryStore().load("w"), undefined);
 });
 
-test("create then load round-trips the snapshot and its revision", async () => {
+test("create then load round-trips the snapshot", async () => {
 	const store = createMemoryStore();
-	const rev = await store.save("w", snap(3), null);
-	assert.deepEqual(await store.load("w"), { snapshot: snap(3), revision: rev });
+	await store.create("w", snap(3));
+	assert.deepEqual(await store.load("w"), snap(3));
 });
 
-test("creating an id that exists is a conflict, not a reuse", async () => {
+test("creating an id that exists is refused, not reused", async () => {
 	const store = createMemoryStore();
-	await store.save("w", snap(), null);
-	assert.equal(await conflictReason(store.save("w", snap(), null)), "exists");
+	await store.create("w", snap());
+	assert.equal(await rejection(store.create("w", snap())), "exists");
 });
 
-test("update needs the current revision; each write changes it", async () => {
+test("commit hands the change the current snapshot and writes back what it returns", async () => {
 	const store = createMemoryStore();
-	const r1 = await store.save("w", snap(1), null);
-	const r2 = await store.save("w", snap(2), r1);
-	assert.notEqual(r1, r2);
-	assert.equal(await conflictReason(store.save("w", snap(3), r1)), "stale");
-	assert.equal((await store.load("w"))?.snapshot.nextSeq, 2);
+	await store.create("w", snap(1));
+
+	const seen = await store.commit("w", (snapshot) => {
+		assert.equal(snapshot.nextSeq, 1);
+		return { snapshot: { ...snapshot, nextSeq: 2 }, value: "done" };
+	});
+
+	assert.equal(seen, "done");
+	assert.equal((await store.load("w"))?.nextSeq, 2);
 });
 
-test("drop removes the record; a late writer gets `missing`; drop is idempotent", async () => {
+test("commit on a missing id is `missing`; drop is idempotent and leaves no tombstone", async () => {
 	const store = createMemoryStore();
-	const r1 = await store.save("w", snap(), null);
+	await store.create("w", snap());
 	await store.drop("w");
 	await store.drop("w");
 	assert.equal(await store.load("w"), undefined);
-	assert.equal(await conflictReason(store.save("w", snap(), r1)), "missing");
-	// a dropped id can be created again; no tombstone
-	await store.save("w", snap(), null);
+	assert.equal(await rejection(store.commit("w", (s) => ({ snapshot: s, value: undefined }))), "missing");
+	// a dropped id can be created again
+	await store.create("w", snap());
 });
 
-test("callers cannot reach into the stored record", async () => {
+test("a change that decides not to write leaves the record alone", async () => {
+	const store = createMemoryStore();
+	await store.create("w", snap(1));
+
+	const value = await store.commit("w", (snapshot) => {
+		snapshot.nextSeq = 99; // 即使就地改坏了，只要不写回就不影响已存的那份
+		return { value: "kept" };
+	});
+
+	assert.equal(value, "kept");
+	assert.equal((await store.load("w"))?.nextSeq, 1);
+});
+
+test("callers cannot reach into the stored snapshot", async () => {
 	const store = createMemoryStore();
 	const input = snap(1);
-	const rev = await store.save("w", input, null);
+	await store.create("w", input);
 	input.nextSeq = 99;
 	const loaded = await store.load("w");
-	assert.equal(loaded?.snapshot.nextSeq, 1);
-	loaded!.snapshot.nextSeq = 42;
-	assert.equal((await store.load("w"))?.snapshot.nextSeq, 1);
-	assert.ok(rev);
+	assert.equal(loaded?.nextSeq, 1);
+	loaded!.nextSeq = 42;
+	assert.equal((await store.load("w"))?.nextSeq, 1);
 });

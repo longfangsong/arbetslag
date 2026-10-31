@@ -1,37 +1,38 @@
-import { Conflict, type Revision, type SnapshotStore, type StoredSnapshot } from "./snapshotStore.ts";
+import { WorkflowExists, WorkflowNotFound } from "./errors.ts";
+import type { SnapshotStore } from "./snapshotStore.ts";
 import type { Snapshot } from "./workflow/snapshot.ts";
 
 /**
  * 进程内的 `SnapshotStore`：给测试和示例用。读写都深拷贝，
  * 保证调用方拿到的和存进去的互不相干（快照是纯 JSON）。
+ *
+ * 临界区在这里是免费的：JS 单线程，`commit` 里不会有第二个 `commit` 插进来（ADR-0013）。
  */
 export function createMemoryStore(): SnapshotStore {
-	const records = new Map<string, { snapshot: Snapshot; counter: number }>();
-
+	const records = new Map<string, Snapshot>();
 	const clone = (snapshot: Snapshot): Snapshot => structuredClone(snapshot);
 
 	return {
-		async load(id): Promise<StoredSnapshot | undefined> {
-			const record = records.get(id);
-			if (record === undefined) return undefined;
-			return { snapshot: clone(record.snapshot), revision: String(record.counter) };
+		async load(id) {
+			const snapshot = records.get(id);
+			return snapshot === undefined ? undefined : clone(snapshot);
 		},
 
-		async save(id, snapshot, expected): Promise<Revision> {
+		async create(id, snapshot) {
+			if (records.has(id)) throw new WorkflowExists(id);
+			records.set(id, clone(snapshot));
+		},
+
+		async commit(id, change) {
 			const current = records.get(id);
-			if (expected === null) {
-				if (current !== undefined) throw new Conflict(id, "exists");
-			} else if (current === undefined) {
-				throw new Conflict(id, "missing");
-			} else if (String(current.counter) !== expected) {
-				throw new Conflict(id, "stale");
-			}
-			const counter = (current?.counter ?? 0) + 1;
-			records.set(id, { snapshot: clone(snapshot), counter });
-			return String(counter);
+			if (current === undefined) throw new WorkflowNotFound(id);
+			// 给 change 一份拷贝：它改坏了又决定不写，存着的那份不受影响。
+			const result = change(clone(current));
+			if (result.snapshot !== undefined) records.set(id, clone(result.snapshot));
+			return result.value;
 		},
 
-		async drop(id): Promise<void> {
+		async drop(id) {
 			records.delete(id);
 		},
 	};

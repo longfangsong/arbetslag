@@ -81,7 +81,7 @@ async function setup() {
 const snapshot = async (store: SnapshotStore): Promise<Snapshot> => {
 	const loaded = await store.load("w");
 	if (loaded === undefined) throw new Error("missing workflow");
-	return loaded.snapshot;
+	return loaded;
 };
 
 const ofKind = (s: Snapshot, kind: string): InFlightEffect[] => s.inFlight.filter((effect) => effect.kind === kind);

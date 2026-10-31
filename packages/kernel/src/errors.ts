@@ -10,6 +10,16 @@ export class WorkflowNotFound extends Error {
 	}
 }
 
+/** 想创建的工作流 id 已经存在（ADR-0003：不提供"已存在就复用"）。 */
+export class WorkflowExists extends Error {
+	readonly id: string;
+	constructor(id: string) {
+		super(`workflow already exists: ${JSON.stringify(id)}`);
+		this.name = "WorkflowExists";
+		this.id = id;
+	}
+}
+
 /** 工作流已停住，外部投递被拒（ADR-0008）；由触发器实现方决定重试或丢弃。 */
 export class WorkflowHalted extends Error {
 	readonly id: string;

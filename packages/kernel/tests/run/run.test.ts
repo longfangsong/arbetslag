@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { WorkflowHalted } from "../../src/errors.ts";
+import type { SnapshotStore } from "../../src/snapshotStore.ts";
 import { deliverToNode, resume, run } from "../../src/run/index.ts";
 import type { LogEntry } from "../../src/transitionLog.ts";
 import { chain, deterministic, load, registry, setup } from "./fixtures.ts";
@@ -34,10 +35,21 @@ test("messages are processed in global enqueue order, not by node", async () => 
 
 test("running a quiescent workflow writes nothing", async () => {
 	const { store, id } = await setup();
-	const before = (await store.load(id))?.revision;
-	const result = await run(store, registry, id);
+	let writes = 0;
+	const counting: SnapshotStore = {
+		...store,
+		async commit(i, change) {
+			return store.commit(i, (snapshot) => {
+				const result = change(snapshot);
+				if (result.snapshot !== undefined) writes++;
+				return result;
+			});
+		},
+	};
+
+	const result = await run(counting, registry, id);
 	assert.deepEqual(result, { status: "quiescent", steps: 0, effects: [] });
-	assert.equal((await store.load(id))?.revision, before);
+	assert.equal(writes, 0, "no change, no write");
 });
 
 test("the budget stops a run mid-way: not a halt, and the next run carries on", async () => {

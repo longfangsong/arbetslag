@@ -18,8 +18,8 @@ export interface KeyedQueue<K = string> {
 
 /**
  * 进程内的实现：每个 key 一条 promise 链。
- * 正确性不依赖它（CAS 加重试已经兜住，ADR-0003），它只决定「谁先谁后」；
- * 跨进程、跨机器的取舍是部署的事，这里不做。
+ * 正确性不依赖它：跨进程由 store 的 CAS 兜住（ADR-0013）——撞了就有一个写者收到 `Conflict` 重来；
+ * 它只决定「谁先谁后」，让后到的那条少白算一遍。
  */
 export function createKeyedQueue<K = string>(): KeyedQueue<K> {
 	/** 队尾。链本身永不 reject，否则一条失败的 work 会毒死后面所有人的等待。 */

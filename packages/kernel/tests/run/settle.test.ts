@@ -4,7 +4,7 @@ import { completeEffect, deliverToNode, performGraphMutate, run } from "../../sr
 import { EFFECT_END, jsonSchema } from "../../src/message.ts";
 import { deterministic, load, registry, setup } from "./fixtures.ts";
 import type { InFlightEffect } from "../../src/effect/index.ts";
-import { Conflict } from "../../src/snapshotStore.ts";
+import { WorkflowNotFound } from "../../src/errors.ts";
 import type { JsonValue } from "type-fest";
 import { z } from "zod";
 import { createMemoryStore } from "../../src/memoryStore.ts";
@@ -107,11 +107,9 @@ test("graph.mutate: the change, the record removal and the receipt are one write
 	const { effects } = await run(store, mutateRegistry, "w", deterministic());
 	const effectId = effects[0]?.effectId ?? "";
 
-	const before = (await store.load("w"))?.revision;
 	assert.equal(await performGraphMutate(store, mutateRegistry, "w", effectId), "applied");
-	assert.notEqual((await store.load("w"))?.revision, before);
 
-	const s = (await store.load("w"))?.snapshot;
+	const s = (await store.load("w"));
 	assert.deepEqual(Object.keys(s?.graph.shape.nodes ?? {}).sort(), ["child", "s"]);
 	assert.deepEqual(s?.graph.shape.edges, [{ from: "child", to: "s", port: "out" }]);
 	assert.deepEqual(s?.inFlight, []);
@@ -130,11 +128,11 @@ test("graph.mutate: an invalid batch changes nothing but still answers with a fa
 	const { effects } = await run(store, mutateRegistry, "w", deterministic());
 	assert.equal(await performGraphMutate(store, mutateRegistry, "w", effects[0]?.effectId ?? ""), "rejected");
 
-	const s = (await store.load("w"))?.snapshot;
+	const s = (await store.load("w"));
 	assert.deepEqual(Object.keys(s?.graph.shape.nodes ?? {}), ["s"]);
 	assert.equal(s?.halted, undefined, "an illegal mutation is a failed effect, not a halt");
 	await run(store, mutateRegistry, "w");
-	const results = (await store.load("w"))?.snapshot.graph.nodeStates.s?.state as { results: { result: { ok: boolean } }[] };
+	const results = (await store.load("w"))?.graph.nodeStates.s?.state as { results: { result: { ok: boolean } }[] };
 	assert.equal(results.results[0]?.result.ok, false);
 });
 
@@ -143,7 +141,7 @@ test("graph.mutate: a node that retires itself gets no receipt, but the change i
 	await deliverToNode(store, "w", "s", { type: "retire-self", body: null });
 	const { effects } = await run(store, mutateRegistry, "w", deterministic());
 	assert.equal(await performGraphMutate(store, mutateRegistry, "w", effects[0]?.effectId ?? ""), "applied");
-	const s = (await store.load("w"))?.snapshot;
+	const s = (await store.load("w"));
 	assert.deepEqual(s?.graph.shape.nodes, {});
 	assert.deepEqual(s?.inFlight, []);
 });
@@ -155,13 +153,15 @@ test("graph.mutate is skipped while the workflow is halted, so recovery can redo
 	await deliverToNode(store, "w", "s", { type: "grow", body: null });
 	const { effects } = await run(store, reg, "w", deterministic());
 
-	const loaded = await store.load("w");
-	await store.save("w", { ...loaded!.snapshot, halted: { code: "step_threw", detail: "x", at: "2026-10-25T00:00:00.000Z" } }, loaded!.revision);
+	await store.commit("w", (snapshot) => ({
+		snapshot: { ...snapshot, halted: { code: "step_threw", detail: "x", at: "2026-10-25T00:00:00.000Z" } },
+		value: undefined,
+	}));
 	assert.equal(await performGraphMutate(store, reg, "w", effects[0]?.effectId ?? ""), "skipped");
-	assert.equal((await store.load("w"))?.snapshot.inFlight.length, 1);
+	assert.equal((await store.load("w"))?.inFlight.length, 1);
 });
 
-test("conflict is reported as Conflict, not swallowed", async () => {
+test("a result for a workflow that is gone is `WorkflowNotFound`, not swallowed", async () => {
 	const store = createMemoryStore();
-	await assert.rejects(completeEffect(store, "nope", "e", null), (e: unknown) => !(e instanceof Conflict));
+	await assert.rejects(completeEffect(store, "nope", "e", null), WorkflowNotFound);
 });

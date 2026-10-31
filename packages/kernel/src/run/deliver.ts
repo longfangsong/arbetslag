@@ -5,7 +5,6 @@ import type { Registry } from "../registry.ts";
 import type { SnapshotStore } from "../snapshotStore.ts";
 import { type TransitionLog, appendLog } from "../transitionLog.ts";
 import type { Snapshot } from "../workflow/snapshot.ts";
-import { update } from "./update.ts";
 
 export type DeliverOptions = { log?: TransitionLog; now?: () => Date };
 
@@ -21,9 +20,9 @@ function checkOpen(id: string, snapshot: Snapshot): void {
 }
 
 /**
- * 直接向某个节点投一条消息：邮箱上的一次 CAS 追加（ADR-0001、0003）。
+ * 直接向某个节点投一条消息：邮箱上的一次追加，在存储的临界区里做（ADR-0001、0003、0013）。
  * 没有发件人，不经过边；投递之后要不要 `run` 是调用方的事。
- * at-least-once，内核不去重。已停住抛 `WorkflowHalted`；冲突重载重来 ≤3 次后抛 `Conflict`。
+ * at-least-once，内核不去重。已停住抛 `WorkflowHalted`。
  */
 export async function deliverToNode(
 	store: SnapshotStore,
@@ -34,7 +33,7 @@ export async function deliverToNode(
 	if (message.type === "" || isReservedType(message.type)) {
 		throw new InvalidDelivery(`invalid message type: ${JSON.stringify(message.type)}`);
 	}
-	await update(store, id, (snapshot) => {
+	await store.commit(id, (snapshot) => {
 		checkOpen(id, snapshot);
 		append(snapshot, node, message.type, message.body);
 		return { snapshot, value: undefined };
@@ -56,7 +55,7 @@ export async function deliverFromTrigger(
 	body: JsonValue,
 	options: DeliverOptions = {},
 ): Promise<boolean> {
-	const delivered = await update(store, id, (snapshot) => {
+	const delivered = await store.commit(id, (snapshot) => {
 		checkOpen(id, snapshot);
 		const declaration = snapshot.graph.shape.triggers.find((t) => t.id === trigger);
 		if (declaration === undefined) throw new InvalidDelivery(`no such trigger: ${JSON.stringify(trigger)}`);

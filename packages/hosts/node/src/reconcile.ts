@@ -124,7 +124,7 @@ export function createTriggers(options: TriggersOptions): Triggers {
 		}
 
 		const open = running.get(id) ?? new Map<string, Open>();
-		const declared = loaded.snapshot.graph.shape.triggers;
+		const declared = loaded.graph.shape.triggers;
 		const seen = new Set<string>();
 		const sync: TriggerSync = { opened: [], reopened: [], closed: [], unready: [] };
 

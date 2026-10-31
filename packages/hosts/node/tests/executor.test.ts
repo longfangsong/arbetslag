@@ -108,7 +108,7 @@ async function setup(template: WorkflowTemplate, id = "w") {
 const snapshot = async (store: ReturnType<typeof createMemoryStore>, id = "w") => {
 	const loaded = await store.load(id);
 	if (loaded === undefined) throw new Error("missing workflow");
-	return loaded.snapshot;
+	return loaded;
 };
 
 /** 记下调用，按 `reply` 返回结果。 */
@@ -170,7 +170,7 @@ test("an invalid graph.mutate answers with a failure receipt instead of halting"
 	const s = await snapshot(store);
 	s.graph.shape.nodes.spawned = { definition: "caller", config: null };
 	s.graph.nodeStates.spawned = { version: 1, state: { results: [] }, mailbox: [] };
-	await store.save(id, s, (await store.load(id))?.revision ?? null);
+	await store.commit(id, () => ({ snapshot: s, value: undefined }));
 
 	const result = await driveWorkflow(store, registry, id, { performers: {} });
 	assert.equal(result.status, "quiescent");
@@ -219,7 +219,7 @@ test("a leftover in-flight effect is settled without a new delivery, then run co
 	// 直接造一条在飞记录：等价于“上一轮把效果交出去之后崩溃了”。
 	const s = await snapshot(store);
 	s.inFlight = [{ effectId: "e1", origin: "c", kind: "fake.call", input: { x: 7 } }];
-	await store.save(id, s, (await store.load(id))?.revision ?? null);
+	await store.commit(id, () => ({ snapshot: s, value: undefined }));
 
 	const { performers } = spy({ ok: true });
 	// 恢复扫描只需要“做效果”这一步；推进是下一次 run 的事。
@@ -304,7 +304,7 @@ test("effects of one round run concurrently, their receipts each land once", asy
 		{ effectId: "e1", origin: "c", kind: "fake.call", input: { x: 1 } },
 		{ effectId: "e2", origin: "c", kind: "fake.call", input: { x: 2 } },
 	];
-	await store.save(id, s, (await store.load(id))?.revision ?? null);
+	await store.commit(id, () => ({ snapshot: s, value: undefined }));
 
 	let running = 0;
 	let peak = 0;

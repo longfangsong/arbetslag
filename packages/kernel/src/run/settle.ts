@@ -5,7 +5,6 @@ import type { SnapshotStore } from "../snapshotStore.ts";
 import type { Snapshot } from "../workflow/snapshot.ts";
 import { applyGraphMutation, graphMutationResult } from "../workflow/graph/mutation.ts";
 import { graphOpSchema } from "../workflow/graph/ops.ts";
-import { update } from "./update.ts";
 
 /**
  * 把一个效果的结果落成回执（ADR-0006）：删掉那条在飞记录，给 origin 追加 `@effect.end`。
@@ -37,7 +36,7 @@ export async function completeEffect(
 	effectId: string,
 	result: JsonValue,
 ): Promise<boolean> {
-	return update(store, id, (snapshot) => {
+	return store.commit(id, (snapshot) => {
 		const next = settleEffect(snapshot, effectId, result);
 		return next === undefined ? { value: false } : { snapshot: next, value: true };
 	});
@@ -58,7 +57,7 @@ export async function performGraphMutate(
 	id: string,
 	effectId: string,
 ): Promise<GraphMutateOutcome> {
-	return update<GraphMutateOutcome>(store, id, (snapshot) => {
+	return store.commit<GraphMutateOutcome>(id, (snapshot) => {
 		if (snapshot.halted !== undefined) return { value: "skipped" };
 		const effect = snapshot.inFlight.find((e) => e.effectId === effectId);
 		if (effect === undefined) return { value: "skipped" };

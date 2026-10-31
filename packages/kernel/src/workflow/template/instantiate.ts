@@ -1,7 +1,7 @@
 import { formatIssues } from "../../issues.ts";
 import type { Registry } from "../../registry.ts";
 import type { Snapshot } from "../snapshot.ts";
-import type { Revision, SnapshotStore } from "../../snapshotStore.ts";
+import type { SnapshotStore } from "../../snapshotStore.ts";
 import {
 	checkShapeAgainstRegistry,
 	checkWorkflowShape,
@@ -90,16 +90,15 @@ export type CreateWorkflowOptions = {
 
 /**
  * 实例化并落盘：用模板造出一份工作流，并给它一个 id。
- * id 已存在抛 `Conflict`——不提供"已存在就复用"，幂等由调用方 `load` 后自己表达。
+ * id 已存在抛 `WorkflowExists`——不提供"已存在就复用"，幂等由调用方 `load` 后自己表达。
  */
 export async function createWorkflow(
 	store: SnapshotStore,
 	registry: Registry,
 	template: WorkflowTemplate,
 	options: CreateWorkflowOptions = {},
-): Promise<{ id: string; revision: Revision }> {
-	const snapshot = instantiate(registry, template);
+): Promise<{ id: string }> {
 	const id = options.id ?? crypto.randomUUID();
-	const revision = await store.save(id, snapshot, null);
-	return { id, revision };
+	await store.create(id, instantiate(registry, template));
+	return { id };
 }

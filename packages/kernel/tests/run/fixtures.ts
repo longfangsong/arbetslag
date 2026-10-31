@@ -120,5 +120,5 @@ export function deterministic() {
 export const load = async (store: ReturnType<typeof createMemoryStore>, id = "w") => {
 	const loaded = await store.load(id);
 	if (loaded === undefined) throw new Error("missing workflow");
-	return loaded.snapshot;
+	return loaded;
 };
