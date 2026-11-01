@@ -1,11 +1,7 @@
 import type { JsonValue } from "type-fest";
-import {
-	type History,
-	type HistoryMessage,
-	type ModelCompleteResult,
-	type ToolCallBlock,
-	type ToolSpec,
-} from "@arbetslag/agents";
+import type { History, HistoryMessage, ToolCallBlock } from "../history.ts";
+import type { ModelCompleteResult } from "../modelComplete.ts";
+import type { ToolSpec } from "../tool.ts";
 
 /**
  * 这里只写「OpenAI 的聊天补全长什么样」，不碰 SDK：翻译是纯函数，可以单独测。
@@ -104,7 +100,7 @@ export function fromAssistant(content: string | null, toolCalls: OpenAIToolCall[
 			input: parseArguments(call.function.arguments),
 		});
 	}
-	// 空回答不当成功：agent 会把它当失败说出来，而不是悄悄不动（ADR-0008 的可见性）。
+	// 空回答不当成功：LLM 节点会把它当失败说出来，而不是悄悄不动（ADR-0008 的可见性）。
 	if (blocks.length === 0) return { ok: false, error: "model returned nothing" };
 	return { ok: true, message: { role: "assistant", blocks } };
 }

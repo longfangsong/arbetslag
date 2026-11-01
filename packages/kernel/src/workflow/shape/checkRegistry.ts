@@ -1,4 +1,5 @@
 import { formatIssues } from "../../issues.ts";
+import { checkMatchSpec } from "../../matcher.ts";
 import type { Registry } from "../../registry.ts";
 import type { Edge } from "./edge.ts";
 import type { WorkflowShape } from "./shape.ts";
@@ -8,12 +9,13 @@ export type RegistryViolation =
 	| { code: "node_config_invalid"; id: string; detail: string }
 	| { code: "edge_port_undeclared"; edge: Edge }
 	| { code: "trigger_kind_unknown"; id: string; kind: string }
-	| { code: "trigger_config_invalid"; id: string; detail: string };
+	| { code: "trigger_config_invalid"; id: string; detail: string }
+	| { code: "trigger_match_invalid"; id: string; detail: string };
 
 /**
  * 形状对照注册表（ADR-0001、0002、0004）：
  * - 节点的定义必须在注册表里，config 必须符合定义的 schema
- * - 触发器的 kind 必须已注册，config 必须符合它的 schema
+ * - 触发器的 kind 必须已注册，config 必须符合它的 schema；`match` 引用的匹配函数必须已注册、config 合规（ADR-0015）
  * - 边的端口必须是起点声明过的：节点看 `ports(config)`，触发器看 `outputs(config)`
  *
  * 起点本身有问题（定义未知、config 不合规）时不再重复报它的接线。
@@ -49,6 +51,10 @@ export function checkShapeAgainstRegistry(
 		if (!config.success) {
 			violations.push({ code: "trigger_config_invalid", id: trigger.id, detail: formatIssues(config.error) });
 			continue;
+		}
+		if (trigger.match !== undefined) {
+			const problem = checkMatchSpec(registry, trigger.match);
+			if (problem !== undefined) violations.push({ code: "trigger_match_invalid", id: trigger.id, detail: problem });
 		}
 		declared.set(trigger.id, new Set(Object.keys(kind.outputs(config.data))));
 	}

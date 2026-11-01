@@ -34,7 +34,7 @@ const base = (): Snapshot =>
 			b: { definition: "worker", config: {} },
 		},
 		edges: [{ from: "a", to: "b", port: "out" }],
-		triggers: [{ id: "t", kind: "hook", config: {} }],
+		triggers: [{ id: "t", kind: "hook", listener: "l", config: {} }],
 	});
 
 const apply = (ops: GraphOp[], snapshot = base()) => applyGraphMutation(registry, snapshot, ops);
@@ -106,7 +106,7 @@ test("retire drops in-flight effects whose origin is gone", () => {
 
 test("triggers: add, wire its output, remove it (edges from it go too)", () => {
 	const added = okSnapshot([
-		{ op: "addTrigger", id: "t2", kind: "hook", config: {} },
+		{ op: "addTrigger", id: "t2", kind: "hook", listener: "l", group: "", priority: 0, config: {} },
 		{ op: "connect", from: "t2", to: "a", port: "text" },
 	]);
 	assert.equal(added.graph.shape.triggers.length, 2);
@@ -140,8 +140,8 @@ test("violations: taken id, unknown definition, undeclared port, unknown edge/tr
 	assert.deepEqual(codes([{ op: "connect", from: "a", to: "b", port: "nope" }]), ["edge_port_undeclared"]);
 	assert.deepEqual(codes([{ op: "disconnect", from: "b", to: "a", port: "out" }]), ["disconnect_unknown"]);
 	assert.deepEqual(codes([{ op: "removeTrigger", id: "ghost" }]), ["remove_trigger_unknown"]);
-	assert.deepEqual(codes([{ op: "addTrigger", id: "t", kind: "hook", config: {} }]), ["trigger_duplicate_id"]);
-	assert.deepEqual(codes([{ op: "addTrigger", id: "t3", kind: "cron", config: {} }]), ["trigger_kind_unknown"]);
+	assert.deepEqual(codes([{ op: "addTrigger", id: "t", kind: "hook", listener: "l", group: "", priority: 0, config: {} }]), ["trigger_duplicate_id"]);
+	assert.deepEqual(codes([{ op: "addTrigger", id: "t3", kind: "cron", listener: "l", group: "", priority: 0, config: {} }]), ["trigger_kind_unknown"]);
 });
 
 test("disconnect and retire can share a batch", () => {

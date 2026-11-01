@@ -33,7 +33,7 @@ test("unknown kind and invalid input are reported with their index", () => {
 
 const inFlight: InFlightEffect = {
 	effectId: "e1",
-	origin: "agent",
+	origin: "asker",
 	kind: "timer.wait",
 	input: { ms: 5 },
 	correlationId: "timeout-3",

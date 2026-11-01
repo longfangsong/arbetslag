@@ -7,7 +7,7 @@ import {
 	type History,
 	type HistoryMessage,
 	type ToolResultBlock,
-	answerable,
+	forModel,
 	historyMessageSchema,
 	historySchema,
 	text,
@@ -15,6 +15,7 @@ import {
 	toolCallBlockSchema,
 	toolCallsOf,
 	toolResultBlockSchema,
+	unanswered,
 } from "./history.ts";
 import { type ModelCompleteInput, type ModelCompleteResult, modelCompleteKind } from "./modelComplete.ts";
 import { TOOL_RESULT_PORT, toolPort, toolSpecSchema } from "./tool.ts";
@@ -22,9 +23,9 @@ import { TOOL_RESULT_PORT, toolPort, toolSpecSchema } from "./tool.ts";
 const jsonSchema: z.ZodType<JsonValue> = z.json();
 
 /**
- * agent 的私有状态（ADR-0009）：只剩「在等什么」，**不含 history**（history 在 conversation 里，ADR-0010）。
+ * LLM 节点的私有状态（ADR-0009）：只剩「在等什么」，**不含 history**（history 在 conversation 里，ADR-0010）。
  */
-export const agentStateSchema = z
+export const llmStateSchema = z
 	.object({
 		/** 正在等的模型调用（`correlationId`）；有值就不发新的。 */
 		modelCall: z.string().optional(),
@@ -32,42 +33,43 @@ export const agentStateSchema = z
 		pending: z.record(z.string(), z.string()).default({}),
 		/** 生成 `correlationId` 的单调计数。 */
 		nextCall: z.number().int().nonnegative().default(0),
+		/** 上次问模型时 history 有几条：之后进来的 user / tool 消息都还没回（`unanswered`）。 */
+		seen: z.number().int().nonnegative().optional(),
 	})
 	.default({ pending: {}, nextCall: 0 });
 
 /**
- * agent 的 config：型号、系统提示、工具清单（构建期由 `agentLayout` 抄好）、厂商参数。
+ * LLM 节点的 config：型号、系统提示、工具清单（构建期由 `wireTools` 抄好）、厂商参数。
  * 端口由它推出来（ADR-0009）：`reply` + 每个工具一个 `tool.<name>`。
  */
-export const agentConfigSchema = z.object({
+export const llmConfigSchema = z.object({
 	model: z.string().min(1),
 	system: z.string().optional(),
 	tools: z.array(toolSpecSchema).default([]),
 	params: jsonSchema.optional(),
 });
 
-export type AgentState = z.infer<typeof agentStateSchema>;
-export type AgentConfig = z.infer<typeof agentConfigSchema>;
+export type LlmState = z.infer<typeof llmStateSchema>;
+export type LlmConfig = z.infer<typeof llmConfigSchema>;
 
-export const AGENT_NAME = "agent";
+export const LLM_NAME = "llm";
 
-/** 发给 agent 的输入：用户说的话（触发器与入口节点用它，ADR-0005）。 */
-/** agent 的回复：文本 + 那条 assistant 消息（下游想用整条就用整条）。 */
+/** LLM 节点的回复：文本 + 那条 assistant 消息（下游想用整条就用整条）。 */
 const replyBodySchema = z.object({ text: z.string(), message: historyMessageSchema });
 
-const waiting = (state: AgentState): boolean =>
+const waiting = (state: LlmState): boolean =>
 	state.modelCall !== undefined || Object.keys(state.pending).length > 0;
 
 /**
  * 把一份 history 快照变成一次模型调用：`system` 每次都前置，但不进 history（history 只记对话）。
  * 调用方保证此刻没有在等的东西。
  */
-function ask(state: AgentState, config: AgentConfig, history: History): Transition<AgentState> {
+function ask(state: LlmState, config: LlmConfig, history: History): Transition<LlmState> {
 	const nextCall = state.nextCall + 1;
 	const correlationId = `m${nextCall}`;
 	const messages: HistoryMessage[] = [];
 	if (config.system !== undefined) messages.push({ role: "system", blocks: [text(config.system)] });
-	messages.push(...history);
+	messages.push(...forModel(history));
 	const input: ModelCompleteInput = {
 		model: config.model,
 		messages,
@@ -75,16 +77,19 @@ function ask(state: AgentState, config: AgentConfig, history: History): Transiti
 		...(config.params === undefined ? {} : { params: config.params }),
 	};
 	return {
-		state: { ...state, modelCall: correlationId, nextCall },
+		state: { ...state, modelCall: correlationId, nextCall, seen: history.length },
 		effects: [{ kind: modelCompleteKind.kind, input, correlationId }],
 	};
 }
 
 /**
- * agent（ADR-0009）：普通节点定义，循环在图里，不在函数里。
+ * LLM 节点（ADR-0009）：普通节点定义，问模型、调工具；循环在图里，不在函数里。
  *
- * history 不在它身上（ADR-0010）：conversation 每次记完一条就把整份快照发过来，agent 只管
- * 「这份 history 要不要问模型」——最后一条是 user 或 tool、且自己没在等东西，就问。
+ * history 不在它身上（ADR-0010）：conversation 每次记完一条就把整份快照发过来，它只管
+ * 「这份 history 要不要问模型」——上次问过之后又有 user 或 tool 消息、且自己没在等东西，就问。
+ *
+ * 模型思考期间进来的话不挡、也不丢：它们记在模型的回答之前，回答落进 history 之后它看见它们
+ * 还没被回过，就再问一次，一次回完（要逐条回，在 conversation 前面放一个 `inbox`）。
  *
  * - 收到 `history` → 该问就问，交出一个 `model.complete`；
  * - 收到回执 → 把 assistant 消息沿 `append` 记回去；有工具调用就各发一条 `tool.<name>`、把 `callId` 记进 `pending`；没有就沿 `reply` 回话；
@@ -92,19 +97,11 @@ function ask(state: AgentState, config: AgentConfig, history: History): Transiti
  *
  * 每次转移只做一步，所以每一步都能落盘、被观察、被重放（ADR-0004、0007）。
  */
-export const agent = defineNode<AgentState, AgentConfig>({
-	name: AGENT_NAME,
-	version: 2,
-	state: agentStateSchema,
-	config: agentConfigSchema,
-	// v1 的 history 长在 agent 身上；搬走之后没有诚实的自动迁移可做（ADR-0010），所以停住让人处理。
-	migrate: (state) => {
-		const { history, ...rest } = state as { history?: JsonValue } & Record<string, JsonValue>;
-		if (history !== undefined) {
-			throw new Error("agent v1 kept history in its state; it lives in a conversation node now (ADR-0010)");
-		}
-		return rest as AgentState;
-	},
+export const llm = defineNode<LlmState, LlmConfig>({
+	name: LLM_NAME,
+	version: 1,
+	state: llmStateSchema,
+	config: llmConfigSchema,
 	ports: (config) => ({
 		[HISTORY_PORT]: historySchema,
 		[APPEND_PORT]: historyMessageSchema,
@@ -116,7 +113,7 @@ export const agent = defineNode<AgentState, AgentConfig>({
 		switch (message.type) {
 			case HISTORY_PORT: {
 				const history = historySchema.parse(message.body);
-				if (waiting(state) || !answerable(history)) return { state };
+				if (waiting(state) || !unanswered(history, state.seen)) return { state };
 				return ask(state, config, history);
 			}
 
@@ -138,8 +135,8 @@ export const agent = defineNode<AgentState, AgentConfig>({
 				// 不是我正在等的那个（或重复回执）：忽略。
 				if (body.correlationId !== state.modelCall) return { state };
 
-				const cleared: AgentState = { ...state, modelCall: undefined };
-				const sends: NonNullable<Transition<AgentState>["sends"]> = [];
+				const cleared: LlmState = { ...state, modelCall: undefined };
+				const sends: NonNullable<Transition<LlmState>["sends"]> = [];
 
 				if (!body.result.ok) {
 					const reply = `（模型调用失败：${body.result.error}）`;

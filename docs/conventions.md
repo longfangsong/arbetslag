@@ -20,20 +20,22 @@
    - 不叫 `Lock` / `Mutex`：没有「持有」这回事，只有「排到队尾」。
    - 方法不叫 `run`：那是内核动词（`run(store, registry, id)`），用 `add`。
 
-## 动词：`run` / `drive` / `submit` / `recover` / `reconcile`
+## 动词：`run` / `drive` / `submit` / `drain` / `emit` / `recover` / `reconcile`
 
 1. **`run`** 只在核心里：把**图**推一步，直到**静止**或预算用完。宿主不叫它。
-2. **`drive`** 是宿主的：把一份**工作流**推到静止——先补交在飞**效果**、再 `run` 到没得推。执行器里叫 `driveWorkflow`，入口里叫 `drive(host, id)`（走**串行入口**）。
-3. **`submit`** = 投递 + `drive`，一次调用（ADR-0001：投递 = 一次写 + 一次 Run）。`submitFromTrigger` 是它的触发器版本。
-4. **`recover`** 是一次**恢复扫描**（多份工作流），内部对每份调 `drive`。
-5. **`reconcile`** 是**对账**（一份工作流）：声明 vs 正在跑的监听。
-6. 不叫 `advance` 当宿主动词：核心里已经有一个 `advance`（推进图的一步）。
+2. **`drive`** 是宿主的：在**串行入口**里 `run` 到没得推，改图就地执行，其余**效果**交给 **Performer**（不等它们回来，ADR-0014）。`host.drive(id)`。
+3. **`submit`** = 直接投给一个节点 + `drive`，一次调用（ADR-0001：投递 = 一次写 + 一次 Run）。`host.submit(id, node, message)`。
+4. **`drain`** = 把**路由发件箱**里比游标新的行投进邮箱（与推进游标同一次事务）+ `drive`（ADR-0015）。`host.drain(id)`。
+5. **`emit`** 是**监听器**把一条外部事件交给**路由**：查订阅、跑**匹配函数**、写发件箱。`host.emit(listener, event)`。
+6. **`recover`** 是一次**恢复扫描**，也就是**激活**启动：对每份工作流对账、交出在飞效果、`drain`。`host.recover()`；`host.start()` = `recover` + 打开监听器。
+7. **`reconcile`** 是**对账**（一份工作流）：触发器声明 vs **路由索引**。宿主在每次推进之后做，不单独暴露。
+8. 不叫 `advance` 当宿主动词：核心里已经有一个 `advance`（推进图的一步）。
 
 ## 端口名与效果名
 
 1. **端口名就是消息类别**（ADR-0005），所以名字要说「这条消息是什么」，不说「它从哪来」。`reply`、`user`、`append`、`history`、`tool.<工具名>`、`tool.result` 都是这个形式。
-2. **`tool.<工具名>` 与 `tool.result` 是成对的**：agent 沿前者发出**工具调用**，工具沿后者回**工具结果**。两边都从 `toolPort()` / `TOOL_RESULT_PORT` 取，名字不手写。
+2. **`tool.<工具名>` 与 `tool.result` 是成对的**：调用方（如 LLM 节点）沿前者发出**工具调用**，提供这个工具的节点沿后者回**工具结果**。两边都从 `toolPort()` / `TOOL_RESULT_PORT` 取，名字不手写。
 3. **`user` / `append` / `history` 是一组**（ADR-0010）：`user`（`{ text }`）是外面的一句话，`append` 是一条要记的 `HistoryMessage`，`history` 是整份快照。三者都从 `USER_PORT` / `APPEND_PORT` / `HISTORY_PORT` 取。
 3. **效果种类的名字是 `<名词>.<动词>`**：`graph.mutate`、`model.complete`、`timer.wait`、`log.line`。不是 `completeModel`，也不带实现细节。
-4. **谁发谁声明**：`graph.mutate` 归内核，`model.complete` / `timer.wait` 归 agents 包，`log.line` 之类归应用；**Performer** 归宿主。注册表里只注册一次，所以声明与实现必须各在一处。
-5. **回执按 `correlationId` 配对**。一个节点同时交几种效果时，用 `<前缀>:<自己的键>` 区分（subagent 用 `spawn:` / `timeout:` / `retire:`），并只认自己认得的前缀——别人的回执一律忽略。
+4. **谁发谁声明**：`graph.mutate` 归内核，`model.complete` 归 `@arbetslag/llm`，`timer.wait` 归 host-node，`log.line` 之类归应用；**Performer** 归宿主。注册表里只注册一次，所以声明与实现必须各在一处。
+5. **回执按 `correlationId` 配对**。一个节点同时交几种效果时，用 `<前缀>:<自己的键>` 区分（比如 `spawn:` / `timeout:` / `retire:`），并只认自己认得的前缀——别人的回执一律忽略。

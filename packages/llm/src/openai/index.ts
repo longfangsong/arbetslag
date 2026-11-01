@@ -1,16 +1,16 @@
 import type { JsonValue } from "type-fest";
-import type { ModelCompleteResult } from "@arbetslag/agents";
+import type { ModelCompleteResult } from "../modelComplete.ts";
 import OpenAI from "openai";
 import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
-import type { ModelCall } from "../index.ts";
+import type { ModelCall } from "../performer.ts";
 import { fromAssistant, toChatMessages, toToolDefinitions } from "./translate.ts";
 
 export type OpenAIModelOptions = {
-	/** 不填就用 agent config 里的 `model`，所以换型号只改图、不改部署。 */
+	/** 不填就用 LLM 节点 config 里的 `model`，所以换型号只改图、不改部署。 */
 	model?: string;
 	apiKey?: string;
 	baseURL?: string;
-	/** 每次请求都带上的旋钮，会被 `input.params` 盖掉（ADR-0009：agents 不解释它）。 */
+	/** 每次请求都带上的旋钮，会被 `input.params` 盖掉（ADR-0009：节点不解释它）。 */
 	params?: Record<string, JsonValue>;
 	/** 注入现成客户端：测试、自建网关、代理。 */
 	client?: OpenAI;

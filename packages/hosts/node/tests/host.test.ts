@@ -3,248 +3,456 @@ import { test } from "node:test";
 import type { JsonValue } from "type-fest";
 import { z } from "zod";
 import {
+	type LogEntry,
 	type TransitionLog,
 	type WorkflowTemplate,
-	createMemoryStore,
 	createRegistry,
 	createWorkflow,
+	defineMatcher,
 	defineNode,
 } from "@arbetslag/kernel";
 import type { Performers } from "../src/executor.ts";
-import type { TriggerRuntime } from "../src/triggers/runtime.ts";
-import { createHost, drive, submit, submitFromTrigger } from "../src/host.ts";
+import { type Host, type HostOptions, type Unready, createHost } from "../src/host.ts";
+import type { ListenerRuntime } from "../src/listeners/runtime.ts";
+import { chatIs } from "../src/matchers.ts";
+import { createSqliteStore } from "../src/sqliteStore.ts";
 
 const anyJson: z.ZodType<JsonValue> = z.json();
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-/** 收到 `go` 交出一个 `slow.call`；收到回执把回执记进 state。 */
+/** 收到 `go` 交出一个 `slow.call`；回执与别的消息都记下来。 */
 const worker = defineNode({
 	name: "worker",
-	version: 1,
-	state: z.object({ done: z.array(anyJson) }).default({ done: [] }),
-	config: z.null(),
-	ports: () => ({ out: anyJson }),
-	step: ({ state, message }) => {
-		switch (message.type) {
-			case "go":
-				return {
-					state,
-					effects: [
-						{ kind: "slow.call", input: message.body, correlationId: `c${String(state.done.length)}` },
-					],
-				};
-			case "@effect.end":
-				return { state: { done: [...state.done, message.body] } };
-			case "stop": {
-				const ops: JsonValue[] = [{ op: "removeTrigger", id: "hook" }];
-				return { state, effects: [{ kind: "graph.mutate", input: { ops }, correlationId: "m1" }] };
-			}
-			default:
-				return { state };
-		}
-	},
-});
-
-/** 只记录，什么都不做。 */
-const sink = defineNode({
-	name: "sink",
 	version: 1,
 	state: z.object({ got: z.array(anyJson) }).default({ got: [] }),
 	config: z.null(),
 	ports: () => ({}),
-	step: ({ state, message }) => ({ state: { got: [...state.got, message.body] } }),
-});
-
-const registry = createRegistry({
-	nodes: [worker, sink],
-	effects: [{ kind: "slow.call", input: anyJson, result: anyJson }],
-	triggers: [{ kind: "webhook", config: z.object({}), outputs: () => ({ ping: anyJson }) }],
-});
-
-/** 记下并发峰值，好断言「同一份工作流的投递不交错」。 */
-function spy() {
-	const calls: JsonValue[] = [];
-	let running = 0;
-	let peak = 0;
-	const performers: Performers = {
-		"slow.call": async (input) => {
-			calls.push(input);
-			running++;
-			peak = Math.max(peak, running);
-			await tick();
-			running--;
-			return { ok: true };
-		},
-	};
-	return { calls, performers, peak: () => peak };
-}
-
-function recordingLog() {
-	const entries: string[] = [];
-	const log: TransitionLog = {
-		append: (_id, batch) => {
-			for (const entry of batch) entries.push(entry.type);
-		},
-	};
-	return { entries, log };
-}
-
-async function setup(template: WorkflowTemplate, id = "w") {
-	const store = createMemoryStore();
-	await createWorkflow(store, registry, template, { id });
-	return store;
-}
-
-const stateOf = async (store: ReturnType<typeof createMemoryStore>, node: string, id = "w") => {
-	const loaded = await store.load(id);
-	if (loaded === undefined) throw new Error("missing workflow");
-	return loaded.graph.nodeStates[node]?.state;
-};
-
-const oneWorker: WorkflowTemplate = { nodes: { w: { definition: "worker", config: null } } };
-
-test("submit delivers and drives to quiescent in one call", async () => {
-	const store = await setup(oneWorker);
-	const host = createHost({ store, registry, performers: spy().performers });
-
-	const result = await submit(host, "w", "w", { type: "go", body: { n: 1 } });
-
-	assert.deepEqual(result, { status: "quiescent", rounds: 2, steps: 2, settled: 1, inFlight: 0 });
-	assert.deepEqual(await stateOf(store, "w"), { done: [{ correlationId: "c0", result: { ok: true } }] });
-});
-
-test("concurrent submits on one workflow are serialized, not interleaved", async () => {
-	const store = await setup(oneWorker);
-	const { performers, peak } = spy();
-	const host = createHost({ store, registry, performers });
-
-	const results = await Promise.all([
-		submit(host, "w", "w", { type: "go", body: { n: 1 } }),
-		submit(host, "w", "w", { type: "go", body: { n: 2 } }),
-	]);
-
-	assert.equal(peak(), 1, "the second submit started before the first finished driving");
-	for (const result of results) assert.equal(result.settled, 1, "each submit settled its own effect");
-	const done = (await stateOf(store, "w")) as { done: JsonValue[] };
-	assert.equal(done.done.length, 2);
-});
-
-test("submits to different workflows run in parallel", async () => {
-	const store = createMemoryStore();
-	await createWorkflow(store, registry, oneWorker, { id: "a" });
-	await createWorkflow(store, registry, oneWorker, { id: "b" });
-	const { performers, peak } = spy();
-	const host = createHost({ store, registry, performers });
-
-	await Promise.all([
-		submit(host, "a", "w", { type: "go", body: { n: 1 } }),
-		submit(host, "b", "w", { type: "go", body: { n: 2 } }),
-	]);
-
-	assert.equal(peak(), 2, "different workflows waited for each other");
-});
-
-test("drive on a quiescent workflow performs nothing and does not fail", async () => {
-	const store = await setup(oneWorker);
-	const { performers, calls } = spy();
-	const host = createHost({ store, registry, performers });
-
-	assert.deepEqual(await drive(host, "w"), {
-		status: "quiescent",
-		rounds: 1,
-		steps: 0,
-		settled: 0,
-		inFlight: 0,
-	});
-	assert.deepEqual(calls, []);
-});
-
-test("submitFromTrigger drops an output nobody subscribed to", async () => {
-	const store = await setup({ nodes: { s: { definition: "sink", config: null } }, triggers: [{ id: "hook", kind: "webhook", config: {} }] });
-	const { performers } = spy();
-	const { entries, log } = recordingLog();
-	const host = createHost({ store, registry, performers, log });
-
-	const result = await submitFromTrigger(host, "w", "hook", "ping", { n: 1 });
-
-	assert.equal(result, undefined, "nothing was delivered");
-	assert.deepEqual(entries, ["dropped"]);
-	assert.deepEqual(await stateOf(store, "s"), { got: [] });
-});
-
-test("submitFromTrigger delivers along the edge and drives", async () => {
-	const store = await setup({
-		nodes: { s: { definition: "sink", config: null } },
-		triggers: [{ id: "hook", kind: "webhook", config: {} }],
-		edges: [{ from: "hook", to: "s", port: "ping" }],
-	});
-	const { performers } = spy();
-	const host = createHost({ store, registry, performers });
-
-	const result = await submitFromTrigger(host, "w", "hook", "ping", { n: 1 });
-
-	assert.equal(result?.status, "quiescent");
-	assert.deepEqual(await stateOf(store, "s"), { got: [{ n: 1 }] });
-});
-
-// ── 触发器接线：宿主每次推完都对账（ADR-0001） ──────────────────────────────
-
-const fakeRuntime = (events: string[]): TriggerRuntime => ({
-	kind: "webhook",
-	async open(declaration) {
-		events.push(`open ${declaration.id}`);
-		return {
-			close: async () => {
-				events.push(`close ${declaration.id}`);
-			},
-		};
+	step: ({ state, message }) => {
+		if (message.type === "go") {
+			return {
+				state,
+				effects: [{ kind: "slow.call", input: message.body, correlationId: `c${String(state.got.length)}` }],
+			};
+		}
+		if (message.type === "drop-trigger") {
+			const ops: JsonValue[] = [{ op: "removeTrigger", id: "in" }];
+			return { state, effects: [{ kind: "graph.mutate", input: { ops }, correlationId: "m" }] };
+		}
+		return { state: { got: [...state.got, { type: message.type, body: message.body }] } };
 	},
 });
 
-const wired: WorkflowTemplate = {
-	nodes: { w: { definition: "worker", config: null }, s: { definition: "sink", config: null } },
-	triggers: [{ id: "hook", kind: "webhook", config: {} }],
-	edges: [{ from: "hook", to: "s", port: "ping" }],
-};
+/** 总机（ADR-0015）：没人认领的消息 → 为这个 chat 起一份工作流，并把这条消息转交过去。 */
+const switchboard = defineNode({
+	name: "switchboard",
+	version: 1,
+	state: z.object({ receipts: z.array(anyJson) }).default({ receipts: [] }),
+	config: z.null(),
+	ports: () => ({}),
+	step: ({ state, message }) => {
+		if (message.type === "text") {
+			const body = message.body as { chatId: number; text: string; id: string };
+			return {
+				state,
+				effects: [
+					{
+						kind: "workflow.spawn",
+						input: {
+							id: `chat:${body.chatId}`,
+							template: chatTemplate(body.chatId),
+							forward: { trigger: "in", output: "text", body, eventId: body.id },
+						},
+					},
+				],
+			};
+		}
+		return { state: { receipts: [...state.receipts, message.body] } };
+	},
+});
 
-test("the host opens declared triggers after a drive, without anyone asking", async () => {
-	const store = await setup(wired);
-	const events: string[] = [];
+const boom = defineMatcher({
+	name: "boom",
+	config: z.unknown(),
+	match: () => {
+		throw new Error("matcher exploded");
+	},
+});
+
+const registry = createRegistry({
+	nodes: [worker, switchboard],
+	effects: [{ kind: "slow.call", input: anyJson, result: anyJson }],
+	triggers: [{ kind: "hook", config: z.object({}), outputs: () => ({ text: anyJson }) }],
+	matchers: [chatIs, boom],
+});
+
+const one: WorkflowTemplate = { nodes: { w: { definition: "worker", config: null } } };
+
+/** 订阅监听器 `l` 的一份工作流：触发器 `in` 接到节点 `w`。 */
+const subscriber = (trigger: Record<string, JsonValue> = {}): WorkflowTemplate => ({
+	nodes: { w: { definition: "worker", config: null } },
+	triggers: [{ id: "in", kind: "hook", listener: "l", ...trigger }],
+	edges: [{ from: "in", to: "w", port: "text" }],
+});
+
+function chatTemplate(chatId: number): JsonValue {
+	return subscriber({ match: { fn: "chatIs", config: { chatId } } }) as JsonValue;
+}
+
+/** 一个可控的 Performer：每次调用挂住，直到测试放行；记下每个 `effectId` 被交出几次。 */
+function gate() {
+	const calls = new Map<string, number>();
+	const waiting: (() => void)[] = [];
+	const performers: Performers = {
+		"slow.call": async (input, { effect }) => {
+			calls.set(effect.effectId, (calls.get(effect.effectId) ?? 0) + 1);
+			await new Promise<void>((resolve) => waiting.push(resolve));
+			return { ok: true, input };
+		},
+	};
+	return {
+		performers,
+		calls,
+		pending: () => waiting.length,
+		release: () => {
+			for (const resolve of waiting.splice(0)) resolve();
+		},
+	};
+}
+
+const instant: Performers = { "slow.call": async (input) => ({ ok: true, input }) };
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+async function until(check: () => boolean, ms = 1000) {
+	const deadline = Date.now() + ms;
+	while (!check()) {
+		if (Date.now() > deadline) throw new Error("timed out waiting");
+		await new Promise((resolve) => setTimeout(resolve, 2));
+	}
+}
+
+function setup(options: Partial<HostOptions> = {}) {
+	const store = createSqliteStore({ file: ":memory:" });
+	const errors: unknown[] = [];
+	const unready: Unready[] = [];
 	const host = createHost({
 		store,
 		registry,
-		performers: spy().performers,
-		triggers: { runtimes: { webhook: fakeRuntime(events) } },
+		performers: instant,
+		listeners: [{ id: "l", kind: "hook", config: {} }],
+		onError: (info) => errors.push(info.error),
+		onUnready: (info) => unready.push(info),
+		...options,
+	});
+	return { store, host, errors, unready };
+}
+
+async function got(host: Host, id: string): Promise<JsonValue[]> {
+	const loaded = await host.store.load(id);
+	return (loaded?.graph.nodeStates.w?.state as { got: JsonValue[] } | undefined)?.got ?? [];
+}
+
+const texts = async (host: Host, id: string) =>
+	(await got(host, id)).flatMap((entry) => {
+		const e = entry as { type: string; body: { text?: string } };
+		return e.type === "text" ? [e.body.text] : [];
 	});
 
-	assert.deepEqual(host.triggers?.running("w"), [], "nothing is running before the first drive");
-	await submit(host, "w", "w", { type: "go", body: { n: 1 } });
+// ── ADR-0014：一个激活，交出至多一次 ──────────────────────────────────────────
 
-	assert.deepEqual(host.triggers?.running("w"), ["hook"]);
-	assert.deepEqual(events, ["open hook"]);
-	await host.triggers?.stop();
+test("submit returns once the effect is handed out; the receipt lands in the background", async () => {
+	const { store, host } = setup();
+	await createWorkflow(store, registry, one, { id: "a" });
+
+	const advanced = await host.submit("a", "w", { type: "go", body: { n: 1 } });
+	assert.deepEqual(advanced, { status: "quiescent", rounds: 1, steps: 1, dispatched: 1 });
+
+	await host.idle();
+	const [receipt] = await got(host, "a");
+	assert.deepEqual(receipt, { type: "@effect.end", body: { correlationId: "c0", result: { ok: true, input: { n: 1 } } } });
+	assert.deepEqual(host.executing("a"), []);
 });
 
-test("a graph.mutate that removes a trigger closes its listener in the same turn", async () => {
-	const store = await setup(wired);
-	const events: string[] = [];
-	const host = createHost({
+test("while the model is thinking, a new message is delivered and run at once", async () => {
+	const performer = gate();
+	const { store, host } = setup({ performers: performer.performers });
+	await createWorkflow(store, registry, one, { id: "a" });
+
+	await host.submit("a", "w", { type: "go", body: { n: 1 } });
+	await until(() => performer.pending() === 1);
+	// 第一个效果还挂着：新消息不该排在它后面。
+	await host.submit("a", "w", { type: "note", body: "hi" });
+	assert.deepEqual(await got(host, "a"), [{ type: "note", body: "hi" }]);
+
+	performer.release();
+	await host.idle();
+	assert.equal((await got(host, "a")).length, 2);
+});
+
+test("within one activation an effect is handed out at most once, however often the workflow is pushed", async () => {
+	const performer = gate();
+	const { store, host } = setup({ performers: performer.performers });
+	await createWorkflow(store, registry, one, { id: "a" });
+
+	await host.submit("a", "w", { type: "go", body: null });
+	await until(() => performer.pending() === 1);
+	const [effectId] = host.executing("a");
+	assert.ok(effectId !== undefined);
+
+	await Promise.all([
+		host.drive("a"),
+		host.drain("a"),
+		host.submit("a", "w", { type: "note", body: 1 }),
+		host.submit("a", "w", { type: "note", body: 2 }),
+	]);
+	assert.equal(performer.calls.get(effectId), 1);
+
+	performer.release();
+	await host.idle();
+	assert.equal(performer.calls.get(effectId), 1);
+});
+
+test("a new activation on the same store hands the stuck effect out exactly once more", async () => {
+	const performer = gate();
+	const first = setup({ performers: performer.performers });
+	await createWorkflow(first.store, registry, one, { id: "a" });
+	await first.host.submit("a", "w", { type: "go", body: null });
+	await until(() => performer.pending() === 1);
+	const [effectId] = first.host.executing("a");
+	assert.ok(effectId !== undefined);
+
+	// 「进程重启」：同一份存储上的另一个激活。旧激活的认领随它一起作废。
+	const second = createHost({ store: first.store, registry, performers: performer.performers });
+	const report = await second.recover();
+	assert.equal(report.redispatched, 1);
+	await until(() => performer.calls.get(effectId) === 2);
+
+	await second.drive("a");
+	await second.recover();
+	assert.equal(performer.calls.get(effectId), 2, "the same activation does not re-hand it out, not even on a rescan");
+
+	performer.release();
+	await Promise.all([first.host.idle(), second.idle()]);
+	const receipts = (await got(second, "a")).filter((e) => (e as { type: string }).type === "@effect.end");
+	assert.equal(receipts.length, 1, "the graph still sees exactly one receipt");
+});
+
+test("a performer that never answers times out into a failure receipt", async () => {
+	const { store, host } = setup({
+		performers: { "slow.call": () => new Promise(() => {}) },
+		timeouts: { "slow.call": 20 },
+	});
+	await createWorkflow(store, registry, one, { id: "a" });
+
+	await host.submit("a", "w", { type: "go", body: null });
+	await host.idle();
+	const [receipt] = await got(host, "a");
+	assert.deepEqual(receipt, {
+		type: "@effect.end",
+		body: { correlationId: "c0", result: { ok: false, error: 'effect "slow.call" timed out after 20ms' } },
+	});
+	assert.equal((await store.load("a"))?.inFlight.length, 0);
+	assert.deepEqual(host.executing("a"), []);
+});
+
+test("a missing performer is reported, not a halt: the record stays for the next deployment", async () => {
+	const { store, host, errors } = setup({ performers: {} });
+	await createWorkflow(store, registry, one, { id: "a" });
+
+	await host.submit("a", "w", { type: "go", body: null });
+	assert.match(String(errors[0]), /no performer for effect kind "slow.call"/);
+	const loaded = await store.load("a");
+	assert.equal(loaded?.halted, undefined);
+	assert.equal(loaded?.inFlight.length, 1);
+});
+
+test("graph.mutate runs inside the push, and the route index follows the new shape", async () => {
+	const { store, host } = setup();
+	await createWorkflow(store, registry, subscriber(), { id: "a" });
+	await host.recover();
+	assert.deepEqual((await store.subscriptions("l")).map((s) => s.workflowId), ["a"]);
+
+	await host.submit("a", "w", { type: "drop-trigger", body: null });
+	assert.deepEqual(await store.subscriptions("l"), [], "the trigger is gone, so is its subscription");
+});
+
+// ── ADR-0015：监听器、订阅、路由 ───────────────────────────────────────────────
+
+test("an event goes to every subscriber in the top layer of each group", async () => {
+	const { store, host } = setup();
+	await createWorkflow(store, registry, subscriber(), { id: "a" });
+	await createWorkflow(store, registry, subscriber(), { id: "b" });
+	await createWorkflow(store, registry, subscriber({ priority: -1 }), { id: "fallback" });
+	await createWorkflow(store, registry, subscriber({ group: "audit" }), { id: "audit" });
+	await host.recover();
+
+	const routed = await host.emit("l", { output: "text", body: { text: "hi" } });
+	assert.deepEqual(routed, { targets: ["a", "audit", "b"], enqueued: 3 });
+	await host.idle();
+	for (const id of ["a", "b", "audit"]) assert.deepEqual(await texts(host, id), ["hi"], id);
+	assert.deepEqual(await texts(host, "fallback"), []);
+});
+
+test("the source retrying the same event id does not deliver twice", async () => {
+	const { store, host } = setup();
+	await createWorkflow(store, registry, subscriber(), { id: "a" });
+	await host.recover();
+
+	const event = { output: "text", body: { text: "once" }, eventId: "update-7" };
+	assert.equal((await host.emit("l", event)).enqueued, 1);
+	assert.equal((await host.emit("l", event)).enqueued, 0);
+	await host.idle();
+	assert.deepEqual(await texts(host, "a"), ["once"]);
+});
+
+test("draining again after a crash delivers nothing twice (the cursor moved with the snapshot)", async () => {
+	const { store, host } = setup();
+	await createWorkflow(store, registry, subscriber(), { id: "a" });
+	await host.recover();
+	await host.emit("l", { output: "text", body: { text: "one" } });
+	await host.idle();
+
+	const restarted = createHost({ store, registry, performers: instant, listeners: [{ id: "l", kind: "hook", config: {} }] });
+	await restarted.recover();
+	await restarted.drain("a");
+	assert.deepEqual(await texts(restarted, "a"), ["one"]);
+});
+
+test("a halted workflow leaves its events in the outbox; resume delivers them in order", async () => {
+	const { store, host } = setup();
+	await createWorkflow(store, registry, subscriber(), { id: "a" });
+	await host.recover();
+	await store.commit("a", (snapshot) => ({
+		snapshot: { ...snapshot, halted: { code: "step_threw", detail: "test", at: new Date(0).toISOString() } },
+		value: undefined,
+	}));
+
+	await host.emit("l", { output: "text", body: { text: "first" } });
+	await host.emit("l", { output: "text", body: { text: "second" } });
+	await host.idle();
+	assert.deepEqual(await texts(host, "a"), []);
+	assert.deepEqual(await store.pendingTargets(), ["a"]);
+
+	assert.equal(await host.resume("a"), true);
+	await host.idle();
+	assert.deepEqual(await texts(host, "a"), ["first", "second"]);
+	assert.deepEqual(await store.pendingTargets(), []);
+});
+
+test("the switchboard starts one workflow per chat; later messages skip it and keep their order", async () => {
+	const { store, host } = setup();
+	await createWorkflow(
 		store,
 		registry,
-		performers: spy().performers,
-		triggers: { runtimes: { webhook: fakeRuntime(events) } },
-	});
+		{
+			nodes: { s: { definition: "switchboard", config: null } },
+			triggers: [{ id: "in", kind: "hook", listener: "l", priority: -1 }],
+			edges: [{ from: "in", to: "s", port: "text" }],
+		},
+		{ id: "switchboard" },
+	);
+	await host.recover();
 
-	await submit(host, "w", "w", { type: "go", body: { n: 1 } });
-	await submit(host, "w", "w", { type: "stop", body: null });
+	const say = (chatId: number, text: string, id: string) =>
+		host.emit("l", { output: "text", body: { chatId, text, id }, eventId: id });
 
-	assert.deepEqual(host.triggers?.running("w"), []);
-	assert.deepEqual(events, ["open hook", "close hook"]);
-	await host.triggers?.stop();
+	assert.deepEqual((await say(1, "hello from 1", "e1")).targets, ["switchboard"]);
+	await host.idle();
+	assert.deepEqual((await say(2, "hello from 2", "e2")).targets, ["switchboard"]);
+	await host.idle();
+	assert.deepEqual(await store.ids(), ["chat:1", "chat:2", "switchboard"]);
+
+	assert.deepEqual((await say(1, "again", "e3")).targets, ["chat:1"], "the chat's own subscription claims it now");
+	await host.idle();
+	assert.deepEqual(await texts(host, "chat:1"), ["hello from 1", "again"]);
+	assert.deepEqual(await texts(host, "chat:2"), ["hello from 2"]);
+
+	const receipts = (await host.store.load("switchboard"))?.graph.nodeStates.s?.state as { receipts: JsonValue[] };
+	assert.deepEqual(
+		receipts.receipts.map((r) => (r as { result: JsonValue }).result),
+		[
+			{ ok: true, created: true },
+			{ ok: true, created: true },
+		],
+	);
 });
 
-test("a host without a trigger configuration has no triggers at all", async () => {
-	const store = await setup(oneWorker);
-	const host = createHost({ store, registry, performers: spy().performers });
-	assert.equal(host.triggers, undefined);
+test("a matcher that throws counts as no match and is reported; the others still get the event", async () => {
+	const { store, host, errors } = setup();
+	await createWorkflow(store, registry, subscriber({ match: { fn: "boom" } }), { id: "bad" });
+	await createWorkflow(store, registry, subscriber(), { id: "good" });
+	await host.recover();
+
+	assert.deepEqual((await host.emit("l", { output: "text", body: { text: "x" } })).targets, ["good"]);
+	assert.match(String(errors[0]), /matcher exploded/);
+});
+
+test("a trigger on a listener this deployment does not have is unready, not a halt", async () => {
+	const { store, host, unready } = setup();
+	await createWorkflow(
+		store,
+		registry,
+		{ ...subscriber(), triggers: [{ id: "in", kind: "hook", listener: "elsewhere" }] },
+		{ id: "a" },
+	);
+	await host.recover();
+	assert.deepEqual(unready, [
+		{ scope: "trigger", workflowId: "a", trigger: "in", reason: 'no listener "elsewhere" in this deployment' },
+	]);
+	assert.equal((await store.load("a"))?.halted, undefined);
+});
+
+test("a row whose trigger was removed after routing is dropped and logged, the rest still go in", async () => {
+	const entries: LogEntry[] = [];
+	const log: TransitionLog = { append: (_id, batch) => void entries.push(...batch) };
+	const { store, host } = setup({ log });
+	await createWorkflow(store, registry, subscriber(), { id: "a" });
+	await store.enqueue([
+		{ target: "a", trigger: "gone", output: "text", body: { text: "lost" }, listener: "l" },
+		{ target: "a", trigger: "in", output: "text", body: { text: "kept" }, listener: "l" },
+	]);
+
+	await host.drain("a");
+	assert.deepEqual(await texts(host, "a"), ["kept"]);
+	assert.ok(entries.some((e) => e.type === "dropped" && e.reason === "rejected" && e.from === "gone"));
+});
+
+test("start opens the declared listeners; an emit through the runtime reaches the workflow", async () => {
+	let emit: ((text: string) => Promise<unknown>) | undefined;
+	let closed = 0;
+	const runtime: ListenerRuntime = {
+		kind: "hook",
+		open: async (_listener, hooks) => {
+			emit = (text) => hooks.emit({ output: "text", body: { text } });
+			return { close: async () => void closed++ };
+		},
+	};
+	const { store, host } = setup({ runtimes: { hook: runtime } });
+	await createWorkflow(store, registry, subscriber(), { id: "a" });
+
+	await host.start();
+	assert.ok(emit !== undefined);
+	await emit("via listener");
+	await host.idle();
+	assert.deepEqual(await texts(host, "a"), ["via listener"]);
+
+	await host.stop();
+	assert.equal(closed, 1);
+});
+
+test("a listener that cannot open is unready and retried, without touching any workflow", async () => {
+	let attempts = 0;
+	const runtime: ListenerRuntime = {
+		kind: "hook",
+		open: async () => {
+			attempts++;
+			if (attempts < 3) throw new Error("port in use");
+			return { close: async () => {} };
+		},
+	};
+	const { host, unready } = setup({ runtimes: { hook: runtime }, retryMs: 5 });
+	await host.start();
+	await until(() => attempts === 3);
+	await tick();
+	assert.deepEqual(unready, [{ scope: "listener", listener: "l", reason: "port in use" }]);
+	assert.deepEqual(host.unready(), []);
+	await host.stop();
 });

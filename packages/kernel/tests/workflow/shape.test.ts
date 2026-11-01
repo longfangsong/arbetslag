@@ -20,7 +20,7 @@ test("a valid shape has no violations; self loops are legal", () => {
 			{ from: "t", to: "a", port: "text" },
 			{ from: "t", to: "b", port: "callback" },
 		],
-		triggers: [{ id: "t", kind: "telegram", config: {} }],
+		triggers: [{ id: "t", kind: "telegram", listener: "l", group: "", priority: 0, config: {} }],
 	});
 	assert.deepEqual(checkWorkflowShape(s), []);
 	assert.ok(workflowShapeSchema.safeParse(s).success);
@@ -75,7 +75,7 @@ test("an edge without a port is not a valid edge at all", () => {
 });
 
 test("edges must start at a live node or trigger and end at a live node", () => {
-	const t = { id: "t", kind: "k", config: null };
+	const t = { id: "t", kind: "k", listener: "l", group: "", priority: 0, config: null };
 	assert.deepEqual(codes(shape({ edges: [{ from: "ghost", to: "a", port: "p" }] })), [
 		"edge_dangling",
 	]);
@@ -91,7 +91,7 @@ test("edges must start at a live node or trigger and end at a live node", () => 
 
 test("a trigger output can feed several targets, like a node port (ADR-0011)", () => {
 	const s = shape({
-		triggers: [{ id: "t", kind: "k", config: null }],
+		triggers: [{ id: "t", kind: "k", listener: "l", group: "", priority: 0, config: null }],
 		edges: [
 			{ from: "t", to: "a", port: "text" },
 			{ from: "t", to: "b", port: "text" },
@@ -101,14 +101,14 @@ test("a trigger output can feed several targets, like a node port (ADR-0011)", (
 });
 
 test("trigger ids are unique and do not collide with node ids", () => {
-	const t = { id: "t", kind: "k", config: null };
+	const t = { id: "t", kind: "k", listener: "l", group: "", priority: 0, config: null };
 	assert.deepEqual(codes(shape({ triggers: [t, t] })), ["trigger_duplicate_id"]);
 	assert.deepEqual(codes(shape({ triggers: [{ ...t, id: "a" }] })), ["id_collision"]);
 });
 
 test("port names cannot use the reserved prefix", () => {
 	const s = shape({
-		triggers: [{ id: "t", kind: "k", config: null }],
+		triggers: [{ id: "t", kind: "k", listener: "l", group: "", priority: 0, config: null }],
 		edges: [{ from: "t", to: "a", port: "@effect.end" }],
 	});
 	assert.deepEqual(codes(s), ["edge_reserved_port"]);

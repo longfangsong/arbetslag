@@ -21,7 +21,7 @@ test("the timer kind declares an input schema and a null result", () => {
 
 test("the timer performer waits, then answers null", async () => {
 	const started = Date.now();
-	const result = await timerPerformer({ ms: 25 }, { workflowId: "w", effect: anyEffect });
+	const result = await timerPerformer({ ms: 25 }, { workflowId: "w", effect: anyEffect, signal: new AbortController().signal });
 	const waited = Date.now() - started;
 
 	assert.equal(result, null);
@@ -29,5 +29,5 @@ test("the timer performer waits, then answers null", async () => {
 });
 
 test("ms: 0 does not wait at all", async () => {
-	assert.equal(await timerPerformer({ ms: 0 }, { workflowId: "w", effect: anyEffect }), null);
+	assert.equal(await timerPerformer({ ms: 0 }, { workflowId: "w", effect: anyEffect, signal: new AbortController().signal }), null);
 });

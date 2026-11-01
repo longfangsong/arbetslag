@@ -16,22 +16,29 @@ import {
 	run,
 } from "@arbetslag/kernel";
 import {
-	AGENT_NAME,
 	APPEND_PORT,
-	type AgentConfig,
-	type AgentState,
+	type LlmConfig,
+	type LlmState,
 	CONVERSATION_NAME,
 	HISTORY_PORT,
 	TOOL_RESULT_PORT,
-	agent,
-	agentConfigSchema,
-	agentLayout,
-	agentStateSchema,
+	llm,
+	llmConfigSchema,
+	wireTools,
+	llmStateSchema,
+	INBOX_NAME,
+	USER_PORT,
 	answerable,
 	conversation,
+	forModel,
+	inbox,
+	unanswered,
 	conversationStateSchema,
+	NotAToolProvider,
 	defineTool,
 	historySchema,
+	provideTools,
+	toolResultBlockSchema,
 	modelCompleteKind,
 	text,
 	textMessage,
@@ -65,10 +72,10 @@ const recorder = defineNode({
 	step: ({ state, message }) => ({ state: { replies: [...state.replies, message.body] } }),
 });
 
-const layout = agentLayout({
-	agent: "bot",
+const layout = wireTools({
+	llm: "bot",
 	config: { model: "fake-1", system: "你是个助手" },
-	tools: [{ tool: plusOne }],
+	tools: [{ node: plusOne }],
 });
 
 /** 对话历史在 `chat` 这里；`bot` 只管问模型（ADR-0010）。 */
@@ -88,7 +95,7 @@ const template = graphOf([
 ]);
 
 const registry = createRegistry({
-	nodes: [agent, conversation, plusOne, recorder],
+	nodes: [llm, conversation, plusOne, recorder],
 	effects: [modelCompleteKind],
 });
 
@@ -104,9 +111,9 @@ const snapshot = async (store: SnapshotStore, id = "w") => {
 	return loaded;
 };
 
-const agentStateOf = async (store: SnapshotStore): Promise<AgentState> => {
+const llmStateOf = async (store: SnapshotStore): Promise<LlmState> => {
 	const s = await snapshot(store);
-	return s.graph.nodeStates.bot?.state as AgentState;
+	return s.graph.nodeStates.bot?.state as LlmState;
 };
 
 const historyOf = async (store: SnapshotStore): Promise<HistoryMessage[]> => {
@@ -124,7 +131,7 @@ async function play(store: SnapshotStore, replies: JsonValue[], id = "w", reg = 
 		if (s.inFlight.length === 0) return s;
 		for (const effect of s.inFlight) {
 			const reply = queue.shift();
-			assert.ok(reply !== undefined, "the agent asked more often than scripted");
+			assert.ok(reply !== undefined, "the llm node asked more often than scripted");
 			await completeEffect(store, id, effect.effectId, reply);
 		}
 	}
@@ -225,7 +232,7 @@ test("a user message becomes a model.complete effect carrying history and tools"
 		},
 	]);
 	assert.deepEqual(await historyOf(store), [{ role: "user", blocks: [text("你好")] }]);
-	assert.equal((await agentStateOf(store)).modelCall, "m1");
+	assert.equal((await llmStateOf(store)).modelCall, "m1");
 });
 
 test("a plain answer goes out on reply and into history", async () => {
@@ -239,7 +246,7 @@ test("a plain answer goes out on reply and into history", async () => {
 		history.map((message) => message.role),
 		["user", "assistant"],
 	);
-	assert.equal((await agentStateOf(store)).modelCall, undefined);
+	assert.equal((await llmStateOf(store)).modelCall, undefined);
 	const out = s.graph.nodeStates.out?.state as { replies: { text: string }[] };
 	assert.deepEqual(out.replies.map((reply) => reply.text), ["在的"]);
 });
@@ -262,13 +269,13 @@ test("a tool call goes out on tool.<name>, and the result brings the model back"
 	assert.equal(call?.type, "tool-call");
 	const result = history[2]?.blocks[0] as unknown as { ok: boolean; result: { n: number } };
 	assert.deepEqual(result.result, { n: 42 });
-	assert.deepEqual((await agentStateOf(store)).pending, {}, "the wait set is empty again");
+	assert.deepEqual((await llmStateOf(store)).pending, {}, "the wait set is empty again");
 	const out = s.graph.nodeStates.out?.state as { replies: { text: string }[] };
 	assert.deepEqual(out.replies.map((reply) => reply.text), ["是 42"]);
 	assert.deepEqual((s.graph.nodeStates["bot.plus_one"]?.state as { calls: number }).calls, 1);
 });
 
-test("a tool the agent has no port for becomes a failed tool result, not a crash", async () => {
+test("a tool the llm node has no port for becomes a failed tool result, not a crash", async () => {
 	const store = await setup();
 	await say(store, "用一下没有的工具");
 
@@ -288,7 +295,7 @@ test("a tool the agent has no port for becomes a failed tool result, not a crash
 	assert.match(failure.result.error, /unknown tool: nope/);
 });
 
-test("a failed model call is answered as text, and the agent stays usable", async () => {
+test("a failed model call is answered as text, and the llm node stays usable", async () => {
 	const store = await setup();
 	await say(store, "你好");
 	const s = await play(store, [{ ok: false, error: "rate limited" }]);
@@ -296,7 +303,7 @@ test("a failed model call is answered as text, and the agent stays usable", asyn
 	assert.equal(s.halted, undefined);
 	const out = s.graph.nodeStates.out?.state as { replies: { text: string }[] };
 	assert.match(out.replies[0]?.text ?? "", /rate limited/);
-	assert.equal((await agentStateOf(store)).modelCall, undefined);
+	assert.equal((await llmStateOf(store)).modelCall, undefined);
 	assert.deepEqual(
 		(await historyOf(store)).map((message) => message.role),
 		["user", "assistant"],
@@ -305,10 +312,10 @@ test("a failed model call is answered as text, and the agent stays usable", asyn
 });
 
 test("a receipt for another call is ignored", () => {
-	const state = agentStateSchema.parse({ modelCall: "m2" });
-	const transition = agent.step({
+	const state = llmStateSchema.parse({ modelCall: "m2" });
+	const transition = llm.step({
 		self: "bot",
-		config: agentConfigSchema.parse({ model: "m" }),
+		config: llmConfigSchema.parse({ model: "m" }),
 		state,
 		message: {
 			type: "@effect.end",
@@ -320,10 +327,10 @@ test("a receipt for another call is ignored", () => {
 });
 
 test("a history snapshot arrives while a tool call is in flight: no second model call", () => {
-	const state = agentStateSchema.parse({ pending: { c1: "plus_one" }, nextCall: 3 });
-	const transition = agent.step({
+	const state = llmStateSchema.parse({ pending: { c1: "plus_one" }, nextCall: 3 });
+	const transition = llm.step({
 		self: "bot",
-		config: agentConfigSchema.parse({ model: "m" }),
+		config: llmConfigSchema.parse({ model: "m" }),
 		state,
 		message: { type: HISTORY_PORT, body: [{ role: "user", blocks: [{ type: "text", text: "第二句" }] }] },
 	});
@@ -331,13 +338,13 @@ test("a history snapshot arrives while a tool call is in flight: no second model
 	assert.deepEqual(transition, { state }, "the wait set is not empty yet");
 });
 
-test("the agent does not answer a history whose last word is its own", () => {
-	const config = agentConfigSchema.parse({ model: "m" });
+test("the llm node does not answer a history whose last word is its own", () => {
+	const config = llmConfigSchema.parse({ model: "m" });
 	const step = (body: HistoryMessage[]) =>
-		agent.step({
+		llm.step({
 			self: "bot",
 			config,
-			state: agentStateSchema.parse(undefined),
+			state: llmStateSchema.parse(undefined),
 			message: { type: HISTORY_PORT, body },
 		});
 
@@ -350,51 +357,124 @@ test("the agent does not answer a history whose last word is its own", () => {
 	assert.equal(afterTool.effects?.length, 1, "a tool result asks again");
 });
 
-test("words that arrive while the model is thinking are kept for the next call", async () => {
+test("words that arrive while the model is thinking are answered in one more call", async () => {
 	const store = await setup();
 	await say(store, "第一句");
 	await run(store, registry, "w");
 
 	await say(store, "第二句");
+	await say(store, "第三句");
 	await run(store, registry, "w");
 
 	const waiting = await snapshot(store);
 	assert.equal(waiting.inFlight.length, 1, "still the one call that is already out");
 
-	const effect = waiting.inFlight[0];
-	assert.ok(effect !== undefined);
-	await completeEffect(store, "w", effect.effectId, answer({ type: "text", text: "都听到了" }));
-	await run(store, registry, "w");
+	await play(store, [answer({ type: "text", text: "答第一句" }), answer({ type: "text", text: "答二三句" })]);
 
 	const history = await historyOf(store);
 	assert.deepEqual(
 		history.map((message) => message.role),
-		["user", "user", "assistant"],
+		["user", "user", "user", "assistant", "assistant"],
+		"the words are recorded when they arrived, before the first answer",
 	);
 	const out = (await snapshot(store)).graph.nodeStates.out?.state as { replies: { text: string }[] };
-	assert.deepEqual(out.replies.map((reply) => reply.text), ["都听到了"]);
+	assert.deepEqual(
+		out.replies.map((reply) => reply.text),
+		["答第一句", "答二三句"],
+		"nothing said while thinking is left unanswered",
+	);
+	assert.equal((await llmStateOf(store)).seen, 4, "the second call saw everything up to the first answer");
 });
 
-test("agentLayout copies tool schemas and wires both directions", () => {
+test("an inbox in front of the conversation makes the llm node answer one word at a time", async () => {
+	const queued: WorkflowTemplate = {
+		nodes: {
+			...layout.nodes,
+			inbox: { definition: INBOX_NAME, config: null },
+			chat: { definition: CONVERSATION_NAME, config: null },
+			out: { definition: "recorder", config: null },
+		},
+		edges: [
+			...layout.edges,
+			{ from: "inbox", to: "chat", port: USER_PORT },
+			{ from: "chat", to: "inbox", port: HISTORY_PORT },
+			{ from: "chat", to: "bot", port: HISTORY_PORT },
+			{ from: "bot", to: "chat", port: APPEND_PORT },
+			{ from: "bot", to: "out", port: "reply" },
+		],
+	};
+	const reg = createRegistry({ nodes: [llm, conversation, inbox, plusOne, recorder], effects: [modelCompleteKind] });
+	const store = createMemoryStore();
+	await createWorkflow(store, reg, queued, { id: "q" });
+	const tell = (text: string) => deliverToNode(store, "q", "inbox", { type: USER_PORT, body: { text } });
+
+	await tell("一");
+	await run(store, reg, "q");
+	await tell("二");
+	await tell("三");
+	await run(store, reg, "q");
+
+	const asked: string[][] = [];
+	const settled = await (async () => {
+		for (let round = 0; round < 20; round++) {
+			await run(store, reg, "q");
+			const s = await snapshot(store, "q");
+			if (s.inFlight.length === 0) return s;
+			for (const effect of s.inFlight) {
+				const input = effect.input as { messages: HistoryMessage[] };
+				asked.push(input.messages.filter((m) => m.role !== "system").map(textOf));
+				const last = textOf(input.messages.at(-1) as HistoryMessage);
+				await completeEffect(store, "q", effect.effectId, answer({ type: "text", text: `答${last}` }));
+			}
+		}
+		throw new Error("never settled");
+	})();
+
+	const history = (settled.graph.nodeStates.chat?.state as { history: HistoryMessage[] }).history;
+	assert.deepEqual(history.map(textOf), ["一", "答一", "二", "答二", "三", "答三"], "one word, one answer, in order");
+	assert.deepEqual(asked, [["一"], ["一", "答一", "二"], ["一", "答一", "二", "答二", "三"]]);
+	const out = settled.graph.nodeStates.out?.state as { replies: { text: string }[] };
+	assert.deepEqual(out.replies.map((reply) => reply.text), ["答一", "答二", "答三"]);
+	assert.deepEqual(settled.graph.nodeStates.inbox?.state, { busy: false, queue: [] });
+});
+
+test("the model sees a tool call followed by its results, even if a user spoke in between", () => {
+	const call = { type: "tool-call" as const, callId: "c1", name: "plus_one", input: { n: 1 } };
+	const history: HistoryMessage[] = [
+		textMessage("user", "加一"),
+		{ role: "assistant", blocks: [call] },
+		textMessage("user", "顺便问一句"),
+		{ role: "tool", blocks: [{ type: "tool-result", callId: "c1", name: "plus_one", ok: true, result: { n: 2 } }] },
+	];
+	assert.deepEqual(
+		forModel(history).map((message) => message.role),
+		["user", "assistant", "tool", "user"],
+	);
+	assert.deepEqual(forModel(history.slice(0, 3)).map((m) => m.role), ["user", "assistant", "user"], "unclosed: kept");
+	assert.equal(unanswered(history, 2), true);
+	assert.equal(unanswered([...history, textMessage("assistant", "2")], 4), false);
+});
+
+test("wireTools copies tool descriptions and wires both directions", () => {
 	assert.deepEqual(layout.edges, [
 		{ from: "bot", to: "bot.plus_one", port: "tool.plus_one" },
 		{ from: "bot.plus_one", to: "bot", port: TOOL_RESULT_PORT },
 	]);
-	const config = layout.nodes.bot?.config as AgentConfig;
+	const config = layout.nodes.bot?.config as LlmConfig;
 	assert.equal(config.model, "fake-1");
 	assert.deepEqual(
 		config.tools.map((tool) => tool.name),
 		["plus_one"],
 	);
-	assert.deepEqual(Object.keys(layout.nodes), [AGENT_NAME === "agent" ? "bot" : "bot", "bot.plus_one"]);
+	assert.deepEqual(Object.keys(layout.nodes), ["bot", "bot.plus_one"]);
 	assert.equal(layout.nodes["bot.plus_one"]?.definition, "plus_one");
 });
 
-test("the agent's ports are a function of its tool list", () => {
-	const ports = agent.ports(agentConfigSchema.parse({ model: "m", tools: [] }));
+test("the llm node's ports are a function of its tool list", () => {
+	const ports = llm.ports(llmConfigSchema.parse({ model: "m", tools: [] }));
 	assert.deepEqual(Object.keys(ports).sort(), ["append", "history", "reply", TOOL_RESULT_PORT].sort());
-	const withTool = agent.ports(
-		agentConfigSchema.parse({
+	const withTool = llm.ports(
+		llmConfigSchema.parse({
 			model: "m",
 			tools: [{ name: "plus_one", description: "", input: {} }],
 		}),
@@ -405,22 +485,13 @@ test("the agent's ports are a function of its tool list", () => {
 	);
 });
 
-test("state defaults make an agent usable from an empty template entry", () => {
-	assert.deepEqual(agentStateSchema.parse(undefined), { pending: {}, nextCall: 0 });
+test("state defaults make an llm node usable from an empty template entry", () => {
+	assert.deepEqual(llmStateSchema.parse(undefined), { pending: {}, nextCall: 0 });
 	assert.deepEqual(conversationStateSchema.parse(undefined), { history: [] });
 });
 
-test("a v1 agent state (history on the node) cannot be migrated silently", () => {
-	assert.throws(
-		() => agent.migrate?.({ history: [], pending: {}, nextCall: 0 }, 1),
-		/conversation/,
-		"it halts instead of dropping the conversation (ADR-0008)",
-	);
-	assert.deepEqual(agent.migrate?.({ pending: {}, nextCall: 2 }, 1), { pending: {}, nextCall: 2 });
-});
-
 test("the model.complete kind is what the registry holds", () => {
-	const registryWithKind: Registry = createRegistry({ nodes: [agent], effects: [modelCompleteKind] });
+	const registryWithKind: Registry = createRegistry({ nodes: [llm], effects: [modelCompleteKind] });
 	assert.equal(registryWithKind.effectKind("model.complete")?.kind, "model.complete");
 	assert.equal(
 		registryWithKind.effectKind("model.complete")?.input.safeParse({ model: "m", messages: [] }).success,
@@ -429,11 +500,11 @@ test("the model.complete kind is what the registry holds", () => {
 	assert.equal(registryWithKind.effectKind("model.complete")?.input.safeParse({ messages: [] }).success, false);
 });
 
-// ── judge：拿 history 先判一下，再决定交给 agent 还是自己回 ─────────────────
+// ── judge：拿 history 先判一下，再决定交给 LLM 节点还是自己回 ─────────────────
 
 /**
  * 一个类 JEV 的判断节点：不存 history，只读 conversation 发来的快照。
- * 说「你好」就自己回固定话术，别的一律原样转给 agent。
+ * 说「你好」就自己回固定话术，别的一律原样转给 LLM 节点。
  */
 const judge = defineNode({
 	name: "judge",
@@ -478,7 +549,7 @@ const judgeTemplate: WorkflowTemplate = {
 };
 
 const judgeRegistry = createRegistry({
-	nodes: [agent, conversation, judge, plusOne, recorder],
+	nodes: [llm, conversation, judge, plusOne, recorder],
 	effects: [modelCompleteKind],
 });
 
@@ -499,12 +570,12 @@ test("the judge answers a greeting itself, without a model call", async () => {
 	assert.equal((s.graph.nodeStates.judge?.state as { judged: number }).judged, 1);
 });
 
-test("the judge hands anything else to the agent, which then answers", async () => {
+test("the judge hands anything else to the llm node, which then answers", async () => {
 	const store = createMemoryStore();
 	await createWorkflow(store, judgeRegistry, judgeTemplate, { id: "w" });
 	await say(store, "42 加一是几");
 
-	// judge 不出模型调用，效果只有 agent 那一次。
+	// judge 不出模型调用，效果只有 LLM 节点那一次。
 	const s = await play(store, [answer({ type: "text", text: "是 43" })], "w", judgeRegistry);
 
 	assert.equal(s.halted, undefined);
@@ -515,4 +586,111 @@ test("the judge hands anything else to the agent, which then answers", async () 
 	const out = s.graph.nodeStates.out?.state as { replies: { text: string }[] };
 	assert.deepEqual(out.replies.map((reply) => reply.text), ["是 43"]);
 	assert.equal((s.graph.nodeStates.judge?.state as { judged: number }).judged, 1);
+});
+
+// ── 工具是节点提供的东西，不是一类节点（ADR-0009）──────────────────────────
+
+/** 一份普通节点定义：被调用时交出一个效果，等回执回来再回结果。工具名由 config 决定。 */
+const lookup = provideTools(
+	defineNode({
+		name: "lookup",
+		version: 1,
+		state: z.null().default(null),
+		config: z.object({ tool: z.string() }),
+		ports: () => ({ [TOOL_RESULT_PORT]: toolResultBlockSchema }),
+		step: ({ state, config, message }) => {
+			if (message.type === `tool.${config.tool}`) {
+				const call = message.body as { callId: string; input: { key: string } };
+				return { state, effects: [{ kind: "db.get", input: { key: call.input.key }, correlationId: call.callId }] };
+			}
+			if (message.type === "@effect.end") {
+				const end = message.body as { correlationId: string; result: JsonValue };
+				const result = { type: "tool-result", callId: end.correlationId, name: config.tool, ok: true, result: end.result };
+				return { state, sends: [{ port: TOOL_RESULT_PORT, body: result }] };
+			}
+			return { state };
+		},
+	}),
+	(config) => [{ name: config.tool, description: "按 key 查一条记录", input: z.object({ key: z.string() }) }],
+);
+
+const dbGetKind = { kind: "db.get", input: z.object({ key: z.string() }), result: anyJson };
+
+test("a plain node that provides a tool is called by the llm node and answers through an effect", async () => {
+	const wired = wireTools({ llm: "bot", config: { model: "fake-1" }, tools: [{ node: lookup, config: { tool: "find" } }] });
+	assert.deepEqual(
+		(wired.nodes.bot?.config as LlmConfig).tools.map((tool) => tool.name),
+		["find"],
+		"the tool's name comes from the provider's config",
+	);
+	const reg = createRegistry({ nodes: [llm, conversation, lookup, recorder], effects: [modelCompleteKind, dbGetKind] });
+	const store = createMemoryStore();
+	await createWorkflow(
+		store,
+		reg,
+		{
+			nodes: { ...wired.nodes, chat: { definition: CONVERSATION_NAME, config: null }, out: { definition: "recorder", config: null } },
+			edges: [
+				...wired.edges,
+				{ from: "chat", to: "bot", port: HISTORY_PORT },
+				{ from: "bot", to: "chat", port: APPEND_PORT },
+				{ from: "bot", to: "out", port: "reply" },
+			],
+		},
+		{ id: "p" },
+	);
+	await deliverToNode(store, "p", "chat", { type: USER_PORT, body: { text: "查一下 a" } });
+
+	const settled = await play(
+		store,
+		[
+			answer({ type: "tool-call", callId: "c1", name: "find", input: { key: "a" } }),
+			{ value: 42 },
+			answer({ type: "text", text: "a 是 42" }),
+		],
+		"p",
+		reg,
+	);
+
+	const history = (settled.graph.nodeStates.chat?.state as { history: HistoryMessage[] }).history;
+	assert.deepEqual(history.map((message) => message.role), ["user", "assistant", "tool", "assistant"]);
+	assert.deepEqual(history[2]?.blocks[0], {
+		type: "tool-result",
+		callId: "c1",
+		name: "find",
+		ok: true,
+		result: { value: 42 },
+	});
+	const out = settled.graph.nodeStates.out?.state as { replies: { text: string }[] };
+	assert.deepEqual(out.replies.map((reply) => reply.text), ["a 是 42"]);
+});
+
+test("wireTools refuses a node that provides no tools, or has nowhere to answer", () => {
+	assert.throws(() => wireTools({ llm: "bot", config: { model: "m" }, tools: [{ node: recorder as never }] }), NotAToolProvider);
+
+	const mute = provideTools(
+		defineNode({
+			name: "mute",
+			version: 1,
+			state: z.null().default(null),
+			config: z.null(),
+			ports: () => ({}),
+			step: ({ state }) => ({ state }),
+		}),
+		() => [{ name: "mute", description: "", input: z.object({}) }],
+	);
+	assert.throws(() => wireTools({ llm: "bot", config: { model: "m" }, tools: [{ node: mute }] }), /tool\.result/);
+
+	assert.throws(
+		() =>
+			wireTools({
+				llm: "bot",
+				config: { model: "m" },
+				tools: [
+					{ node: lookup, config: { tool: "find" }, id: "a" },
+					{ node: lookup, config: { tool: "find" }, id: "b" },
+				],
+			}),
+		/provided twice/,
+	);
 });

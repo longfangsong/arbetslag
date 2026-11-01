@@ -8,7 +8,6 @@
 	},
 	"dependencies": {
 		"@arbetslag/kernel": "workspace:*",
-		"@arbetslag/agents": "workspace:*",
 		"@arbetslag/llm": "workspace:*",
 		"@arbetslag/host-node": "workspace:*",
 		"type-fest": "catalog:",

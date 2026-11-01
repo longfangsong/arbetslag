@@ -8,7 +8,7 @@ const jsonSchema: z.ZodType<JsonValue> = z.json();
 
 /**
  * `model.complete` 效果的输入（ADR-0009）：厂商无关。
- * `params` 是厂商特有的旋钮，agents 包不解释它，由对应的 **Performer** 包接手。
+ * `params` 是厂商特有的旋钮，这里不解释它，由对应的 **Performer** 包接手。
  */
 export const modelCompleteInputSchema = z.object({
 	model: z.string().min(1),

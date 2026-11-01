@@ -41,9 +41,44 @@ export async function deliverToNode(
 }
 
 /**
- * 触发器把外部事件投进工作流（ADR-0001）：`output` 是触发器种类声明的输出名，
- * body 按它的 schema 校验——不合规拒绝投递（`InvalidDelivery`），不停住；
- * 从 `(trigger, output)` 出发的边决定去哪些节点（边是订阅，可以有多个，ADR-0011），
+ * 触发器的一条事件进邮箱（ADR-0001、0015）：纯的，就地改传入的快照，给宿主在一次存储事务里调用
+ * （路由发件箱的一批行 + 游标，同一次提交）。
+ *
+ * `output` 是触发器种类声明的输出名，body 按它的 schema 校验——不合规抛 `InvalidDelivery`，不停住；
+ * 从 `(trigger, output)` 出发的边决定去哪些节点（边是订阅，可以有多个，ADR-0011）。
+ * 没接线返回 `false`（丢弃，不改快照）。已停住抛 `WorkflowHalted`。
+ */
+export function applyTriggerDelivery(
+	registry: Registry,
+	id: string,
+	snapshot: Snapshot,
+	trigger: string,
+	output: string,
+	body: JsonValue,
+): boolean {
+	checkOpen(id, snapshot);
+	const declaration = snapshot.graph.shape.triggers.find((t) => t.id === trigger);
+	if (declaration === undefined) throw new InvalidDelivery(`no such trigger: ${JSON.stringify(trigger)}`);
+	const kind = registry.triggerKind(declaration.kind);
+	if (kind === undefined) throw new InvalidDelivery(`unknown trigger kind: ${JSON.stringify(declaration.kind)}`);
+	const config = kind.config.safeParse(declaration.config);
+	if (!config.success) throw new InvalidDelivery(`invalid trigger config: ${JSON.stringify(trigger)}`);
+	const schema = kind.outputs(config.data)[output];
+	if (schema === undefined) throw new InvalidDelivery(`undeclared output: ${JSON.stringify(output)}`);
+	const parsed = schema.safeParse(body);
+	if (!parsed.success) throw new InvalidDelivery(`body does not match output ${JSON.stringify(output)}`);
+
+	// 订阅者可以有多个；按目标 id 升序取 `seq`，与边的书写顺序无关（ADR-0012）。
+	const targets = snapshot.graph.shape.edges
+		.filter((e) => e.from === trigger && e.port === output)
+		.map((e) => e.to)
+		.sort();
+	for (const target of targets) append(snapshot, target, output, parsed.data as JsonValue);
+	return targets.length > 0;
+}
+
+/**
+ * 单独投一条触发器事件（`applyTriggerDelivery` 加一次提交）：给测试与不经过路由的调用方用。
  * 没接线就丢弃并记一条日志，返回 `false`。
  */
 export async function deliverFromTrigger(
@@ -55,28 +90,11 @@ export async function deliverFromTrigger(
 	body: JsonValue,
 	options: DeliverOptions = {},
 ): Promise<boolean> {
-	const delivered = await store.commit(id, (snapshot) => {
-		checkOpen(id, snapshot);
-		const declaration = snapshot.graph.shape.triggers.find((t) => t.id === trigger);
-		if (declaration === undefined) throw new InvalidDelivery(`no such trigger: ${JSON.stringify(trigger)}`);
-		const kind = registry.triggerKind(declaration.kind);
-		if (kind === undefined) throw new InvalidDelivery(`unknown trigger kind: ${JSON.stringify(declaration.kind)}`);
-		const config = kind.config.safeParse(declaration.config);
-		if (!config.success) throw new InvalidDelivery(`invalid trigger config: ${JSON.stringify(trigger)}`);
-		const schema = kind.outputs(config.data)[output];
-		if (schema === undefined) throw new InvalidDelivery(`undeclared output: ${JSON.stringify(output)}`);
-		const parsed = schema.safeParse(body);
-		if (!parsed.success) throw new InvalidDelivery(`body does not match output ${JSON.stringify(output)}`);
-
-		// 订阅者可以有多个；按目标 id 升序取 `seq`，与边的书写顺序无关（ADR-0012）。
-		const targets = snapshot.graph.shape.edges
-			.filter((e) => e.from === trigger && e.port === output)
-			.map((e) => e.to)
-			.sort();
-		if (targets.length === 0) return { value: false }; // 没人订阅：丢弃，不写
-		for (const target of targets) append(snapshot, target, output, parsed.data as JsonValue);
-		return { snapshot, value: true };
-	});
+	const delivered = await store.commit(id, (snapshot) =>
+		applyTriggerDelivery(registry, id, snapshot, trigger, output, body)
+			? { snapshot, value: true }
+			: { value: false },
+	);
 	if (!delivered) {
 		const at = (options.now ?? (() => new Date()))().toISOString();
 		await appendLog(options.log, id, [{ type: "dropped", from: trigger, port: output, reason: "no_edge", at }]);

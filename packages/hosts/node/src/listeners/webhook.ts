@@ -3,34 +3,35 @@ import type { JsonValue } from "type-fest";
 import { z } from "zod";
 import type { TriggerKindDefinition } from "@arbetslag/kernel";
 import {
-	type TriggerHandle,
-	type TriggerHooks,
-	type TriggerRuntime,
-	TriggerUnready,
+	type ListenerHandle,
+	type ListenerHooks,
+	type ListenerRuntime,
+	ListenerUnready,
 } from "./runtime.ts";
 
 const anyJson: z.ZodType<JsonValue> = z.json();
 
-export type WebhookConfig = {
-	/** 0 = 让系统挑一个（测试用）；实际端口从 handle 上读。 */
-	port: number;
-	path: string;
-	/** 输出名 = 投给节点的消息类别（ADR-0001）。默认 `request`。 */
-	output: string;
-};
+/** 订阅一侧（触发器）的 config：只有输出名，它就是投给节点的消息类别（ADR-0005）。默认 `request`。 */
+export type WebhookTriggerConfig = { output: string };
 
-/** webhook 这种触发器：声明里就一个端口、一个路径。 */
-export const webhookKind: TriggerKindDefinition<WebhookConfig> = {
+/** webhook 这种触发器：一个输出，载荷是任意 JSON。 */
+export const webhookKind: TriggerKindDefinition<WebhookTriggerConfig> = {
 	kind: "webhook",
-	config: z.object({
-		port: z.number().int().min(0).max(65535),
-		path: z.string().startsWith("/").default("/"),
-		output: z.string().min(1).default("request"),
-	}),
+	config: z.object({ output: z.string().min(1).default("request") }),
 	outputs: (config) => ({ [config.output]: anyJson }),
 };
 
-export type WebhookHandle = TriggerHandle & { port: number; path: string };
+/** 监听器一侧的 config：一个端口、一个路径，以及事件用哪个输出名交给路由（要与订阅一侧一致）。 */
+export const webhookListenerConfig = z.object({
+	/** 0 = 让系统挑一个（测试用）；实际端口从 handle 上读。 */
+	port: z.number().int().min(0).max(65535),
+	path: z.string().startsWith("/").default("/"),
+	output: z.string().min(1).default("request"),
+});
+
+export type WebhookListenerConfig = z.infer<typeof webhookListenerConfig>;
+
+export type WebhookHandle = ListenerHandle & { port: number; path: string };
 
 export type WebhookOptions = {
 	/** 监听地址；默认只听回环。对外开是部署的事。 */
@@ -40,32 +41,30 @@ export type WebhookOptions = {
 };
 
 /**
- * 一个触发器一条 `http.Server`：配置里带端口，起两个监听就是两个端口。
+ * 一个监听器一条 `http.Server`。请求头 `idempotency-key` 有值就当 `eventId`，路由按它去重。
  *
- * `open` 在 `listen` 成功之后才 resolve，端口被占等失败抛 `TriggerUnready`
- * （→ 未就绪，宿主重试）；监听成功之后再出错（server 的 `error` 事件）走 `hooks.unready`。
+ * `open` 在 `listen` 成功之后才 resolve，端口被占等失败抛 `ListenerUnready`；
+ * 监听成功之后再出错走 `hooks.unready`。事件写进发件箱之后才回 200（ADR-0015）。
  */
-export function createWebhookRuntime(options: WebhookOptions = {}): TriggerRuntime<WebhookHandle> {
+export function createWebhookRuntime(options: WebhookOptions = {}): ListenerRuntime<WebhookHandle> {
 	const host = options.host ?? "127.0.0.1";
 	const maxBodyBytes = options.maxBodyBytes ?? 1024 * 1024;
 
 	return {
 		kind: webhookKind.kind,
 
-		open(declaration, hooks) {
-			const parsed = webhookKind.config.safeParse(declaration.config);
+		open(listener, hooks) {
+			const parsed = webhookListenerConfig.safeParse(listener.config);
 			if (!parsed.success) {
-				return Promise.reject(
-					new TriggerUnready(declaration.id, `invalid config: ${parsed.error.message}`),
-				);
+				return Promise.reject(new ListenerUnready(listener.id, `invalid config: ${parsed.error.message}`));
 			}
 			const config = parsed.data;
 			return new Promise<WebhookHandle>((resolve, reject) => {
 				const server = createServer((request, response) => {
-					void handle(declaration.id, config, hooks, maxBodyBytes, request, response);
+					void handle(config, hooks, maxBodyBytes, request, response);
 				});
 
-				server.once("error", (error) => reject(new TriggerUnready(declaration.id, message(error))));
+				server.once("error", (error) => reject(new ListenerUnready(listener.id, message(error))));
 
 				server.listen(config.port, host, () => {
 					const address = server.address();
@@ -73,12 +72,7 @@ export function createWebhookRuntime(options: WebhookOptions = {}): TriggerRunti
 					// 起起来了：之前的 error 处理器不再负责未就绪，换成事后故障上报。
 					server.removeAllListeners("error");
 					server.on("error", (error) => hooks.unready(message(error)));
-					const handle: WebhookHandle = {
-						port,
-						path: config.path,
-						close: () => close(server),
-					};
-					resolve(handle);
+					resolve({ port, path: config.path, close: () => close(server) });
 				});
 			});
 		},
@@ -86,9 +80,8 @@ export function createWebhookRuntime(options: WebhookOptions = {}): TriggerRunti
 }
 
 async function handle(
-	trigger: string,
-	config: WebhookConfig,
-	hooks: TriggerHooks,
+	config: WebhookListenerConfig,
+	hooks: ListenerHooks,
 	maxBodyBytes: number,
 	request: IncomingMessage,
 	response: ServerResponse,
@@ -99,13 +92,15 @@ async function handle(
 			return;
 		}
 		const body = await readJson(request, maxBodyBytes);
-		await hooks.deliver(config.output, body);
+		const key = request.headers["idempotency-key"];
+		const eventId = typeof key === "string" && key !== "" ? key : undefined;
+		await hooks.emit({ output: config.output, body, ...(eventId === undefined ? {} : { eventId }) });
 		response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ ok: true }));
 	} catch (error) {
-		// 拒收不是故障：坏 body、坏消息、停住的工作流都如实回给调用方（ADR-0008）。
+		// 没写进发件箱就不确认：调用方看到失败，自己决定重投。
 		const status = error instanceof BodyError ? error.status : 503;
 		response.writeHead(status, { "content-type": "application/json" }).end(
-			JSON.stringify({ ok: false, error: message(error), trigger }),
+			JSON.stringify({ ok: false, error: message(error) }),
 		);
 	}
 }

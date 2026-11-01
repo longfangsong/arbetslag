@@ -2,7 +2,7 @@
 	"name": "@arbetslag/llm",
 	"version": "0.0.0",
 	"private": true,
-	"description": "LLM provider performers for model.complete; one subpath per vendor.",
+	"description": "Everything about asking a model: history format, conversation/llm/inbox nodes, tools, model.complete and its performers (one subpath per vendor).",
 	"type": "module",
 	"exports": {
 		".": {
@@ -31,7 +31,6 @@
 		"typescript": "catalog:"
 	},
 	"dependencies": {
-		"@arbetslag/agents": "workspace:*",
 		"@arbetslag/kernel": "workspace:*",
 		"type-fest": "catalog:",
 		"zod": "catalog:"

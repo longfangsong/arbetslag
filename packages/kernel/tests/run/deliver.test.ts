@@ -7,7 +7,7 @@ import { load, registry, setup } from "./fixtures.ts";
 const withTrigger = {
 	nodes: { a: { definition: "relay", config: null } },
 	edges: [{ from: "t", to: "a", port: "text" }],
-	triggers: [{ id: "t", kind: "hook", config: {} }],
+	triggers: [{ id: "t", kind: "hook", listener: "l", config: {} }],
 };
 
 test("deliverToNode appends to the target mailbox with the next seq and no sender", async () => {

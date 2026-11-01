@@ -5,6 +5,8 @@ import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { Worker } from "node:worker_threads";
+import { fork } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import {
 	type Snapshot,
@@ -15,7 +17,7 @@ import {
 	createWorkflow,
 	defineNode,
 } from "@arbetslag/kernel";
-import { createSqliteStore } from "../src/sqliteStore.ts";
+import { type OutboxEntry, StoreLocked, createSqliteStore } from "../src/sqliteStore.ts";
 
 const counter = defineNode({
 	name: "counter",
@@ -60,13 +62,12 @@ test("a saved snapshot is readable by a fresh store on the same file", async () 
 	const file = await tempFile();
 	const store = createSqliteStore({ file });
 	const { id } = await createWorkflow(store, registry, template, { id: "w1" });
+	store.close();
 
 	const reopened = createSqliteStore({ file });
 	const loaded = await reopened.load(id);
-	assert.ok(loaded !== undefined, "a new process sees the row");
+	assert.ok(loaded !== undefined, "the next process sees the row");
 	assert.deepEqual(Object.keys(loaded.graph.shape.nodes), ["a"]);
-
-	store.close();
 	reopened.close();
 });
 
@@ -151,10 +152,11 @@ test("ids are sorted, and a dropped id disappears", async () => {
 	store.close();
 });
 
+// 下面两条验证存储自身的事务语义（ADR-0013），所以关掉独占：宿主从不这样用（ADR-0014）。
 test("two connections on one file both land: the second reads what the first wrote", async () => {
 	const file = await tempFile();
-	const first = createSqliteStore({ file });
-	const second = createSqliteStore({ file });
+	const first = createSqliteStore({ file, exclusive: false });
+	const second = createSqliteStore({ file, exclusive: false });
 	const { id } = await createWorkflow(first, registry, template, { id: "w" });
 
 	await Promise.all([bump(first, id), bump(second, id)]);
@@ -166,7 +168,7 @@ test("two connections on one file both land: the second reads what the first wro
 
 test("two OS threads bumping the same row lose nothing", async () => {
 	const file = await tempFile();
-	const store = createSqliteStore({ file });
+	const store = createSqliteStore({ file, exclusive: false });
 	const { id } = await createWorkflow(store, registry, template, { id: "w" });
 
 	const times = 40;
@@ -254,13 +256,153 @@ test("a damaged row fails loudly on load instead of advancing a broken graph", a
 	const file = await tempFile();
 	const store = createSqliteStore({ file });
 	await createWorkflow(store, registry, template, { id: "good" });
+	store.close();
 
 	// 「有人拿 sqlite3 手改过 / 写坏了」：读出来就该响亮地坏掉。
 	const raw = new DatabaseSync(file);
 	raw.prepare("INSERT INTO snapshots (id, snapshot) VALUES (?, ?)").run("bad", "{ this is not json");
 	raw.close();
 
-	await assert.rejects(store.load("bad"), SyntaxError);
-	assert.ok((await store.load("good")) !== undefined, "the healthy row is unaffected");
+	const reopened = createSqliteStore({ file });
+	await assert.rejects(reopened.load("bad"), SyntaxError);
+	assert.ok((await reopened.load("good")) !== undefined, "the healthy row is unaffected");
+	reopened.close();
+});
+
+// ── 一个文件一个进程（ADR-0014） ──────────────────────────────────────────────
+
+/** 另一个真实进程打开同一个文件：只用 `node:sqlite`，带上与 store 相同的独占打开方式。 */
+const HOLDER = fileURLToPath(new URL("./fixtures/holdStore.ts", import.meta.url));
+
+test("a second process opening the same file fails at startup, and succeeds once the first exits", async () => {
+	const file = await tempFile();
+	const store = createSqliteStore({ file });
+	await createWorkflow(store, registry, template, { id: "w" });
+
+	const child = fork(HOLDER, [file], { stdio: ["ignore", "ignore", "ignore", "ipc"] });
+	const outcome = await new Promise<{ ok: boolean; name?: string; message?: string }>((resolve, reject) => {
+		child.once("message", (message) => resolve(message as { ok: boolean }));
+		child.once("error", reject);
+	});
+	await new Promise((resolve) => child.once("exit", resolve));
+	assert.equal(outcome.ok, false, "the second process must not open the file");
+	assert.equal(outcome.name, "StoreLocked");
+	assert.match(outcome.message ?? "", /held by another process/);
+
+	store.close();
+	const next = createSqliteStore({ file });
+	assert.deepEqual(await next.ids(), ["w"], "the lock goes away with the process that held it");
+	next.close();
+});
+
+test("in one process, opening the file twice is refused the same way", async () => {
+	const file = await tempFile();
+	const store = createSqliteStore({ file });
+	assert.throws(() => createSqliteStore({ file }), StoreLocked);
+	store.close();
+});
+
+// ── 路由索引与发件箱（ADR-0015） ──────────────────────────────────────────────
+
+const entry = (target: string, extra: Partial<OutboxEntry> = {}): OutboxEntry => ({
+	target,
+	trigger: "t",
+	output: "text",
+	body: { text: target },
+	listener: "l",
+	...extra,
+});
+
+test("subscriptions are replaced per workflow and listed per listener", async () => {
+	const store = createSqliteStore({ file: ":memory:" });
+	const row = { trigger: "t", listener: "l", kind: "hook", config: {}, group: "", priority: 0 };
+	await store.replaceSubscriptions("a", [{ ...row, workflowId: "a", match: { fn: "always" } }]);
+	await store.replaceSubscriptions("b", [{ ...row, workflowId: "b", priority: -1 }, { ...row, workflowId: "b", trigger: "u", listener: "other" }]);
+
+	assert.deepEqual(
+		(await store.subscriptions("l")).map((s) => [s.workflowId, s.trigger, s.priority, s.match?.fn]),
+		[
+			["a", "t", 0, "always"],
+			["b", "t", -1, undefined],
+		],
+	);
+	await store.replaceSubscriptions("a", []);
+	assert.deepEqual((await store.subscriptions("l")).map((s) => s.workflowId), ["b"]);
+	store.close();
+});
+
+test("the outbox dedupes on (target, listener, eventId), and only when there is an eventId", async () => {
+	const store = createSqliteStore({ file: ":memory:" });
+	assert.equal(await store.enqueue([entry("a", { eventId: "1" }), entry("b", { eventId: "1" })]), 2);
+	assert.equal(await store.enqueue([entry("a", { eventId: "1" })]), 0, "the source retried the same event");
+	assert.equal(await store.enqueue([entry("a"), entry("a")]), 2, "no eventId, no dedupe");
+	assert.deepEqual(await store.pendingTargets(), ["a", "b"]);
+	store.close();
+});
+
+test("drain hands over rows after the cursor and moves the cursor in the same transaction", async () => {
+	const store = createSqliteStore({ file: ":memory:" });
+	await createWorkflow(store, registry, template, { id: "a" });
+	await store.enqueue([entry("a", { eventId: "1" }), entry("a", { eventId: "2" }), entry("b")]);
+	assert.deepEqual(await store.pendingTargets(), ["a", "b"]);
+
+	const seen = await store.drain("a", (snapshot, rows) => ({ snapshot, consumed: true, value: rows.map((r) => r.eventId) }));
+	assert.deepEqual(seen, ["1", "2"]);
+	assert.deepEqual(await store.drain("a", (_s, rows) => ({ consumed: true, value: rows.length })), 0, "nothing twice");
+	assert.deepEqual(await store.pendingTargets(), ["b"]);
+
+	await store.enqueue([entry("a", { eventId: "3" })]);
+	const held = await store.drain("a", (_s, rows) => ({ consumed: false, value: rows.length }));
+	assert.equal(held, 1);
+	assert.equal(await store.drain("a", (_s, rows) => ({ consumed: true, value: rows.length })), 1, "not consumed means still there");
+	store.close();
+});
+
+test("a throwing drain leaves both the snapshot and the cursor alone", async () => {
+	const store = createSqliteStore({ file: ":memory:" });
+	await createWorkflow(store, registry, template, { id: "a" });
+	await store.enqueue([entry("a")]);
+	await assert.rejects(
+		store.drain("a", () => {
+			throw new Error("boom");
+		}),
+		/boom/,
+	);
+	assert.deepEqual(await store.pendingTargets(), ["a"]);
+	store.close();
+});
+
+test("spawn writes the snapshot, its subscriptions and the forwarded row at once; an existing id only gets the row", async () => {
+	const store = createSqliteStore({ file: ":memory:" });
+	const fresh = (await import("@arbetslag/kernel")).instantiate(registry, template);
+	const subscription = { workflowId: "a", trigger: "t", listener: "l", kind: "hook", config: {}, group: "", priority: 0 };
+
+	assert.deepEqual(await store.spawn("a", fresh, [subscription], entry("a", { eventId: "1" })), { created: true });
+	assert.deepEqual((await store.subscriptions("l")).map((s) => s.workflowId), ["a"]);
+	assert.deepEqual(await store.spawn("a", fresh, [], entry("a", { eventId: "2" })), { created: false });
+	assert.deepEqual((await store.subscriptions("l")).map((s) => s.workflowId), ["a"], "the index is left alone");
+	assert.equal(await store.drain("a", (_s, rows) => ({ consumed: true, value: rows.length })), 2);
+	store.close();
+});
+
+test("drop removes the workflow's subscriptions, cursor and outbox rows with it", async () => {
+	const store = createSqliteStore({ file: ":memory:" });
+	await createWorkflow(store, registry, template, { id: "a" });
+	await store.replaceSubscriptions("a", [{ workflowId: "a", trigger: "t", listener: "l", kind: "hook", config: {}, group: "", priority: 0 }]);
+	await store.enqueue([entry("a")]);
+	await store.drop("a");
+	assert.deepEqual(await store.subscriptions("l"), []);
+	assert.deepEqual(await store.pendingTargets(), []);
+	store.close();
+});
+
+test("prune drops rows older than the cutoff, which is also the end of the dedupe window", async () => {
+	let clock = 1000;
+	const store = createSqliteStore({ file: ":memory:", now: () => clock });
+	await store.enqueue([entry("a", { eventId: "1" })]);
+	clock = 5000;
+	await store.enqueue([entry("a", { eventId: "2" })]);
+	assert.equal(await store.pruneOutbox(2000), 1);
+	assert.equal(await store.enqueue([entry("a", { eventId: "1" })]), 1, "past retention the same id is new again");
 	store.close();
 });

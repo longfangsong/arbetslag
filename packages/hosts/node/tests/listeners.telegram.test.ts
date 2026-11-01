@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { JsonValue } from "type-fest";
-import type { Trigger } from "@arbetslag/kernel";
-import { type TelegramTransport, TriggerUnready, createTelegramRuntime, telegramKind } from "../src/index.ts";
+import {
+	type Listener,
+	type ListenerEvent,
+	ListenerUnready,
+	type TelegramTransport,
+	createTelegramRuntime,
+	telegramKind,
+	telegramListenerConfig,
+} from "../src/index.ts";
 
 type Call = { method: string; body: unknown };
 
@@ -24,17 +31,22 @@ function fakeTransport(answers: (method: string, call: number, signal: AbortSign
 	return { transport, calls };
 }
 
-const declaration = (config: JsonValue = {}): Trigger => ({ id: "tg", kind: "telegram", config });
+const declaration = (config: JsonValue = {}): Listener => ({ id: "tg", kind: "telegram", config });
 
 const hooks = () => {
-	const delivered: { output: string; body: JsonValue }[] = [];
+	const delivered: ListenerEvent[] = [];
 	const unready: string[] = [];
+	let failing = false;
 	return {
 		delivered,
 		unready,
+		fail: () => {
+			failing = true;
+		},
 		hooks: {
-			deliver: async (output: string, body: JsonValue) => {
-				delivered.push({ output, body });
+			emit: async (event: ListenerEvent) => {
+				if (failing) throw new Error("outbox unavailable");
+				delivered.push(event);
 			},
 			unready: (reason: string) => {
 				unready.push(reason);
@@ -62,19 +74,19 @@ const message = (updateId: number, chatId: number, text: string) => ({
 	},
 });
 
-test("config defaults: one output called message, 25s polls, every chat", () => {
+test("the trigger side has no config and one output; the listener side defaults to 25s polls, every chat", () => {
 	const config = telegramKind.config.parse({});
-	assert.deepEqual(config, { output: "message", pollSeconds: 25, allowChats: [] });
 	assert.deepEqual(Object.keys(telegramKind.outputs(config)), ["message"]);
-	assert.equal(
-		telegramKind.outputs(config).message?.safeParse({ text: "hi", chatId: 1, messageId: 2 }).success,
-		true,
-	);
-	assert.equal(telegramKind.outputs(config).message?.safeParse({ text: "" }).success, false);
-	assert.equal(telegramKind.config.safeParse({ pollSeconds: 60 }).success, false, "Telegram caps long polls");
+	const message = telegramKind.outputs(config).message;
+	assert.equal(message?.safeParse({ text: "hi", chatId: 1, messageId: 2, updateId: 3 }).success, true);
+	assert.equal(message?.safeParse({ text: "" }).success, false);
+	assert.equal(telegramKind.config.safeParse({ allowChats: [1] }).success, false, "chat filters are matchers now");
+
+	assert.deepEqual(telegramListenerConfig.parse({}), { pollSeconds: 25, allowChats: [] });
+	assert.equal(telegramListenerConfig.safeParse({ pollSeconds: 60 }).success, false, "Telegram caps long polls");
 });
 
-test("a text message is delivered with its chat and id, and the offset moves on", async () => {
+test("a text message is emitted with its chat and update id, and the offset moves on", async () => {
 	const { transport, calls } = fakeTransport((method, call, signal) => {
 		if (method === "getMe") return { username: "dev_bot" };
 		if (call === 0) return [message(7, 42, "你好")];
@@ -83,13 +95,14 @@ test("a text message is delivered with its chat and id, and the offset moves on"
 	const seen = hooks();
 	const runtime = createTelegramRuntime({ token: "t", transport });
 
-	const handle = await runtime.open(declaration({ output: "chat" }), seen.hooks);
+	const handle = await runtime.open(declaration(), seen.hooks);
 	assert.equal(handle.bot, "dev_bot");
 	await until(() => seen.delivered.length === 1);
 
 	assert.deepEqual(seen.delivered[0], {
-		output: "chat",
-		body: { text: "你好", chatId: 42, messageId: 7, from: "longfangsong" },
+		output: "message",
+		body: { text: "你好", chatId: 42, messageId: 7, updateId: 7, from: "longfangsong" },
+		eventId: "7",
 	});
 
 	const updates = calls.filter((call) => call.method === "getUpdates");
@@ -132,7 +145,7 @@ test("a bad token or an active webhook is unready, not a halt", async () => {
 
 	await assert.rejects(
 		() => runtime.open(declaration(), hooks().hooks),
-		(error: unknown) => error instanceof TriggerUnready && /Unauthorized/.test(error.reason),
+		(error: unknown) => error instanceof ListenerUnready && /Unauthorized/.test(error.reason),
 	);
 });
 
@@ -150,5 +163,22 @@ test("a poll that fails later reports unready and stops itself", async () => {
 	assert.match(seen.unready[0] ?? "", /webhook is active/);
 	assert.equal(seen.delivered.length, 1, "the message that arrived before the failure is kept");
 
+	await handle.close();
+});
+
+test("if the router cannot take an update, the offset stays put and the listener goes unready", async () => {
+	const { transport, calls } = fakeTransport((method, call, signal) => {
+		if (method === "getMe") return { username: "bot" };
+		if (call === 0) return [message(5, 1, "要重来的")];
+		return idle(signal);
+	});
+	const seen = hooks();
+	seen.fail();
+	const runtime = createTelegramRuntime({ token: "t", transport });
+	const handle = await runtime.open(declaration(), seen.hooks);
+
+	await until(() => seen.unready.length === 1);
+	assert.match(seen.unready[0] ?? "", /outbox unavailable/);
+	assert.equal(calls.filter((call) => call.method === "getUpdates").length, 1, "no poll past an update it could not hand over");
 	await handle.close();
 });

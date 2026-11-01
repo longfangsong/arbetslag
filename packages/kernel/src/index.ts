@@ -4,6 +4,8 @@ export * from "./nodeDefinition.ts";
 export * from "./transition.ts";
 export * from "./effect/index.ts";
 export * from "./triggerKind.ts";
+export * from "./matcher.ts";
+export * from "./routing.ts";
 export * from "./registry.ts";
 export * from "./issues.ts";
 export * from "./snapshotStore.ts";

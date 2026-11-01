@@ -62,7 +62,8 @@ export function applyGraphMutation(
 			if (initial.ok) nodeStates[op.id] = initial.nodeState;
 			else violations.push({ code: "spawn_state_invalid", id: op.id, detail: initial.detail });
 		} else if (op.op === "addTrigger") {
-			shape.triggers.push({ id: op.id, kind: op.kind, config: op.config });
+			const { op: _, ...trigger } = op;
+			shape.triggers.push(trigger);
 			addedTriggers.add(op.id);
 		}
 	}

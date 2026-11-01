@@ -19,7 +19,7 @@ export const haltCodes = [
 	"version_ahead",
 	/** 改图非法：形状不变量被破坏、接线用了未声明的端口等。 */
 	"graph_invalid",
-	/** 触发器声明非法：未知 kind、config 不合规、接线的输出未声明。 */
+	/** 触发器声明非法：未知 kind、config 不合规、匹配函数未注册或 config 不合规、接线的输出未声明。 */
 	"trigger_invalid",
 	/** 交出的效果种类未知，或 `input` 不合规。 */
 	"effect_invalid",

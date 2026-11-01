@@ -1,5 +1,5 @@
 /**
- * 真模型的端到端 demo：`@arbetslag/agents` 的 agent + 一个工具 + `@arbetslag/llm/openai` 的 Performer。
+ * 真模型的端到端 demo：`@arbetslag/llm` 的 LLM 节点 + 一个工具 + `@arbetslag/llm/openai` 的 Performer。
  *
  * 图、内核、宿主和 `basic-bot` 一模一样，差别只有一处：`model.complete` 的 **Performer**
  * 从"假剧本"换成了真的模型调用（ADR-0009：厂商翻译在 Performer 里，图不认识厂商）。
@@ -7,14 +7,13 @@
  *   ARBETSLAG_MODEL=zd/deepseek-flash \
  *   ARBETSLAG_BASE_URL=https://…/v1 \
  *   ARBETSLAG_API_KEY=sk-… \
- *   pnpm --filter @arbetslag/example-real-agent start
+ *   pnpm --filter @arbetslag/example-real-model start
  */
 import { z } from "zod";
 import {
 	type LogEntry,
 	type TransitionLog,
 	type WorkflowTemplate,
-	createMemoryStore,
 	createRegistry,
 	createWorkflow,
 	defineNode,
@@ -23,14 +22,13 @@ import {
 	APPEND_PORT,
 	CONVERSATION_NAME,
 	HISTORY_PORT,
-	agent,
-	agentLayout,
+	llm,
+	wireTools,
 	conversation,
 	defineTool,
 	modelCompleteKind,
-	timerWaitKind,
-} from "@arbetslag/agents";
-import { createHost, submit } from "@arbetslag/host-node";
+} from "@arbetslag/llm";
+import { createHost, createSqliteStore } from "@arbetslag/host-node";
 import { modelPerformer } from "@arbetslag/llm";
 import { createOpenAIModel } from "@arbetslag/llm/openai";
 
@@ -51,7 +49,7 @@ const clock = defineTool({
 	run: () => ({ state: null, result: { time: new Date().toISOString().slice(11, 19) } }),
 });
 
-/** 出口：把 agent 的回复写到 stdout（写世界外是副作用，所以走效果）。 */
+/** 出口：把 LLM 节点的回复写到 stdout（写世界外是副作用，所以走效果）。 */
 const printer = defineNode({
 	name: "printer",
 	version: 1,
@@ -74,16 +72,16 @@ const printer = defineNode({
 	},
 });
 
-const layout = agentLayout({
-	agent: "bot",
+const layout = wireTools({
+	llm: "bot",
 	config: { model, system: "你是个简洁的助手。需要时间就用 clock 工具查，不要猜。" },
-	tools: [{ tool: clock }],
+	tools: [{ node: clock }],
 });
 
 const template: WorkflowTemplate = {
 	nodes: {
 		...layout.nodes,
-		// 对话历史在 `chat` 里（ADR-0010）：agent 只管问模型。
+		// 对话历史在 `chat` 里（ADR-0010）：LLM 节点只管问模型。
 		chat: { definition: CONVERSATION_NAME, config: null },
 		printer: { definition: "printer", config: null },
 	},
@@ -96,10 +94,9 @@ const template: WorkflowTemplate = {
 };
 
 const registry = createRegistry({
-	nodes: [agent, conversation, clock, printer],
+	nodes: [llm, conversation, clock, printer],
 	effects: [
 		modelCompleteKind,
-		timerWaitKind,
 		{ kind: "log.line", input: z.object({ text: z.string() }), result: z.null() },
 	],
 });
@@ -118,7 +115,7 @@ const log: TransitionLog = {
 	},
 };
 
-const store = createMemoryStore();
+const store = createSqliteStore({ file: ":memory:" });
 const host = createHost({
 	store,
 	registry,
@@ -137,11 +134,13 @@ console.log(`模型 ${model} @ ${baseURL}\n`);
 
 const question = process.argv[2] ?? "现在几点了？查一下再告诉我。";
 console.log(`→ ${question}`);
-const result = await submit(host, id, "chat", { type: "user", body: { text: question } });
-console.log(`← ${result.status}（${result.rounds} 轮、结算 ${result.settled} 个效果）`);
+await host.submit(id, "chat", { type: "user", body: { text: question } });
+// 效果（模型调用、工具、打印）由激活在后台执行，回执回来再接着推（ADR-0014）。
+await host.idle();
+console.log("← 静止");
 
 const loaded = await store.load(id);
-// 历史在 conversation（节点 id `chat`）身上，不在 agent 上（ADR-0010）。
+// 历史在 conversation（节点 id `chat`）身上，不在 LLM 节点上（ADR-0010）。
 const state = loaded?.graph.nodeStates.chat?.state as
 	| { history: { role: string; blocks: { type: string }[] }[] }
 	| undefined;

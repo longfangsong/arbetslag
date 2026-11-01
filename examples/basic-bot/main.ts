@@ -1,8 +1,8 @@
 /**
  * 最小可跑的 demo：模板 → 实例化 → 投递 → 推进 → 效果 → 回执 → 打印，
- * 外加宿主那一侧的两件事：**触发器对账**（webhook）与**恢复扫描**。
+ * 外加宿主那一侧的几件事：**激活**（ADR-0014）、**监听器与路由**（webhook，ADR-0015）、**恢复扫描**。
  *
- * 这里的 agent 是 `@arbetslag/agents` 的节点定义（ADR-0009）：一个普通节点，
+ * 问模型的是 `@arbetslag/llm` 的 LLM 节点（ADR-0009）：一个普通节点，
  * 循环在图里——问模型、调一个工具、拿到结果再问，最后沿 `reply` 回话。
  * 模型仍然是假的（本文件里的假 **Performer**，5ms 的"网络延迟"），换成真模型
  * 只需要把 `modelPerformer(fakeModel)` 换成 `@arbetslag/llm/openai` 的实现，图不用动。
@@ -12,7 +12,6 @@ import {
 	type LogEntry,
 	type TransitionLog,
 	type WorkflowTemplate,
-	createMemoryStore,
 	createRegistry,
 	createWorkflow,
 	defineNode,
@@ -23,25 +22,23 @@ import {
 	APPEND_PORT,
 	CONVERSATION_NAME,
 	HISTORY_PORT,
-	agent,
-	agentLayout,
+	llm,
+	wireTools,
 	conversation,
 	defineTool,
 	modelCompleteKind,
 	textOf,
-} from "@arbetslag/agents";
+} from "@arbetslag/llm";
 import {
 	type Performers,
 	createHost,
-	createMemoryIndex,
+	createSqliteStore,
 	createWebhookRuntime,
-	recover,
-	submit,
 	webhookKind,
 } from "@arbetslag/host-node";
 import { type ModelCall, modelPerformer } from "@arbetslag/llm";
 
-/** 监听端口；被占就演示「未就绪」（ADR-0001）。 */
+/** 监听端口；被占就演示「未就绪」（ADR-0015）。 */
 const PORT = Number(process.env.PORT ?? 8787);
 
 // ── 节点定义 ────────────────────────────────────────────────────────────────
@@ -103,17 +100,17 @@ const admin = defineNode({
 
 // ── 模板、注册表、Performer ─────────────────────────────────────────────────
 
-/** 工具只写一遍：schema 抄进 agent config，边也一并生成（ADR-0009）。 */
-const layout = agentLayout({
-	agent: "bot",
+/** 工具只写一遍：描述抄进 LLM 节点的 config，边也一并生成（ADR-0009）。 */
+const layout = wireTools({
+	llm: "bot",
 	config: { model: "fake-model-1", system: "你是个简洁的助手" },
-	tools: [{ tool: clock }],
+	tools: [{ node: clock }],
 });
 
 const template: WorkflowTemplate = {
 	nodes: {
 		...layout.nodes,
-		// 对话历史在 `chat` 这个节点里（ADR-0010）：agent 自己不再存 history。
+		// 对话历史在 `chat` 这个节点里（ADR-0010）：LLM 节点不存 history。
 		chat: { definition: CONVERSATION_NAME, config: null },
 		printer: { definition: "printer", config: null },
 		admin: { definition: "admin", config: null },
@@ -126,11 +123,12 @@ const template: WorkflowTemplate = {
 		// 触发器的输出就是端口：webhook 进来的 body 变成一条 `user` 消息（ADR-0001）。
 		{ from: "hook", to: "chat", port: "user" },
 	],
-	triggers: [{ id: "hook", kind: "webhook", config: { port: PORT, path: "/hook", output: "user" } }],
+	// 触发器是订阅（ADR-0015）：订阅部署里的监听器 `hook`，它的输出 `user` 沿边进 chat。
+	triggers: [{ id: "hook", kind: "webhook", listener: "hook", config: { output: "user" } }],
 };
 
 const registry = createRegistry({
-	nodes: [agent, conversation, clock, printer, admin],
+	nodes: [llm, conversation, clock, printer, admin],
 	effects: [
 		modelCompleteKind,
 		// `graph.mutate` 是内核自带的效果种类，不用注册。
@@ -204,25 +202,23 @@ const log: TransitionLog = {
 
 // ── 跑起来 ──────────────────────────────────────────────────────────────────
 
-const store = createMemoryStore();
-const ids: string[] = [];
-/** 内存索引：Node 上是扫目录，这里是数组（ADR-0003）。 */
-const index = createMemoryIndex(ids);
+/** 零配置：一个 SQLite 文件装下快照、路由索引与发件箱（这里用内存库）。 */
+const store = createSqliteStore({ file: ":memory:" });
 
 const host = createHost({
 	store,
 	registry,
 	performers,
 	log,
-	triggers: {
-		runtimes: { webhook: createWebhookRuntime() },
-		retryMs: 200,
-		onUnready: (info) => console.log(`      ! 未就绪 ${info.trigger}：${info.reason}（会在 200ms 后重试）`),
-	},
+	// 监听器是部署的资源，一个事件源一个；工作流只订阅它（ADR-0015）。
+	listeners: [{ id: "hook", kind: "webhook", config: { port: PORT, path: "/hook", output: "user" } }],
+	runtimes: { webhook: createWebhookRuntime() },
+	retryMs: 200,
+	onUnready: (info) =>
+		console.log(`      ! 未就绪 ${info.scope === "listener" ? info.listener : info.trigger}：${info.reason}`),
 });
 
 const { id } = await createWorkflow(store, registry, template, { id: "demo" });
-ids.push(id);
 const snapshot = async (workflowId = id) => {
 	const loaded = await store.load(workflowId);
 	if (loaded === undefined) throw new Error("工作流不见了");
@@ -230,70 +226,72 @@ const snapshot = async (workflowId = id) => {
 };
 
 console.log(`工作流 ${id} 实例化完成`);
-console.log(`形状：${Object.keys((await snapshot()).graph.shape.nodes).join("、")}\n`);
+console.log(`形状：${Object.keys((await snapshot()).graph.shape.nodes).join("、")}`);
+// 激活启动：重建路由索引、交出在飞效果、消费发件箱，然后打开监听器（ADR-0014、0015）。
+await host.start();
+console.log(`路由索引：监听器 hook 上的订阅 ${JSON.stringify((await store.subscriptions("hook")).map((s) => `${s.workflowId}/${s.trigger}`))}\n`);
 
-// ── 1. 直接投递：串行入口 ───────────────────────────────────────────────────
+// ── 1. 直接投递：串行入口只包住存储事务 ─────────────────────────────────────
 
-console.log("① 三条消息同时投递给同一份工作流，串行入口让它们逐个跑完（ADR-0003）\n");
+console.log("① 三条消息同时投递给同一份工作流：每次投递在交出效果后就返回，回执在后台落盘（ADR-0014）\n");
 const questions = ["你好", "今天几号", "再见"];
 const results = await Promise.all(
 	questions.map(async (text) => {
 		console.log(`→ 投递 user：${text}`);
-		const result = await submit(host, id, "chat", { type: "user", body: { text } });
-		console.log(
-			`← 静止（${result.rounds} 轮、结算 ${result.settled} 个效果：问模型 ×2 + 打印）\n`,
-		);
+		const result = await host.submit(id, "chat", { type: "user", body: { text } });
+		console.log(`← 已推进（${result.steps} 步，交出 ${result.dispatched} 个效果）`);
 		return result;
 	}),
 );
+await host.idle();
+console.log("   全部效果都回来了，工作流静止\n");
 
-// ── 2. 触发器：webhook 起监听、对账、未就绪 ─────────────────────────────────
+// ── 2. 监听器：webhook 进来的事件按订阅路由 ─────────────────────────────────
 
-console.log("② 宿主对账：快照里声明了 webhook，就该有一个活着的监听（ADR-0001）");
-const sync = await host.triggers?.reconcile(id);
-if (sync !== undefined && sync.unready.length > 0) {
-	console.log("   监听没起来，走未就绪：不停住、不进快照，工作流照常可用。");
+console.log("② webhook 监听器 → 路由 → 发件箱 → 工作流的邮箱（ADR-0015）");
+if (host.unready().length > 0) {
+	console.log("   监听器没起来，走未就绪：不停住、不进快照，工作流照常可用。");
 } else {
 	const url = `http://127.0.0.1:${PORT}/hook`;
 	console.log(`   监听已起：POST ${url}  {"text":"..."}`);
 	const response = await fetch(url, {
 		method: "POST",
-		headers: { "content-type": "application/json" },
+		headers: { "content-type": "application/json", "idempotency-key": "demo-1" },
 		body: JSON.stringify({ text: "从 webhook 进来的消息" }),
 	});
-	console.log(`   webhook 回 ${response.status}\n`);
+	console.log(`   webhook 回 ${response.status}（事件已写进发件箱）`);
+	await host.idle();
+	console.log("");
 }
 
-// ── 3. 改图拆触发器：对账把监听关掉 ─────────────────────────────────────────
+// ── 3. 改图拆触发器：对账把订阅从路由索引里删掉 ─────────────────────────────
 
-console.log("③ 节点出一个 graph.mutate 拆掉触发器，宿主在同一轮里关掉监听");
-await submit(host, id, "admin", { type: "unhook", body: null });
-console.log(`   现在开着的触发器：${JSON.stringify(host.triggers?.running(id))}\n`);
+console.log("③ 节点出一个 graph.mutate 拆掉触发器，宿主在同一次推进之后对账");
+await host.submit(id, "admin", { type: "unhook", body: null });
+console.log(`   监听器 hook 上的订阅：${JSON.stringify(await store.subscriptions("hook"))}（监听器本身还开着，只是没人订阅了）\n`);
 
-// ── 4. 恢复扫描：投递成功、Run 没跑的悬挂态 ─────────────────────────────────
+// ── 4. 换激活：恢复扫描 ─────────────────────────────────────────────────────
 
-console.log("④ 恢复扫描：只落了邮件、还没 Run 的工作流（模拟进程在中间被杀）");
+console.log("④ 换激活：只落了邮件、还没 Run 的工作流（模拟进程在中间被杀），由下一个激活捡起来");
+await host.stop();
 const hanging = await createWorkflow(store, registry, template, { id: "recover-me" });
-ids.push(hanging.id);
 await deliverToNode(store, hanging.id, "chat", { type: "user", body: { text: "崩溃前的最后一句" } });
 
-const report = await recover(host, index);
+const next = createHost({ store, registry, performers, log });
+const report = await next.recover();
+await next.idle();
 console.log(
-	`   扫了 ${report.scanned} 份：推进 ${report.advanced.length}、静止 ${report.quiescent.length}、停住 ${report.halted.length}、失败 ${report.failed.length}`,
+	`   扫了 ${report.scanned} 份：重交在飞效果 ${report.redispatched} 个、停住 ${report.halted.length}、失败 ${report.failed.length}\n`,
 );
-console.log(`   捡起来的是：${report.advanced.map((entry) => entry.id).join("、")}\n`);
 
 // ── 收尾 ────────────────────────────────────────────────────────────────────
-
-await host.triggers?.stop();
 
 const final = await snapshot();
 const chatState = final.graph.nodeStates.chat?.state as { history: { role: string }[] };
 console.log("最终快照");
 console.log(`  chat     history ${chatState.history.length} 条：${chatState.history.map((m) => m.role).join("、")}`);
 console.log(`  printer  ${JSON.stringify(final.graph.nodeStates.printer?.state)}`);
-console.log(
-	`  在飞效果 ${final.inFlight.length} 个；每条消息都推到了静止：${results.every((r) => r.status === "quiescent")}`,
-);
-// 一次提问结算三个效果：问模型（要工具）→ 问模型（有结果了）→ 打印。
-console.log(`  每条消息各自结算了三个效果：${results.every((r) => r.settled === 3)}`);
+console.log(`  在飞效果 ${final.inFlight.length} 个；每次投递都推到了静止：${results.every((r) => r.status === "quiescent")}`);
+const recovered = (await snapshot(hanging.id)).graph.nodeStates.chat?.state as { history: { role: string }[] };
+console.log(`  recover-me 的 history：${recovered.history.map((m) => m.role).join("、")}`);
+store.close();

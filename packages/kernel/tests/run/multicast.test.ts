@@ -91,7 +91,7 @@ test("a trigger output with several subscribers reaches all of them, in target i
 			{ from: "t", to: "b", port: "text" },
 			{ from: "t", to: "a", port: "text" },
 		],
-		triggers: [{ id: "t", kind: "hook", config: {} }],
+		triggers: [{ id: "t", kind: "hook", listener: "l", config: {} }],
 	});
 	assert.equal(await deliverFromTrigger(store, registry, id, "t", "text", "hello"), true);
 

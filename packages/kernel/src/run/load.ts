@@ -74,6 +74,7 @@ export function prepareSnapshot(
 		switch (violation.code) {
 			case "trigger_kind_unknown":
 			case "trigger_config_invalid":
+			case "trigger_match_invalid":
 				return halt("trigger_invalid", detail, violation.id);
 			case "edge_port_undeclared":
 				return halt(triggerIds.has(violation.edge.from) ? "trigger_invalid" : "graph_invalid", detail, violation.edge.from);

@@ -8,8 +8,8 @@ import { WorkflowExists } from "../../src/errors.ts";
 import { checkSnapshot } from "../../src/workflow/snapshot.ts";
 import { createWorkflow, instantiate, InstantiateError } from "../../src/workflow/template/index.ts";
 
-const agent = defineNode({
-	name: "agent",
+const asker = defineNode({
+	name: "asker",
 	version: 3,
 	state: z.object({ history: z.array(z.string()) }).default({ history: [] }),
 	config: z.object({ tools: z.array(z.string()).default([]) }),
@@ -30,7 +30,7 @@ const sink = defineNode({
 });
 
 const registry = createRegistry({
-	nodes: [agent, sink],
+	nodes: [asker, sink],
 	triggers: [
 		{
 			kind: "webhook",
@@ -52,9 +52,9 @@ const codes = (fn: () => unknown): string[] => {
 
 test("instantiate builds a consistent snapshot: empty mailboxes, no effects in flight", () => {
 	const snap = instantiate(registry, {
-		nodes: { bot: { definition: "agent", config: {} }, out: { definition: "sink", config: null, state: { n: 0 } } },
+		nodes: { bot: { definition: "asker", config: {} }, out: { definition: "sink", config: null, state: { n: 0 } } },
 		edges: [{ from: "bot", to: "out", port: "reply" }],
-		triggers: [{ id: "hook", kind: "webhook", config: { path: "/x" } }],
+		triggers: [{ id: "hook", kind: "webhook", listener: "l", config: { path: "/x" } }],
 	});
 	assert.deepEqual(checkSnapshot(snap), []);
 	assert.equal(snap.nextSeq, 0);
@@ -64,20 +64,20 @@ test("instantiate builds a consistent snapshot: empty mailboxes, no effects in f
 });
 
 test("defaults are materialized: config and initial state come from the parsed output", () => {
-	const snap = instantiate(registry, { nodes: { bot: { definition: "agent", config: {} } } });
+	const snap = instantiate(registry, { nodes: { bot: { definition: "asker", config: {} } } });
 	assert.deepEqual(snap.graph.shape.nodes.bot?.config, { tools: [] });
 	assert.deepEqual(snap.graph.nodeStates.bot?.state, { history: [] });
 });
 
 test("a given state wins over the schema default", () => {
 	const snap = instantiate(registry, {
-		nodes: { bot: { definition: "agent", config: {}, state: { history: ["hi"] } } },
+		nodes: { bot: { definition: "asker", config: {}, state: { history: ["hi"] } } },
 	});
 	assert.deepEqual(snap.graph.nodeStates.bot?.state, { history: ["hi"] });
 });
 
 test("the template is read once: later template edits do not reach the snapshot", () => {
-	const template = { nodes: { bot: { definition: "agent", config: { tools: ["a"] } } } };
+	const template = { nodes: { bot: { definition: "asker", config: { tools: ["a"] } } } };
 	const snap = instantiate(registry, template);
 	template.nodes.bot.config.tools.push("b");
 	assert.deepEqual(snap.graph.shape.nodes.bot?.config, { tools: ["a"] });
@@ -95,8 +95,8 @@ test("unknown definition, bad config, undeclared port are all reported together"
 		instantiate(registry, {
 			nodes: {
 				a: { definition: "ghost", config: null },
-				b: { definition: "agent", config: { tools: "x" } },
-				c: { definition: "agent", config: {} },
+				b: { definition: "asker", config: { tools: "x" } },
+				c: { definition: "asker", config: {} },
 			},
 			edges: [{ from: "c", to: "c", port: "tool.nope" }],
 		}),
@@ -105,27 +105,27 @@ test("unknown definition, bad config, undeclared port are all reported together"
 });
 
 test("ports follow config: a tool port exists only when the config lists it", () => {
-	const ok = { nodes: { bot: { definition: "agent", config: { tools: ["t"] } } }, edges: [{ from: "bot", to: "bot", port: "tool.t" }] };
+	const ok = { nodes: { bot: { definition: "asker", config: { tools: ["t"] } } }, edges: [{ from: "bot", to: "bot", port: "tool.t" }] };
 	assert.deepEqual(codes(() => instantiate(registry, ok)), []);
-	const bad = { nodes: { bot: { definition: "agent", config: { tools: [] } } }, edges: [{ from: "bot", to: "bot", port: "tool.t" }] };
+	const bad = { nodes: { bot: { definition: "asker", config: { tools: [] } } }, edges: [{ from: "bot", to: "bot", port: "tool.t" }] };
 	assert.deepEqual(codes(() => instantiate(registry, bad)), ["edge_port_undeclared"]);
 });
 
 test("triggers: unknown kind, bad config, undeclared output", () => {
-	const node = { bot: { definition: "agent", config: {} } };
+	const node = { bot: { definition: "asker", config: {} } };
 	assert.deepEqual(
-		codes(() => instantiate(registry, { nodes: node, triggers: [{ id: "t", kind: "cron", config: null }] })),
+		codes(() => instantiate(registry, { nodes: node, triggers: [{ id: "t", kind: "cron", listener: "l", config: null }] })),
 		["trigger_kind_unknown"],
 	);
 	assert.deepEqual(
-		codes(() => instantiate(registry, { nodes: node, triggers: [{ id: "t", kind: "webhook", config: {} }] })),
+		codes(() => instantiate(registry, { nodes: node, triggers: [{ id: "t", kind: "webhook", listener: "l", config: {} }] })),
 		["trigger_config_invalid"],
 	);
 	assert.deepEqual(
 		codes(() =>
 			instantiate(registry, {
 				nodes: node,
-				triggers: [{ id: "t", kind: "webhook", config: { path: "/" } }],
+				triggers: [{ id: "t", kind: "webhook", listener: "l", config: { path: "/" } }],
 				edges: [{ from: "t", to: "bot", port: "callback" }],
 			}),
 		),
@@ -133,7 +133,7 @@ test("triggers: unknown kind, bad config, undeclared output", () => {
 	);
 	const fine = instantiate(registry, {
 		nodes: node,
-		triggers: [{ id: "t", kind: "webhook", config: { path: "/" } }],
+		triggers: [{ id: "t", kind: "webhook", listener: "l", config: { path: "/" } }],
 		edges: [{ from: "t", to: "bot", port: "text" }],
 	});
 	assert.deepEqual(checkSnapshot(fine), []);
@@ -141,7 +141,7 @@ test("triggers: unknown kind, bad config, undeclared output", () => {
 
 test("shape violations are reported too", () => {
 	assert.deepEqual(
-		codes(() => instantiate(registry, { nodes: { bot: { definition: "agent", config: {} } }, edges: [{ from: "bot", to: "ghost", port: "reply" }] })),
+		codes(() => instantiate(registry, { nodes: { bot: { definition: "asker", config: {} } }, edges: [{ from: "bot", to: "ghost", port: "reply" }] })),
 		["edge_dangling"],
 	);
 });
@@ -152,7 +152,7 @@ test("a malformed template is one violation, not a crash", () => {
 
 test("createWorkflow saves under the given or a generated id; a taken id is refused", async () => {
 	const store = createMemoryStore();
-	const template = { nodes: { bot: { definition: "agent", config: {} } } };
+	const template = { nodes: { bot: { definition: "asker", config: {} } } };
 
 	const a = await createWorkflow(store, registry, template, { id: "w1" });
 	assert.equal(a.id, "w1");

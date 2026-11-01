@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { JsonValue } from "type-fest";
-import { TriggerUnready } from "../src/triggers/runtime.ts";
-import { createWebhookRuntime, webhookKind } from "../src/triggers/webhook.ts";
+import { type ListenerEvent, ListenerUnready } from "../src/listeners/runtime.ts";
+import { createWebhookRuntime, webhookKind } from "../src/listeners/webhook.ts";
 
 type Hooks = Parameters<ReturnType<typeof createWebhookRuntime>["open"]>[1];
 
 function recorder() {
-	const delivered: { output: string; body: JsonValue }[] = [];
+	const delivered: ListenerEvent[] = [];
 	const unready: string[] = [];
 	const hooks: Hooks = {
-		deliver: async (output, body) => {
-			delivered.push({ output, body });
+		emit: async (event) => {
+			delivered.push(event);
 			return null;
 		},
 		unready: (reason) => {
@@ -28,14 +28,14 @@ async function open(hooks: Hooks, config: Record<string, JsonValue> = {}) {
 	);
 }
 
-const post = (port: number, path: string, body: string) =>
+const post = (port: number, path: string, body: string, headers: Record<string, string> = {}) =>
 	fetch(`http://127.0.0.1:${port}${path}`, {
 		method: "POST",
 		body,
-		headers: { "content-type": "application/json" },
+		headers: { "content-type": "application/json", ...headers },
 	});
 
-test("a POST on the declared path is delivered under the declared output name", async () => {
+test("a POST on the declared path is emitted under the configured output name", async () => {
 	const { delivered, hooks } = recorder();
 	const handle = await open(hooks);
 	try {
@@ -50,13 +50,14 @@ test("a POST on the declared path is delivered under the declared output name", 
 	}
 });
 
-test("the output name is part of the config, so the edge can wire it to any message type", async () => {
+test("the output name is configurable on both sides, so the edge can wire it to any message type", async () => {
 	const { delivered, hooks } = recorder();
 	const handle = await open(hooks, { output: "chat" });
 	try {
 		await post(handle.port, "/hook", JSON.stringify({ text: "hi" }));
 		assert.equal(delivered[0]?.output, "chat");
-		assert.deepEqual(Object.keys(webhookKind.outputs({ port: 8787, path: "/", output: "chat" })), ["chat"]);
+		assert.deepEqual(Object.keys(webhookKind.outputs(webhookKind.config.parse({ output: "chat" }))), ["chat"]);
+		assert.deepEqual(Object.keys(webhookKind.outputs(webhookKind.config.parse({}))), ["request"]);
 	} finally {
 		await handle.close();
 	}
@@ -86,10 +87,25 @@ test("a body that is not JSON is rejected with 400, not delivered", async () => 
 	}
 });
 
-test("a rejected delivery answers 503 with the reason", async () => {
+test("an Idempotency-Key header becomes the event id, so the router can dedupe retries", async () => {
+	const { delivered, hooks } = recorder();
+	const handle = await open(hooks);
+	try {
+		await post(handle.port, "/hook", "{}", { "idempotency-key": "abc" });
+		await post(handle.port, "/hook", "{}");
+		assert.deepEqual(
+			delivered.map((event) => event.eventId),
+			["abc", undefined],
+		);
+	} finally {
+		await handle.close();
+	}
+});
+
+test("an event the router could not take answers 503, so the caller retries", async () => {
 	const hooks: Hooks = {
-		deliver: async () => {
-			throw new Error("workflow is halted");
+		emit: async () => {
+			throw new Error("disk full");
 		},
 		unready: () => {},
 	};
@@ -98,7 +114,7 @@ test("a rejected delivery answers 503 with the reason", async () => {
 		const response = await post(handle.port, "/hook", "{}");
 		assert.equal(response.status, 503);
 		const body = (await response.json()) as { ok: boolean; error: string };
-		assert.deepEqual(body, { ok: false, error: "workflow is halted", trigger: "hook" });
+		assert.deepEqual(body, { ok: false, error: "disk full" });
 	} finally {
 		await handle.close();
 	}
@@ -109,7 +125,7 @@ test("a port that is already taken is unready, not a crash", async () => {
 	try {
 		await assert.rejects(
 			open(recorder().hooks, { port: first.port }),
-			(error: unknown) => error instanceof TriggerUnready && error.trigger === "hook",
+			(error: unknown) => error instanceof ListenerUnready && error.listener === "hook",
 		);
 		// 第一个还活着：端口冲突不该连累已经起好的监听。
 		assert.equal((await post(first.port, "/hook", "{}")).status, 200);
@@ -121,6 +137,6 @@ test("a port that is already taken is unready, not a crash", async () => {
 test("a config that does not match the kind is unready", async () => {
 	await assert.rejects(
 		createWebhookRuntime().open({ id: "hook", kind: "webhook", config: { port: "eighty" } }, recorder().hooks),
-		(error: unknown) => error instanceof TriggerUnready && error.reason.startsWith("invalid config"),
+		(error: unknown) => error instanceof ListenerUnready && error.reason.startsWith("invalid config"),
 	);
 });

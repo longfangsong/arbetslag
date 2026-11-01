@@ -95,3 +95,39 @@ export const answerable = (history: History): boolean => {
 	const last = history.at(-1);
 	return last !== undefined && (last.role === "user" || last.role === "tool");
 };
+
+/**
+ * 「模型上次之后，有没有新的话要回」：从第 `seen` 条起（模型上次看到的长度）有 user 或 tool 消息就要问。
+ * 模型思考期间进来的话排在它的回答**之前**，只看最后一条会把它们漏掉。
+ * 不知道 `seen` 时退回 `answerable`。
+ */
+export const unanswered = (history: History, seen: number | undefined): boolean => {
+	if (seen === undefined) return answerable(history);
+	return history.slice(seen).some((message) => message.role === "user" || message.role === "tool");
+};
+
+/**
+ * 交给模型之前理顺工具调用：厂商要求一条带工具调用的 assistant 消息后面**紧跟**它的全部结果。
+ * 等工具期间进来的 user / system 消息挪到这批结果之后；history 本身不动（它记的是真实先后）。
+ */
+export function forModel(history: History): History {
+	const out: HistoryMessage[] = [];
+	const deferred: HistoryMessage[] = [];
+	const open = new Set<string>();
+	for (const message of history) {
+		if (message.role === "tool") {
+			out.push(message);
+			for (const block of message.blocks) if (block.type === "tool-result") open.delete(block.callId);
+		} else if (open.size > 0 && message.role !== "assistant") {
+			deferred.push(message);
+			continue;
+		} else {
+			out.push(...deferred.splice(0));
+			out.push(message);
+			if (message.role === "assistant") for (const call of toolCallsOf(message)) open.add(call.callId);
+		}
+		if (open.size === 0) out.push(...deferred.splice(0));
+	}
+	out.push(...deferred);
+	return out;
+}

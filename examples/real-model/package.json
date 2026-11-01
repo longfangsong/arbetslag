@@ -1,5 +1,5 @@
 {
-	"name": "@arbetslag/example-real-agent",
+	"name": "@arbetslag/example-real-model",
 	"private": true,
 	"type": "module",
 	"scripts": {
@@ -7,7 +7,6 @@
 		"type-check": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@arbetslag/agents": "workspace:*",
 		"@arbetslag/host-node": "workspace:*",
 		"@arbetslag/kernel": "workspace:*",
 		"@arbetslag/llm": "workspace:*",

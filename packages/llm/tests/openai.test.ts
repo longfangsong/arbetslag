@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { JsonValue } from "type-fest";
-import type { History, ModelCompleteInput, ToolSpec } from "@arbetslag/agents";
-import { modelCompleteInputSchema, textMessage } from "@arbetslag/agents";
+import type { History, ModelCompleteInput, ToolSpec } from "../src/index.ts";
+import { modelCompleteInputSchema, textMessage } from "../src/index.ts";
 import { modelPerformer } from "../src/index.ts";
 import { fromAssistant, toChatMessages, toToolDefinitions } from "../src/openai/translate.ts";
 

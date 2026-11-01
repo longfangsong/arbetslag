@@ -24,7 +24,7 @@ export const CONVERSATION_NAME = "conversation";
  *
  * - 收到 `user`（`{ text }`）→ 记成一条 user 消息；
  * - 收到 `append`（一条 `HistoryMessage`）→ 原样记为最后一条；
- * - 每次记完都沿 `history` 发一份**整份**快照，谁接谁读（judge、agent）。
+ * - 每次记完都沿 `history` 发一份**整份**快照，谁接谁读（判断节点、LLM 节点）。
  *
  * 它不判断「该不该问模型」：那是消费者的事（`answerable`）。也不压缩、不裁剪。
  */

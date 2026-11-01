@@ -7,6 +7,6 @@
 		"type-check": "pnpm -r type-check",
 		"test": "pnpm -r test",
 		"demo": "pnpm -r build && pnpm --filter @arbetslag/example-basic-bot start",
-		"demo:real": "pnpm -r build && pnpm --filter @arbetslag/example-real-agent start"
+		"demo:real": "pnpm -r build && pnpm --filter @arbetslag/example-real-model start"
 	}
 }
