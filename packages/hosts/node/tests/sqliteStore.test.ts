@@ -340,35 +340,37 @@ test("the outbox dedupes on (target, listener, eventId), and only when there is 
 	store.close();
 });
 
-test("drain hands over rows after the cursor and moves the cursor in the same transaction", async () => {
+test("outbox rows after a cursor are read without moving it; a checkpoint moves it with the snapshot", async () => {
 	const store = createSqliteStore({ file: ":memory:" });
 	await createWorkflow(store, registry, template, { id: "a" });
 	await store.enqueue([entry("a", { eventId: "1" }), entry("a", { eventId: "2" }), entry("b")]);
 	assert.deepEqual(await store.pendingTargets(), ["a", "b"]);
 
-	const seen = await store.drain("a", (snapshot, rows) => ({ snapshot, consumed: true, value: rows.map((r) => r.eventId) }));
-	assert.deepEqual(seen, ["1", "2"]);
-	assert.deepEqual(await store.drain("a", (_s, rows) => ({ consumed: true, value: rows.length })), 0, "nothing twice");
-	assert.deepEqual(await store.pendingTargets(), ["b"]);
+	assert.equal(await store.cursor("a"), 0);
+	const rows = await store.outboxAfter("a", 0);
+	assert.deepEqual(rows.map((r) => r.eventId), ["1", "2"]);
+	assert.deepEqual((await store.outboxAfter("a", 0)).length, 2, "reading does not consume");
 
-	await store.enqueue([entry("a", { eventId: "3" })]);
-	const held = await store.drain("a", (_s, rows) => ({ consumed: false, value: rows.length }));
-	assert.equal(held, 1);
-	assert.equal(await store.drain("a", (_s, rows) => ({ consumed: true, value: rows.length })), 1, "not consumed means still there");
+	const snapshot = await store.load("a");
+	assert.ok(snapshot !== undefined);
+	await store.checkpoint("a", { snapshot: { ...snapshot, nextSeq: 9 }, cursor: rows.at(-1)?.seq ?? 0 });
+	assert.equal((await store.load("a"))?.nextSeq, 9);
+	assert.deepEqual(await store.outboxAfter("a", await store.cursor("a")), [], "nothing twice");
+	assert.deepEqual(await store.pendingTargets(), ["b"]);
 	store.close();
 });
 
-test("a throwing drain leaves both the snapshot and the cursor alone", async () => {
+test("a checkpoint writes the snapshot, the cursor and the route index at once, or nothing", async () => {
 	const store = createSqliteStore({ file: ":memory:" });
 	await createWorkflow(store, registry, template, { id: "a" });
-	await store.enqueue([entry("a")]);
-	await assert.rejects(
-		store.drain("a", () => {
-			throw new Error("boom");
-		}),
-		/boom/,
-	);
-	assert.deepEqual(await store.pendingTargets(), ["a"]);
+	const snapshot = await store.load("a");
+	assert.ok(snapshot !== undefined);
+	const subscription = { workflowId: "a", trigger: "t", listener: "l", kind: "hook", config: {}, group: "", priority: 0 };
+
+	await store.checkpoint("a", { snapshot, subscriptions: [subscription] });
+	assert.deepEqual((await store.subscriptions("l")).map((s) => s.workflowId), ["a"]);
+	await assert.rejects(store.checkpoint("missing", { snapshot, cursor: 5 }), WorkflowNotFound);
+	assert.equal(await store.cursor("missing"), 0, "a refused checkpoint leaves no cursor behind");
 	store.close();
 });
 
@@ -381,7 +383,7 @@ test("spawn writes the snapshot, its subscriptions and the forwarded row at once
 	assert.deepEqual((await store.subscriptions("l")).map((s) => s.workflowId), ["a"]);
 	assert.deepEqual(await store.spawn("a", fresh, [], entry("a", { eventId: "2" })), { created: false });
 	assert.deepEqual((await store.subscriptions("l")).map((s) => s.workflowId), ["a"], "the index is left alone");
-	assert.equal(await store.drain("a", (_s, rows) => ({ consumed: true, value: rows.length })), 2);
+	assert.equal((await store.outboxAfter("a", 0)).length, 2);
 	store.close();
 });
 

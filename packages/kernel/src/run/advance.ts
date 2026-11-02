@@ -14,8 +14,11 @@ export type AdvanceOptions = {
 	/** 单条快照的字节上限；超了就停住（ADR-0002、0008）。 */
 	maxSnapshotBytes: number;
 	now: () => Date;
-	/** 给在飞的效果分配 `effectId`（内核的幂等键）。 */
-	newEffectId: () => string;
+	/**
+	 * 给在飞的效果分配 `effectId`（内核的幂等键）：入参是被处理那条消息的 `seq` 与效果的下标。
+	 * 必须只由这两个数决定，重放才认得出同一个效果（ADR-0016）。
+	 */
+	newEffectId: (seq: number, index: number) => string;
 };
 
 export type AdvanceOutcome = {
@@ -28,7 +31,7 @@ export type AdvanceOutcome = {
 	 */
 	status: "quiescent" | "budget" | "halted";
 	steps: number;
-	/** 本次新交出的效果：已记进 `snapshot.inFlight`，落盘之后才可以交给执行器（ADR-0003）。 */
+	/** 本次新交出的效果：已记进 `snapshot.inFlight`；不可重放的要落盘之后才可以交给执行器（ADR-0016）。 */
 	effects: InFlightEffect[];
 	log: LogEntry[];
 	changed: boolean;
@@ -222,8 +225,8 @@ function transition(
 		}
 	});
 
-	const effects: InFlightEffect[] = requests.data.map((request) => ({
-		effectId: options.newEffectId(),
+	const effects: InFlightEffect[] = requests.data.map((request, index) => ({
+		effectId: options.newEffectId(head.seq, index),
 		origin: nodeId,
 		kind: request.kind,
 		input: request.input,

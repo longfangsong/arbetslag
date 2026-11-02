@@ -25,6 +25,21 @@ test("an effect becomes an in-flight record before it leaves the graph", async (
 	assert.equal(result.status, "quiescent", "a run does not wait for effects");
 });
 
+test("the default effectId is <seq>.<index>: replaying the same snapshot hands out the same id (ADR-0016)", async () => {
+	const { store, id } = await setup(single);
+	await deliverToNode(store, id, "e", { type: "go", body: null });
+	const before = await load(store);
+
+	const first = await run(store, registry, id);
+	assert.deepEqual(first.effects.map((e) => e.effectId), ["0.0"]);
+
+	// 「崩溃」：退回 run 之前那份快照，再跑一遍。
+	const replay = createMemoryStore();
+	await replay.create(id, before);
+	const second = await run(replay, registry, id);
+	assert.deepEqual(second.effects.map((e) => e.effectId), ["0.0"]);
+});
+
 test("the receipt lands in the origin's mailbox, carries the correlationId and the result", async () => {
 	const { store, id } = await setup(single);
 	await deliverToNode(store, id, "e", { type: "go", body: null });

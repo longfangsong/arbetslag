@@ -28,6 +28,7 @@
 - **`create` 还是单独一个方法**，不是 `commit` 的 `undefined` 分支：创建一次工作流和推进一份工作流是两件事，各自有一个明确的失败（`WorkflowExists` / `WorkflowNotFound`）。
 - **内核零依赖版本概念。** `run` / `deliver` / `settle` / `createWorkflow` 都在 `commit` 回调里做它们本来就是纯的那部分。
 - **事务只管"不丢更新"**；"同一个效果不被交出两次"是另一件事，靠单激活（ADR-0014）。
+- **ADR-0016 之后**：宿主交给内核的 `SnapshotStore` 是激活的工作副本，`commit` 改内存；`BEGIN IMMEDIATE … COMMIT` 只在检查点发生，一次写完快照、发件箱游标与（触发器变了时）路由索引。本 ADR 的接口与"`change` 同步且纯"不变。
 
 ## 为什么
 

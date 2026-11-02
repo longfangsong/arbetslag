@@ -5,6 +5,9 @@ import { type TransitionLog, appendLog } from "../transitionLog.ts";
 import { type AdvanceOptions, advance } from "./advance.ts";
 
 export const DEFAULT_BUDGET = 1000;
+
+/** `<seq>.<下标>`：一条 `seq` 只被消费一次，所以在一份工作流内唯一；重放得到同一个 id（ADR-0016）。 */
+export const defaultEffectId = (seq: number, index: number): string => `${seq}.${index}`;
 /** 单条快照 2 MB（ADR-0002）。 */
 export const DEFAULT_MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024;
 
@@ -13,7 +16,7 @@ export type RunOptions = Partial<AdvanceOptions> & { log?: TransitionLog };
 export type RunResult = {
 	status: "quiescent" | "budget" | "halted";
 	steps: number;
-	/** 本次新交出的效果：已随快照落盘，现在可以交给执行器了（ADR-0003）。 */
+	/** 本次新交出的效果：已记进快照的 `inFlight`。落不落盘、何时交出，由宿主按 ADR-0016 决定。 */
 	effects: InFlightEffect[];
 };
 
@@ -32,7 +35,7 @@ export async function run(
 		budget: options.budget ?? DEFAULT_BUDGET,
 		maxSnapshotBytes: options.maxSnapshotBytes ?? DEFAULT_MAX_SNAPSHOT_BYTES,
 		now: options.now ?? (() => new Date()),
-		newEffectId: options.newEffectId ?? (() => crypto.randomUUID()),
+		newEffectId: options.newEffectId ?? defaultEffectId,
 	};
 
 	const outcome = await store.commit(id, (snapshot) => {

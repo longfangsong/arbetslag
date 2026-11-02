@@ -10,4 +10,9 @@ export type EffectKindDefinition = {
 	input: z.ZodType<JsonValue>;
 	/** `@effect.end` 的 `body.result` 的形状；成功与失败是它的两种形状。 */
 	result: z.ZodType<JsonValue>;
+	/**
+	 * 可重放（ADR-0016）：崩溃后忘了它被交出过也没关系——重放时以同一个 `effectId` 再交一次，
+	 * 外部看不出差别（模型调用：只多花一次钱）。缺省 `false`：交出之前宿主必须先落盘。
+	 */
+	replayable?: boolean;
 };

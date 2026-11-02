@@ -32,7 +32,8 @@ import {
 import type { Listener, ListenerEvent, ListenerHandle, ListenerRuntimes } from "./listeners/runtime.ts";
 import { ListenerUnready } from "./listeners/runtime.ts";
 import { createKeyedQueue } from "./queue.ts";
-import type { OutboxEntry, SqliteStore, SubscriptionRow } from "./sqliteStore.ts";
+import { type OutboxEntry, type SqliteStore, type SubscriptionRow, subscriptionsOf } from "./sqliteStore.ts";
+import { createWorkingCopies } from "./workingCopy.ts";
 
 /** 宿主侧的护栏：一次推进最多跑几轮 `run`。内核不区分"静止"与"死锁"，跑不动的图得有人喊停。 */
 export const DEFAULT_MAX_ROUNDS = 1000;
@@ -76,7 +77,7 @@ export type HostOptions = {
 
 /**
  * 一次推进（`submit` / `drive` / `drain` 的同步部分）的结果。效果在它返回时已经交出去了，
- * 但还没回来：回执由激活在后台落盘，`idle()` 等它们全部结束。
+ * 但还没回来：回执由激活在后台落进工作副本，`idle()` 等它们全部结束。
  *
  * - `quiescent`：邮箱空了（可能仍有在飞效果）
  * - `halted`：停住，不再交出新的效果
@@ -109,19 +110,23 @@ export type RecoveryReport = {
 /**
  * 一次激活（ADR-0014）：对它打开的存储里每一份工作流负责的那一个执行上下文。
  *
- * - **串行入口只包住存储事务**：投递、`run`、落回执、改图、消费发件箱，各排一次队；
+ * - **串行入口只包住工作副本上的改动**：投递、`run`、落回执、改图、消费发件箱，各排一次队；
  *   Performer 在队列之外跑，模型在想的时候新消息照常推进。
+ * - **只在三个时刻写检查点**（ADR-0016）：确认直接投递或 `resume` 之前、交出不可重放的效果之前、
+ *   闲下来之前（静止或停住，且没有可重放的效果还在执行）。其余改动只在工作副本里。
  * - **交出至多一次**：内存里的"正在执行"集合；只有激活启动（`recover`）与 `resume` 会重扫 `inFlight`。
  * - **路由**（ADR-0015）：监听器交来的事件按订阅写进发件箱，目标的激活再按游标拉进邮箱。
  */
 export type Host = {
 	readonly store: SqliteStore;
 	readonly registry: Registry;
-	/** 直接投给某个节点，然后推进（ADR-0001：投递 = 一次写 + 一次 Run）。 */
+	/** 这份工作流此刻的快照：工作副本里的那份（比存储新），或者存储里的上一个检查点。 */
+	snapshot(id: string): Promise<Snapshot | undefined>;
+	/** 直接投给某个节点，然后推进（ADR-0001）。返回之前这条消息已经落盘（ADR-0016 的 W1）。 */
 	submit(id: string, node: string, message: { type: string; body: JsonValue }): Promise<Advance>;
 	/** 只推进，不投递。 */
 	drive(id: string): Promise<Advance>;
-	/** 把发件箱里比游标新的行投进邮箱（与推进游标同一次事务），然后推进。 */
+	/** 把发件箱里比游标新的行投进邮箱（游标跟着下一个检查点落盘），然后推进。 */
 	drain(id: string): Promise<Advance>;
 	/** 路由一条外部事件（监听器调它；测试与命令行也可以直接调）。resolve 时已写进发件箱。 */
 	emit(listener: string, event: ListenerEvent): Promise<RouteReport>;
@@ -144,25 +149,16 @@ export type Host = {
 
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-/** 一份快照里的触发器声明 → 路由索引的行（对账的目标状态）。 */
-function subscriptionsOf(workflowId: string, snapshot: Snapshot): SubscriptionRow[] {
-	return snapshot.graph.shape.triggers.map((trigger) => ({
-		workflowId,
-		trigger: trigger.id,
-		listener: trigger.listener,
-		kind: trigger.kind,
-		config: trigger.config,
-		...(trigger.match === undefined ? {} : { match: trigger.match }),
-		group: trigger.group,
-		priority: trigger.priority,
-	}));
-}
+/** 推到没得推之后、交出之前：效果攒在这里，由 `settle` 决定先不先写检查点。 */
+type Pushed = { status: Advance["status"]; rounds: number; steps: number; effects: InFlightEffect[] };
 
 export function createHost(options: HostOptions): Host {
 	const { store, registry } = options;
 	const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
+	const copies = createWorkingCopies(store);
 	const queue = createKeyedQueue();
-	const executing = new Map<string, Set<string>>();
+	/** 正在执行的效果：`effectId` → 是否可重放（ADR-0016 的 W2 要看）。 */
+	const executing = new Map<string, Map<string, boolean>>();
 	const background = new Set<Promise<void>>();
 	const listeners = new Map((options.listeners ?? []).map((listener) => [listener.id, listener]));
 	const handles = new Map<string, ListenerHandle>();
@@ -196,37 +192,67 @@ export function createHost(options: HostOptions): Host {
 
 	// ── 推进（都在串行入口里） ────────────────────────────────────────────────
 
-	/** `run` 到没得推：改图就地执行（它就是一次存储事务），其余效果交给 Performer。 */
-	async function advanceLocked(id: string): Promise<Advance> {
+	const replayable = (kind: string): boolean => registry.effectKind(kind)?.replayable === true;
+
+	/** `run` 到没得推：改图就地执行（改的是工作副本），其余效果攒着，交不交、何时交由 `settle` 定。 */
+	async function push(id: string): Promise<Pushed> {
 		let rounds = 0;
 		let steps = 0;
-		let dispatched = 0;
+		const effects: InFlightEffect[] = [];
 		for (;;) {
-			const outcome = await run(store, registry, id, options.run);
+			const outcome = await run(copies, registry, id, options.run);
 			rounds++;
 			steps += outcome.steps;
-			if (outcome.status === "halted") return { status: "halted", rounds, steps, dispatched };
+			if (outcome.status === "halted") return { status: "halted", rounds, steps, effects };
 
 			let mutated = false;
 			for (const effect of outcome.effects) {
 				if (effect.kind === graphMutateEffect.kind) {
-					await performGraphMutate(store, registry, id, effect.effectId);
+					await performGraphMutate(copies, registry, id, effect.effectId);
 					mutated = true;
-				} else if (dispatch(id, effect)) {
-					dispatched++;
+				} else {
+					effects.push(effect);
 				}
 			}
-			if (!mutated && outcome.status === "quiescent") return { status: "quiescent", rounds, steps, dispatched };
-			if (rounds >= maxRounds) return { status: "rounds", rounds, steps, dispatched };
+			if (!mutated && outcome.status === "quiescent") return { status: "quiescent", rounds, steps, effects };
+			if (rounds >= maxRounds) return { status: "rounds", rounds, steps, effects };
 		}
 	}
 
-	/** 对账（ADR-0015）：快照里的触发器声明 → 路由索引；引用部署里没有的监听器 → 未就绪。 */
+	/**
+	 * 推完之后（ADR-0016）：该写检查点就先写，再交出效果。写的条件是三者之一——
+	 * - `durable`：调用方要确认一条不在别处落盘的输入（W1）；
+	 * - 要交出的效果里有不可重放的（W3）；
+	 * - 闲下来了：停在一个点上（静止、停住、轮数上限），且没有可重放的效果还在执行（W2）。
+	 * 停住时不交出新的效果：它们留在 `inFlight` 里，`resume` 之后再交（ADR-0008）。
+	 */
+	async function settle(id: string, pushed: Pushed, durable: boolean): Promise<Advance> {
+		const effects = pushed.status === "halted" ? [] : pushed.effects;
+		const busy = effects.some((e) => replayable(e.kind)) || [...(executing.get(id)?.values() ?? [])].some(Boolean);
+		if (durable || effects.some((e) => !replayable(e.kind)) || pushed.status !== "quiescent" || !busy) {
+			await checkpoint(id);
+		}
+		let dispatched = 0;
+		for (const effect of effects) if (dispatch(id, effect)) dispatched++;
+		return { status: pushed.status, rounds: pushed.rounds, steps: pushed.steps, dispatched };
+	}
+
+	/** 写检查点；触发器变了，路由索引已在同一次事务里重写，这里只重算未就绪。 */
+	async function checkpoint(id: string): Promise<void> {
+		const { subscriptions } = await copies.checkpoint(id);
+		if (subscriptions !== undefined) noteUnready(id, subscriptions);
+	}
+
+	/** 对账（ADR-0015）：快照里的触发器声明 → 路由索引。激活启动时做一次，之后跟着检查点走。 */
 	async function reconcile(id: string): Promise<void> {
-		const loaded = await store.load(id);
+		const loaded = await copies.load(id);
 		const rows = loaded === undefined ? [] : subscriptionsOf(id, loaded);
 		await store.replaceSubscriptions(id, rows);
+		noteUnready(id, rows);
+	}
 
+	/** 引用部署里没有的监听器的触发器 → 未就绪；只在变化时上报。 */
+	function noteUnready(id: string, rows: SubscriptionRow[]): void {
 		const before = triggerUnready.get(id) ?? new Map<string, string>();
 		const after = new Map<string, string>();
 		for (const row of rows) {
@@ -241,21 +267,19 @@ export function createHost(options: HostOptions): Host {
 		else triggerUnready.delete(id);
 	}
 
-	/** 一项串行工作：做 `first`，推进，对账。 */
-	function locked(id: string, first?: () => Promise<unknown>): Promise<Advance> {
+	/** 一项串行工作：做 `first`，推进，按 ADR-0016 决定写不写检查点，交出效果。 */
+	function locked(id: string, first?: () => Promise<unknown>, durable = false): Promise<Advance> {
 		return queue.add(id, async () => {
 			await first?.();
-			const advanced = await advanceLocked(id);
-			await reconcile(id);
-			return advanced;
+			return settle(id, await push(id), durable);
 		});
 	}
 
-	/** 发件箱 → 邮箱，与推进游标同一次事务；停住时不消费（ADR-0015）。 */
+	/** 发件箱 → 邮箱，游标在工作副本里前进；停住时不消费（ADR-0015）。 */
 	async function drainLocked(id: string): Promise<void> {
 		const dropped: LogEntry[] = [];
 		const at = new Date().toISOString();
-		await store.drain(id, (snapshot, rows) => {
+		await copies.drain(id, (snapshot, rows) => {
 			if (snapshot.halted !== undefined) return { consumed: false, value: undefined };
 			if (rows.length === 0) return { consumed: true, value: undefined };
 			for (const row of rows) {
@@ -278,14 +302,14 @@ export function createHost(options: HostOptions): Host {
 
 	/** 交出一条效果；同一激活里同一个 `effectId` 至多一次（ADR-0014 的 C2）。返回是否真的交出。 */
 	function dispatch(id: string, effect: InFlightEffect): boolean {
-		const running = executing.get(id) ?? new Set<string>();
+		const running = executing.get(id) ?? new Map<string, boolean>();
 		if (running.has(effect.effectId)) return false;
 		const performer = performerFor(effect.kind);
 		if (performer === undefined) {
 			report({ workflowId: id, effectId: effect.effectId, error: new MissingPerformer(effect.kind) });
 			return false;
 		}
-		running.add(effect.effectId);
+		running.set(effect.effectId, replayable(effect.kind));
 		executing.set(id, running);
 
 		const timeoutMs = options.timeouts?.[effect.kind] ?? options.performerTimeoutMs ?? DEFAULT_PERFORMER_TIMEOUT_MS;
@@ -293,7 +317,12 @@ export function createHost(options: HostOptions): Host {
 			async () => {
 				try {
 					const result = await perform(performer, { workflowId: id, effect }, timeoutMs);
-					await locked(id, () => completeEffect(store, id, effect.effectId, result)).catch((error: unknown) => {
+					const settled = async () => {
+						await completeEffect(copies, id, effect.effectId, result);
+						// 回执已在工作副本里：它不再算"在执行"，W2 要看见这一点。
+						running.delete(effect.effectId);
+					};
+					await locked(id, settled).catch((error: unknown) => {
 						// 工作流在等待期间被删了：结果没有去处。
 						if (!(error instanceof WorkflowNotFound)) throw error;
 					});
@@ -323,7 +352,7 @@ export function createHost(options: HostOptions): Host {
 		} catch (error) {
 			return failure(error);
 		}
-		const existing = await store.load(id);
+		const existing = await copies.load(id);
 		const target = existing ?? snapshot;
 		let entry: OutboxEntry | undefined;
 		if (forward !== undefined) {
@@ -340,7 +369,7 @@ export function createHost(options: HostOptions): Host {
 		let redispatched = 0;
 		for (const effect of snapshot.inFlight) {
 			if (effect.kind === graphMutateEffect.kind) {
-				await queue.add(id, () => performGraphMutate(store, registry, id, effect.effectId));
+				await queue.add(id, () => performGraphMutate(copies, registry, id, effect.effectId));
 			} else if (dispatch(id, effect)) {
 				redispatched++;
 			}
@@ -400,7 +429,9 @@ export function createHost(options: HostOptions): Host {
 		store,
 		registry,
 
-		submit: (id, node, message) => locked(id, () => deliverToNode(store, id, node, message)),
+		snapshot: (id) => copies.load(id),
+
+		submit: (id, node, message) => locked(id, () => deliverToNode(copies, id, node, message), true),
 
 		drive: (id) => locked(id),
 
@@ -447,9 +478,14 @@ export function createHost(options: HostOptions): Host {
 		},
 
 		async resume(id) {
-			const resumed = await queue.add(id, () => resumeWorkflow(store, id));
+			const resumed = await queue.add(id, async () => {
+				const cleared = await resumeWorkflow(copies, id);
+				// `resume` 返回之前，解除停住已经落盘（W1）。
+				if (cleared) await checkpoint(id);
+				return cleared;
+			});
 			if (!resumed) return false;
-			const loaded = await store.load(id);
+			const loaded = await copies.load(id);
 			if (loaded !== undefined) await settleLeftovers(id, loaded);
 			await host.drain(id);
 			return true;
@@ -462,7 +498,7 @@ export function createHost(options: HostOptions): Host {
 			for (const id of ids) {
 				try {
 					await queue.add(id, () => reconcile(id));
-					const loaded = await store.load(id);
+					const loaded = await copies.load(id);
 					if (loaded === undefined) continue;
 					if (loaded.halted !== undefined) {
 						result.halted.push(id);
@@ -497,7 +533,7 @@ export function createHost(options: HostOptions): Host {
 			await Promise.allSettled(open.map((handle) => handle.close()));
 		},
 
-		executing: (id) => [...(executing.get(id) ?? [])],
+		executing: (id) => [...(executing.get(id)?.keys() ?? [])],
 
 		unready: () => [
 			...[...listenerUnready].map(([listener, reason]): Unready => ({ scope: "listener", listener, reason })),

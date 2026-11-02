@@ -18,7 +18,7 @@ import {
  * - `snapshots`：一份工作流一行，整份 JSON（ADR-0003、0013）。没有版本列：并发控制是 `BEGIN IMMEDIATE` 的事。
  * - `subscriptions`：路由索引，触发器声明的投影；丢了可以从全部快照重建。
  * - `outbox`：路由发件箱。`(target, listener, event_id)` 唯一，按保留期清除、不按消费清除，所以它同时负责去重。
- * - `cursors`：每份工作流消费到发件箱的哪一行；与快照在同一次事务里推进。
+ * - `cursors`：每份工作流消费到发件箱的哪一行；与快照在同一个检查点里推进（ADR-0016）。
  */
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS snapshots (
@@ -58,6 +58,20 @@ CREATE TABLE IF NOT EXISTS cursors (
 /** 路由索引的一行：内核的 `Subscription`，加上路由校验 body 需要的监听器、种类与触发器 config。 */
 export type SubscriptionRow = Subscription & { listener: string; kind: string; config: JsonValue };
 
+/** 一份快照里的触发器声明 → 路由索引的行（对账的目标状态）。 */
+export function subscriptionsOf(workflowId: string, snapshot: Snapshot): SubscriptionRow[] {
+	return snapshot.graph.shape.triggers.map((trigger) => ({
+		workflowId,
+		trigger: trigger.id,
+		listener: trigger.listener,
+		kind: trigger.kind,
+		config: trigger.config,
+		...(trigger.match === undefined ? {} : { match: trigger.match }),
+		group: trigger.group,
+		priority: trigger.priority,
+	}));
+}
+
 /** 路由发件箱里要写的一行。`eventId` 缺席就不去重（SQLite 里 NULL 互不相等）。 */
 export type OutboxEntry = {
 	target: string;
@@ -71,10 +85,9 @@ export type OutboxEntry = {
 export type OutboxRow = OutboxEntry & { seq: number };
 
 /**
- * 一次消费：拿到快照与游标之后的那些行，决定写回什么。
- * `consumed: false`（例如停住了）就不推进游标，行留在原地（ADR-0015）。
+ * 一个检查点（ADR-0016）：一次事务写完快照，以及给了的话，发件箱游标与这份工作流的路由索引。
  */
-export type DrainResult<T> = { snapshot?: Snapshot; consumed: boolean; value: T };
+export type Checkpoint = { snapshot: Snapshot; cursor?: number; subscriptions?: SubscriptionRow[] };
 
 /** 另一个进程正持有这个文件（ADR-0014：一个文件一个进程）。 */
 export class StoreLocked extends Error {
@@ -121,8 +134,12 @@ export type SqliteStore = SnapshotStore & {
 	 * 索引行与转交行在同一次事务里，所以之后路由到它的事件一定排在被转交的那一行之后。
 	 */
 	spawn(id: string, snapshot: Snapshot, subscriptions: SubscriptionRow[], forward?: OutboxEntry): Promise<{ created: boolean }>;
-	/** 一次存储事务：读游标之后的行与快照 → `apply` → 写回快照、推进游标。 */
-	drain<T>(id: string, apply: (snapshot: Snapshot, rows: OutboxRow[]) => DrainResult<T>): Promise<T>;
+	/** 这份工作流落盘的游标；没消费过是 0。 */
+	cursor(id: string): Promise<number>;
+	/** 发件箱里这份工作流在 `after` 之后的行，按 `seq`。只读：游标跟着检查点走。 */
+	outboxAfter(id: string, after: number): Promise<OutboxRow[]>;
+	/** 写一个检查点；记录不存在抛 `WorkflowNotFound`。 */
+	checkpoint(id: string, checkpoint: Checkpoint): Promise<void>;
 	/** 发件箱里有比游标新的行的那些工作流（恢复扫描用）。 */
 	pendingTargets(): Promise<string[]>;
 	/** 清掉早于 `before`（毫秒时间戳）的发件箱行。返回删了几行。 */
@@ -318,12 +335,13 @@ export function createSqliteStore(options: SqliteStoreOptions): SqliteStore {
 			});
 		},
 
-		async drain<T>(id: string, apply: (snapshot: Snapshot, rows: OutboxRow[]) => DrainResult<T>): Promise<T> {
-			return transaction(() => {
-				const row = selectById.get(id);
-				if (row === undefined) throw new WorkflowNotFound(id);
-				const cursor = Number(selectCursor.get(id)?.seq ?? 0);
-				const rows: OutboxRow[] = selectRows.all(id, cursor).map((r) => ({
+		async cursor(id) {
+			return Number(selectCursor.get(id)?.seq ?? 0);
+		},
+
+		async outboxAfter(id, after) {
+			return selectRows.all(id, after).map(
+				(r): OutboxRow => ({
 					seq: Number(r.seq),
 					target: String(r.target),
 					trigger: String(r.trigger),
@@ -331,12 +349,16 @@ export function createSqliteStore(options: SqliteStoreOptions): SqliteStore {
 					body: JSON.parse(String(r.body)) as JsonValue,
 					listener: String(r.listener),
 					...(r.event_id === null ? {} : { eventId: String(r.event_id) }),
-				}));
-				const result = apply(parse(row), rows);
-				if (result.snapshot !== undefined) updateById.run(JSON.stringify(result.snapshot), id);
-				const last = rows.at(-1);
-				if (result.consumed && last !== undefined) upsertCursor.run(id, last.seq);
-				return result.value;
+				}),
+			);
+		},
+
+		async checkpoint(id, { snapshot, cursor, subscriptions }) {
+			transaction(() => {
+				const { changes } = updateById.run(JSON.stringify(snapshot), id);
+				if (Number(changes) === 0) throw new WorkflowNotFound(id);
+				if (cursor !== undefined) upsertCursor.run(id, cursor);
+				if (subscriptions !== undefined) writeSubscriptions(id, subscriptions);
 			});
 		},
 

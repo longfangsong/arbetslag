@@ -15,7 +15,7 @@ import type { Performers } from "../src/executor.ts";
 import { type Host, type HostOptions, type Unready, createHost } from "../src/host.ts";
 import type { ListenerRuntime } from "../src/listeners/runtime.ts";
 import { chatIs } from "../src/matchers.ts";
-import { createSqliteStore } from "../src/sqliteStore.ts";
+import { type SqliteStore, createSqliteStore } from "../src/sqliteStore.ts";
 
 const anyJson: z.ZodType<JsonValue> = z.json();
 
@@ -69,6 +69,28 @@ const switchboard = defineNode({
 	},
 });
 
+/** 一轮对话的骨架（ADR-0016）：`text` → 想一想（可重放）→ 说出来（不可重放）→ 记下说了什么。 */
+const bot = defineNode({
+	name: "bot",
+	version: 1,
+	state: z.object({ said: z.array(anyJson) }).default({ said: [] }),
+	config: z.null(),
+	ports: () => ({}),
+	step: ({ state, message }) => {
+		if (message.type === "text") {
+			return { state, effects: [{ kind: "think.call", input: message.body, correlationId: "think" }] };
+		}
+		if (message.type === "@effect.end") {
+			const body = message.body as { correlationId?: string; result: JsonValue };
+			if (body.correlationId === "think") {
+				return { state, effects: [{ kind: "say.call", input: body.result, correlationId: "say" }] };
+			}
+			return { state: { said: [...state.said, body.result] } };
+		}
+		return { state };
+	},
+});
+
 const boom = defineMatcher({
 	name: "boom",
 	config: z.unknown(),
@@ -78,8 +100,12 @@ const boom = defineMatcher({
 });
 
 const registry = createRegistry({
-	nodes: [worker, switchboard],
-	effects: [{ kind: "slow.call", input: anyJson, result: anyJson }],
+	nodes: [worker, switchboard, bot],
+	effects: [
+		{ kind: "slow.call", input: anyJson, result: anyJson },
+		{ kind: "think.call", input: anyJson, result: anyJson, replayable: true },
+		{ kind: "say.call", input: anyJson, result: anyJson },
+	],
 	triggers: [{ kind: "hook", config: z.object({}), outputs: () => ({ text: anyJson }) }],
 	matchers: [chatIs, boom],
 });
@@ -93,16 +119,23 @@ const subscriber = (trigger: Record<string, JsonValue> = {}): WorkflowTemplate =
 	edges: [{ from: "in", to: "w", port: "text" }],
 });
 
+/** 订阅监听器 `l` 的一个 bot。 */
+const botSubscriber: WorkflowTemplate = {
+	nodes: { b: { definition: "bot", config: null } },
+	triggers: [{ id: "in", kind: "hook", listener: "l" }],
+	edges: [{ from: "in", to: "b", port: "text" }],
+};
+
 function chatTemplate(chatId: number): JsonValue {
 	return subscriber({ match: { fn: "chatIs", config: { chatId } } }) as JsonValue;
 }
 
 /** 一个可控的 Performer：每次调用挂住，直到测试放行；记下每个 `effectId` 被交出几次。 */
-function gate() {
+function gate(kind = "slow.call") {
 	const calls = new Map<string, number>();
 	const waiting: (() => void)[] = [];
 	const performers: Performers = {
-		"slow.call": async (input, { effect }) => {
+		[kind]: async (input, { effect }) => {
 			calls.set(effect.effectId, (calls.get(effect.effectId) ?? 0) + 1);
 			await new Promise<void>((resolve) => waiting.push(resolve));
 			return { ok: true, input };
@@ -146,7 +179,7 @@ function setup(options: Partial<HostOptions> = {}) {
 }
 
 async function got(host: Host, id: string): Promise<JsonValue[]> {
-	const loaded = await host.store.load(id);
+	const loaded = await host.snapshot(id);
 	return (loaded?.graph.nodeStates.w?.state as { got: JsonValue[] } | undefined)?.got ?? [];
 }
 
@@ -455,4 +488,91 @@ test("a listener that cannot open is unready and retried, without touching any w
 	assert.deepEqual(unready, [{ scope: "listener", listener: "l", reason: "port in use" }]);
 	assert.deepEqual(host.unready(), []);
 	await host.stop();
+});
+
+// ── ADR-0016：落盘只在三个时刻 ───────────────────────────────────────────────
+
+/** 记下存储上每一次写：发件箱、检查点、路由索引。 */
+function spyWrites(store: SqliteStore, writes: string[]): void {
+	const { enqueue, checkpoint, replaceSubscriptions } = store;
+	store.enqueue = (entries) => (writes.push("enqueue"), enqueue(entries));
+	store.checkpoint = (id, c) => (writes.push("checkpoint"), checkpoint(id, c));
+	store.replaceSubscriptions = (id, rows) => (writes.push("index"), replaceSubscriptions(id, rows));
+}
+
+test("one turn writes three times: the outbox row, before the reply goes out, once idle", async () => {
+	const writes: string[] = [];
+	const box: { store?: SqliteStore } = {};
+	const { store, host } = setup({
+		performers: {
+			"think.call": async (input) => ({ answer: input }),
+			"say.call": async (_input, { workflowId, effect }) => {
+				const saved = await box.store?.load(workflowId);
+				writes.push(saved?.inFlight.some((e) => e.effectId === effect.effectId) ? "say (saved)" : "say (unsaved)");
+				return null;
+			},
+		},
+	});
+	box.store = store;
+	await createWorkflow(store, registry, botSubscriber, { id: "a" });
+	await host.recover();
+
+	spyWrites(store, writes);
+	await host.emit("l", { output: "text", body: { text: "hi" } });
+	await host.idle();
+
+	assert.deepEqual(writes, ["enqueue", "checkpoint", "say (saved)", "checkpoint"]);
+	assert.deepEqual((await store.load("a"))?.graph.nodeStates.b?.state, { said: [null] });
+	assert.deepEqual(await store.pendingTargets(), [], "the cursor went down with the last checkpoint");
+});
+
+test("handing out a replayable effect leaves the store alone", async () => {
+	const think = gate("think.call");
+	const { store, host } = setup({ performers: think.performers });
+	await createWorkflow(store, registry, botSubscriber, { id: "a" });
+	await host.recover();
+
+	await host.emit("l", { output: "text", body: { text: "hi" } });
+	await until(() => think.pending() === 1);
+	assert.equal((await store.load("a"))?.inFlight.length, 0, "the store still holds the last checkpoint");
+	assert.deepEqual(await store.pendingTargets(), ["a"], "the row is not consumed on disk yet");
+	assert.equal((await host.snapshot("a"))?.inFlight.length, 1, "the working copy is ahead");
+
+	think.release();
+	await host.idle();
+});
+
+test("a crash before any checkpoint rewinds to the last one: the replay hands out the same effectId", async () => {
+	const think = gate("think.call");
+	const listeners = [{ id: "l", kind: "hook", config: {} }];
+	const first = setup({ performers: think.performers });
+	await createWorkflow(first.store, registry, botSubscriber, { id: "a" });
+	await first.host.recover();
+	await first.host.emit("l", { output: "text", body: { text: "hi" } });
+	await until(() => think.pending() === 1);
+	const [effectId] = first.host.executing("a");
+	assert.equal(effectId, "0.0");
+
+	// 「进程重启」：工作副本没了，从上一个检查点 + 发件箱重放。
+	const second = createHost({ store: first.store, registry, performers: think.performers, listeners });
+	await second.recover();
+	await until(() => think.calls.get("0.0") === 2);
+
+	think.release();
+	await Promise.all([first.host.idle(), second.idle()]);
+});
+
+test("an ordinary push does not touch the route index; a trigger change does, inside its checkpoint", async () => {
+	const writes: string[] = [];
+	const { store, host } = setup();
+	await createWorkflow(store, registry, subscriber(), { id: "a" });
+	await host.recover();
+
+	spyWrites(store, writes);
+	await host.submit("a", "w", { type: "note", body: 1 });
+	assert.deepEqual(writes, ["checkpoint"]);
+
+	await host.submit("a", "w", { type: "drop-trigger", body: null });
+	assert.deepEqual(writes, ["checkpoint", "checkpoint"]);
+	assert.deepEqual(await store.subscriptions("l"), []);
 });

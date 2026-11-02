@@ -266,7 +266,7 @@ if (host.unready().length > 0) {
 
 // ── 3. 改图拆触发器：对账把订阅从路由索引里删掉 ─────────────────────────────
 
-console.log("③ 节点出一个 graph.mutate 拆掉触发器，宿主在同一次推进之后对账");
+console.log("③ 节点出一个 graph.mutate 拆掉触发器，路由索引跟着那次检查点一起改（ADR-0016）");
 await host.submit(id, "admin", { type: "unhook", body: null });
 console.log(`   监听器 hook 上的订阅：${JSON.stringify(await store.subscriptions("hook"))}（监听器本身还开着，只是没人订阅了）\n`);
 

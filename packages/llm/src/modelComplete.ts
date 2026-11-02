@@ -26,9 +26,13 @@ export const modelCompleteResultSchema = z.union([
 export type ModelCompleteInput = z.infer<typeof modelCompleteInputSchema>;
 export type ModelCompleteResult = z.infer<typeof modelCompleteResultSchema>;
 
-/** 效果种类本身：内核只认名字与两份 schema（ADR-0006）。 */
+/**
+ * 效果种类本身：内核只认名字与两份 schema（ADR-0006）。
+ * 可重放（ADR-0016）：崩溃后再问一次模型只是多花钱，外部看不见；要先落盘的是它的结果。
+ */
 export const modelCompleteKind: EffectKindDefinition = {
 	kind: "model.complete",
 	input: modelCompleteInputSchema,
 	result: modelCompleteResultSchema,
+	replayable: true,
 };
