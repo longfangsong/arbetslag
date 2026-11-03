@@ -1,7 +1,7 @@
 import type { JsonValue } from "type-fest";
 import { makeReceipt } from "../effect/index.ts";
 import type { Registry } from "../registry.ts";
-import type { SnapshotStore } from "../snapshotStore.ts";
+import type { SnapshotStore } from "../store/snapshotStore.ts";
 import type { Snapshot } from "../workflow/snapshot.ts";
 import { applyGraphMutation, graphMutationResult } from "../workflow/graph/mutation.ts";
 import { graphOpSchema } from "../workflow/graph/ops.ts";

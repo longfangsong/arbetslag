@@ -1,5 +1,5 @@
-import { formatIssues } from "../../issues.ts";
-import { checkMatchSpec } from "../../matcher.ts";
+import { formatIssues } from "../../failure/issues.ts";
+import { checkMatchSpec } from "../../trigger/matcher.ts";
 import type { Registry } from "../../registry.ts";
 import type { Edge } from "./edge.ts";
 import type { WorkflowShape } from "./shape.ts";

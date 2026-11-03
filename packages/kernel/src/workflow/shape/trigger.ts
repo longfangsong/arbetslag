@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { matchSpecSchema } from "../../matcher.ts";
+import { matchSpecSchema } from "../../trigger/matcher.ts";
 import { jsonSchema } from "../../message.ts";
 
 /**

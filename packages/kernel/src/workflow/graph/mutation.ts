@@ -1,7 +1,4 @@
 import type { JsonValue } from "type-fest";
-import { z } from "zod";
-import type { EffectKindDefinition } from "../../effect/index.ts";
-import { jsonSchema } from "../../message.ts";
 import type { Registry } from "../../registry.ts";
 import {
 	checkShapeAgainstRegistry,
@@ -126,19 +123,6 @@ export function applyGraphMutation(
 	}
 	return { ok: true, snapshot: next };
 }
-
-/**
- * 框架提供的效果种类 `graph.mutate`（ADR-0006）：`input` 是一批操作，
- * `result` 是成功，或失败加违规列表。注册表自带它，宿主不用也不能再注册同名种类。
- */
-export const graphMutateEffect: EffectKindDefinition = {
-	kind: "graph.mutate",
-	input: z.object({ ops: z.array(graphOpSchema) }),
-	result: z.union([
-		z.object({ ok: z.literal(true) }),
-		z.object({ ok: z.literal(false), violations: z.array(jsonSchema) }),
-	]),
-};
 
 /** 把改图的结果变成回执里的 `result`。违规是纯数据，原样 JSON 化。 */
 export function graphMutationResult(result: GraphMutationResult): JsonValue {

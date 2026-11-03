@@ -1,4 +1,4 @@
-import type { Snapshot } from "./workflow/snapshot.ts";
+import type { Snapshot } from "../workflow/snapshot.ts";
 
 /**
  * 一次变换的结果：写回一份新快照，或者什么都不写（只取值）。

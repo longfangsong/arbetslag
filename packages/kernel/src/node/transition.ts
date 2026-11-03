@@ -1,6 +1,6 @@
 import type { JsonValue } from "type-fest";
-import type { EffectRequest } from "./effect/index.ts";
-import type { Message } from "./message.ts";
+import type { EffectRequest } from "../effect/index.ts";
+import type { Message } from "../message.ts";
 
 /**
  * 沿某个端口发出一条消息（ADR-0005）。

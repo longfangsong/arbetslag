@@ -4,12 +4,12 @@ import { completeEffect, deliverToNode, performGraphMutate, run } from "../../sr
 import { EFFECT_END, jsonSchema } from "../../src/message.ts";
 import { deterministic, load, registry, setup } from "./fixtures.ts";
 import type { InFlightEffect } from "../../src/effect/index.ts";
-import { WorkflowNotFound } from "../../src/errors.ts";
+import { WorkflowNotFound } from "../../src/failure/errors.ts";
 import type { JsonValue } from "type-fest";
 import { z } from "zod";
-import { createMemoryStore } from "../../src/memoryStore.ts";
+import { createMemoryStore } from "../../src/testing/index.ts";
 import { createRegistry } from "../../src/registry.ts";
-import { defineNode } from "../../src/nodeDefinition.ts";
+import { defineNode } from "../../src/node/definition.ts";
 import { createWorkflow } from "../../src/workflow/template/index.ts";
 
 const single = { nodes: { e: { definition: "emitter", config: null } } };

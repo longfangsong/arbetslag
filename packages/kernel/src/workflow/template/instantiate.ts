@@ -1,7 +1,7 @@
-import { formatIssues } from "../../issues.ts";
+import { formatIssues } from "../../failure/issues.ts";
 import type { Registry } from "../../registry.ts";
 import type { Snapshot } from "../snapshot.ts";
-import type { SnapshotStore } from "../../snapshotStore.ts";
+import type { SnapshotStore } from "../../store/snapshotStore.ts";
 import {
 	checkShapeAgainstRegistry,
 	checkWorkflowShape,

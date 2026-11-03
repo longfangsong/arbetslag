@@ -1,4 +1,4 @@
-import type { HaltCode } from "./halt.ts";
+import type { HaltCode } from "../failure/halt.ts";
 
 /**
  * 转移日志的条目（ADR-0003）：旁路、只追加、不进快照、不参与那次事务，
@@ -19,17 +19,6 @@ export type LogEntry = { at: string } & (
 /** 日志写失败不影响工作流：调用方会吞掉异常。 */
 export interface TransitionLog {
 	append(workflowId: string, entries: LogEntry[]): void | Promise<void>;
-}
-
-/** 进程内的日志，给测试用：`entries` 按写入顺序。 */
-export function createMemoryLog(): TransitionLog & { entries: Map<string, LogEntry[]> } {
-	const entries = new Map<string, LogEntry[]>();
-	return {
-		entries,
-		append(workflowId, batch) {
-			entries.set(workflowId, [...(entries.get(workflowId) ?? []), ...batch]);
-		},
-	};
 }
 
 /** 尽力而为：日志是旁路，写不进去也不能让推进失败。 */

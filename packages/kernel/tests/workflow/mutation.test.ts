@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { z } from "zod";
+import { graphMutateEffect } from "../../src/builtin/index.ts";
 import { checkEffects } from "../../src/effect/index.ts";
-import { defineNode } from "../../src/nodeDefinition.ts";
+import { defineNode } from "../../src/node/definition.ts";
 import { createRegistry } from "../../src/registry.ts";
 import {
 	type GraphOp,
 	applyGraphMutation,
-	graphMutateEffect,
 	graphMutationResult,
 } from "../../src/workflow/graph/index.ts";
 import { checkSnapshot, type Snapshot } from "../../src/workflow/snapshot.ts";

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { InvalidDelivery, WorkflowNotFound } from "../../src/errors.ts";
+import { InvalidDelivery, WorkflowNotFound } from "../../src/failure/errors.ts";
 import { deliverFromTrigger, deliverToNode, run } from "../../src/run/index.ts";
 import { load, registry, setup } from "./fixtures.ts";
 

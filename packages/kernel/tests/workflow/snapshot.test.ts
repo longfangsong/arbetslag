@@ -8,7 +8,7 @@ import {
 	snapshotSchema,
 	type Snapshot,
 } from "../../src/workflow/snapshot.ts";
-import { haltCodes, haltReasonSchema } from "../../src/halt.ts";
+import { haltCodes, haltReasonSchema } from "../../src/failure/halt.ts";
 
 const node = { definition: "d", config: null };
 const base = (): Snapshot => ({

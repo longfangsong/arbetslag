@@ -1,6 +1,6 @@
-import { WorkflowExists, WorkflowNotFound } from "./errors.ts";
-import type { SnapshotStore } from "./snapshotStore.ts";
-import type { Snapshot } from "./workflow/snapshot.ts";
+import { WorkflowExists, WorkflowNotFound } from "../failure/errors.ts";
+import type { SnapshotStore } from "../store/snapshotStore.ts";
+import type { Snapshot } from "../workflow/snapshot.ts";
 
 /**
  * 进程内的 `SnapshotStore`：给测试和示例用。读写都深拷贝，

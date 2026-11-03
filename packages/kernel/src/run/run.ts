@@ -1,7 +1,7 @@
 import type { InFlightEffect } from "../effect/index.ts";
 import type { Registry } from "../registry.ts";
-import type { SnapshotStore } from "../snapshotStore.ts";
-import { type TransitionLog, appendLog } from "../transitionLog.ts";
+import type { SnapshotStore } from "../store/snapshotStore.ts";
+import { type TransitionLog, appendLog } from "../store/log.ts";
 import { type AdvanceOptions, advance } from "./advance.ts";
 
 export const DEFAULT_BUDGET = 1000;

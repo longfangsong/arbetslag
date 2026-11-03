@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { WorkflowExists, WorkflowNotFound } from "../src/errors.ts";
-import { createMemoryStore } from "../src/memoryStore.ts";
+import { WorkflowExists, WorkflowNotFound } from "../src/failure/errors.ts";
+import { createMemoryStore } from "../src/testing/index.ts";
 import type { Snapshot } from "../src/workflow/snapshot.ts";
 
 const snap = (nextSeq = 0): Snapshot => ({

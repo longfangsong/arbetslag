@@ -1,7 +1,6 @@
 import { z } from "zod";
-import { createMemoryLog } from "../../src/transitionLog.ts";
-import { createMemoryStore } from "../../src/memoryStore.ts";
-import { defineNode } from "../../src/nodeDefinition.ts";
+import { createMemoryLog, createMemoryStore } from "../../src/testing/index.ts";
+import { defineNode } from "../../src/node/definition.ts";
 import { createRegistry } from "../../src/registry.ts";
 import { createWorkflow, type WorkflowTemplate } from "../../src/workflow/template/index.ts";
 

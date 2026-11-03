@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { z } from "zod";
-import { createMemoryStore } from "../../src/memoryStore.ts";
-import { defineNode } from "../../src/nodeDefinition.ts";
+import { createMemoryLog, createMemoryStore } from "../../src/testing/index.ts";
+import { defineNode } from "../../src/node/definition.ts";
 import { createRegistry } from "../../src/registry.ts";
 import { deliverToNode, run } from "../../src/run/index.ts";
-import { createMemoryLog } from "../../src/transitionLog.ts";
 import { createWorkflow } from "../../src/workflow/template/index.ts";
 import type { Snapshot } from "../../src/workflow/snapshot.ts";
 

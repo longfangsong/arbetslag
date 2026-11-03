@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { z } from "zod";
-import { defineNode } from "../src/nodeDefinition.ts";
+import { defineNode } from "../src/node/definition.ts";
 import { createRegistry } from "../src/registry.ts";
 
 const counter = defineNode({

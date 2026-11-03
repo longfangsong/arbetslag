@@ -1,7 +1,7 @@
-import type { HaltReason } from "../halt.ts";
-import { formatIssues } from "../issues.ts";
+import type { HaltReason } from "../failure/halt.ts";
+import { formatIssues } from "../failure/issues.ts";
 import type { Registry } from "../registry.ts";
-import type { LogEntry } from "../transitionLog.ts";
+import type { LogEntry } from "../store/log.ts";
 import { checkShapeAgainstRegistry } from "../workflow/shape/index.ts";
 import { type Snapshot, checkSnapshot } from "../workflow/snapshot.ts";
 

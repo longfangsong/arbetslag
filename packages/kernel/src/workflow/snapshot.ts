@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { inFlightEffectSchema } from "../effect/index.ts";
-import { haltReasonSchema } from "../halt.ts";
+import { haltReasonSchema } from "../failure/halt.ts";
 import {
 	checkWorkflowGraph,
 	workflowGraphSchema,

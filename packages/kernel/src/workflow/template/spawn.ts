@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { EffectKindDefinition } from "../../effect/index.ts";
 import { jsonSchema } from "../../message.ts";
 import { workflowTemplateSchema } from "./template.ts";
 
@@ -24,15 +23,3 @@ export const workflowSpawnInputSchema = z.object({
 
 export type WorkflowSpawnInput = z.infer<typeof workflowSpawnInputSchema>;
 
-/**
- * 框架提供的效果种类 `workflow.spawn`（ADR-0015）：声明随内核发布，与 `graph.mutate` 一样；
- * 执行归宿主，因为它跨工作流。注册表自带它，宿主不用也不能再注册同名种类。
- */
-export const workflowSpawnEffect: EffectKindDefinition = {
-	kind: "workflow.spawn",
-	input: workflowSpawnInputSchema as unknown as EffectKindDefinition["input"],
-	result: z.union([
-		z.object({ ok: z.literal(true), created: z.boolean() }),
-		z.object({ ok: z.literal(false), error: z.string() }),
-	]),
-};

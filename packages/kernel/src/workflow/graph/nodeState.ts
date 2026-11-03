@@ -1,8 +1,8 @@
 import type { JsonValue } from "type-fest";
 import { z } from "zod";
-import { formatIssues } from "../../issues.ts";
+import { formatIssues } from "../../failure/issues.ts";
 import { jsonSchema } from "../../message.ts";
-import type { AnyNodeDefinition } from "../../nodeDefinition.ts";
+import type { AnyNodeDefinition } from "../../node/definition.ts";
 import { mailboxEntrySchema } from "./mailbox.ts";
 
 /**

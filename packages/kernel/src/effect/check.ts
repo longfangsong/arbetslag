@@ -1,4 +1,4 @@
-import { formatIssues } from "../issues.ts";
+import { formatIssues } from "../failure/issues.ts";
 import type { Registry } from "../registry.ts";
 import type { EffectRequest } from "./request.ts";
 

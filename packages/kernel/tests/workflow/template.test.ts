@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { z } from "zod";
-import { defineNode } from "../../src/nodeDefinition.ts";
-import { createMemoryStore } from "../../src/memoryStore.ts";
+import { defineNode } from "../../src/node/definition.ts";
+import { createMemoryStore } from "../../src/testing/index.ts";
 import { createRegistry } from "../../src/registry.ts";
-import { WorkflowExists } from "../../src/errors.ts";
+import { WorkflowExists } from "../../src/failure/errors.ts";
 import { checkSnapshot } from "../../src/workflow/snapshot.ts";
 import { createWorkflow, instantiate, InstantiateError } from "../../src/workflow/template/index.ts";
 

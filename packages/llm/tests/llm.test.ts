@@ -8,13 +8,13 @@ import {
 	type StepInput,
 	type WorkflowTemplate,
 	completeEffect,
-	createMemoryStore,
 	createRegistry,
 	createWorkflow,
 	defineNode,
 	deliverToNode,
 	run,
 } from "@arbetslag/kernel";
+import { createMemoryStore } from "@arbetslag/kernel/testing";
 import {
 	APPEND_PORT,
 	type LlmConfig,

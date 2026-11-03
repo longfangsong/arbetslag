@@ -1,9 +1,8 @@
-import type { AnyNodeDefinition } from "./nodeDefinition.ts";
+import type { AnyNodeDefinition } from "./node/definition.ts";
 import type { EffectKindDefinition } from "./effect/index.ts";
-import { type AnyMatcherDefinition, builtinMatchers } from "./matcher.ts";
-import { graphMutateEffect } from "./workflow/graph/mutation.ts";
-import { workflowSpawnEffect } from "./workflow/template/spawn.ts";
-import type { TriggerKindDefinition } from "./triggerKind.ts";
+import type { AnyMatcherDefinition } from "./trigger/matcher.ts";
+import { builtinMatchers, graphMutateEffect, workflowSpawnEffect } from "./builtin/index.ts";
+import type { TriggerKindDefinition } from "./trigger/kind.ts";
 
 /**
  * 注入给内核的注册表（ADR-0001、0004、0006、0015）：节点定义、效果种类、触发器种类、匹配函数。

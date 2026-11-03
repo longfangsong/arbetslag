@@ -1,7 +1,7 @@
 import type { JsonValue } from "type-fest";
 import { z } from "zod";
-import { formatIssues } from "./issues.ts";
-import { jsonSchema } from "./message.ts";
+import { formatIssues } from "../failure/issues.ts";
+import { jsonSchema } from "../message.ts";
 
 /**
  * 订阅里引用一个匹配函数（ADR-0015）：名字 + config。快照里只存这两样，从不存代码。
@@ -36,32 +36,6 @@ export type AnyMatcherDefinition = MatcherDefinition<any>;
 export function defineMatcher<Config>(definition: MatcherDefinition<Config>): MatcherDefinition<Config> {
 	return definition;
 }
-
-/** 省略 `match` 的订阅就是它：这个监听器上的全部事件。 */
-export const alwaysMatcher = defineMatcher({
-	name: "always",
-	config: z.unknown(),
-	match: () => true,
-});
-
-const childrenSchema = z.object({ of: z.array(matchSpecSchema).min(1) });
-
-export const allMatcher = defineMatcher({
-	name: "all",
-	config: childrenSchema,
-	match: (_event, config, nested) => config.of.every(nested),
-	children: (config) => config.of,
-});
-
-export const anyMatcher = defineMatcher({
-	name: "any",
-	config: childrenSchema,
-	match: (_event, config, nested) => config.of.some(nested),
-	children: (config) => config.of,
-});
-
-/** 框架自带的匹配函数：注册表总有它们，宿主不用也不能再注册同名的。 */
-export const builtinMatchers: AnyMatcherDefinition[] = [alwaysMatcher, allMatcher, anyMatcher];
 
 /** 路由时匹配函数找不到（部署删了它）：按不匹配处理，由调用方报告。 */
 export class UnknownMatcher extends Error {

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { WorkflowHalted } from "../../src/errors.ts";
-import type { SnapshotStore } from "../../src/snapshotStore.ts";
+import { WorkflowHalted } from "../../src/failure/errors.ts";
+import type { SnapshotStore } from "../../src/store/snapshotStore.ts";
 import { deliverToNode, resume, run } from "../../src/run/index.ts";
-import type { LogEntry } from "../../src/transitionLog.ts";
+import type { LogEntry } from "../../src/store/log.ts";
 import { chain, deterministic, load, registry, setup } from "./fixtures.ts";
 
 const names = (entries: LogEntry[] | undefined) =>

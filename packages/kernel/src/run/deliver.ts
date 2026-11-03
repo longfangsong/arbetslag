@@ -1,9 +1,9 @@
 import type { JsonValue } from "type-fest";
-import { InvalidDelivery, WorkflowHalted } from "../errors.ts";
+import { InvalidDelivery, WorkflowHalted } from "../failure/errors.ts";
 import { isReservedType } from "../message.ts";
 import type { Registry } from "../registry.ts";
-import type { SnapshotStore } from "../snapshotStore.ts";
-import { type TransitionLog, appendLog } from "../transitionLog.ts";
+import type { SnapshotStore } from "../store/snapshotStore.ts";
+import { type TransitionLog, appendLog } from "../store/log.ts";
 import type { Snapshot } from "../workflow/snapshot.ts";
 
 export type DeliverOptions = { log?: TransitionLog; now?: () => Date };

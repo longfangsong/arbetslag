@@ -1,5 +1,5 @@
 import { type MatchEvent, type MatchSpec, evaluateMatch } from "./matcher.ts";
-import type { Registry } from "./registry.ts";
+import type { Registry } from "../registry.ts";
 
 /** 路由索引里的一行：哪份工作流的哪条触发器，以及它的匹配、分组、优先级（ADR-0015）。 */
 export type Subscription = {
