@@ -7,12 +7,14 @@ import {
 	type TransitionLog,
 	type WorkflowTemplate,
 	createRegistry,
+	InstantiateError,
+	WorkflowExists,
 	createWorkflow,
 	defineMatcher,
 	defineNode,
 } from "@arbetslag/kernel";
 import type { Performers } from "../src/executor.ts";
-import { type Host, type HostOptions, type Unready, createHost } from "../src/host.ts";
+import { type Host, type HostChange, type HostOptions, type Unready, createHost } from "../src/host.ts";
 import type { ListenerRuntime } from "../src/listeners/runtime.ts";
 import { chatIs } from "../src/matchers.ts";
 import { type SqliteStore, createSqliteStore } from "../src/sqliteStore.ts";
@@ -91,6 +93,19 @@ const bot = defineNode({
 	},
 });
 
+/** 收到 `spawn` 就把 body 当 `workflow.spawn` 的 input 交出去。 */
+const spawner = defineNode({
+	name: "spawner",
+	version: 1,
+	state: z.null().default(null),
+	config: z.null(),
+	ports: () => ({}),
+	step: ({ state, message }) =>
+		message.type === "spawn"
+			? { state, effects: [{ kind: "workflow.spawn", input: message.body, correlationId: "spawn" }] }
+			: { state },
+});
+
 const boom = defineMatcher({
 	name: "boom",
 	config: z.unknown(),
@@ -100,7 +115,7 @@ const boom = defineMatcher({
 });
 
 const registry = createRegistry({
-	nodes: [worker, switchboard, bot],
+	nodes: [worker, switchboard, bot, spawner],
 	effects: [
 		{ kind: "slow.call", input: anyJson, result: anyJson },
 		{ kind: "think.call", input: anyJson, result: anyJson, replayable: true },
@@ -575,4 +590,103 @@ test("an ordinary push does not touch the route index; a trigger change does, in
 	await host.submit("a", "w", { type: "drop-trigger", body: null });
 	assert.deepEqual(writes, ["checkpoint", "checkpoint"]);
 	assert.deepEqual(await store.subscriptions("l"), []);
+});
+
+// ── 给观察者的：创建与变化（ADR-0017） ─────────────────────────────────────────
+
+test("create lands the snapshot and its subscriptions together: an event reaches it without a recover", async () => {
+	const { store, host } = setup();
+	await host.start();
+	const { id } = await host.create(subscriber(), { id: "a" });
+	assert.equal(id, "a");
+	assert.deepEqual(
+		(await store.subscriptions("l")).map((row) => row.workflowId),
+		["a"],
+	);
+
+	await host.emit("l", { output: "text", body: { text: "hi" } });
+	await host.idle();
+	assert.deepEqual(await texts(host, "a"), ["hi"]);
+	await host.stop();
+});
+
+test("create refuses an existing id and an invalid template, and writes nothing for either", async () => {
+	const { store, host } = setup();
+	await host.create(one, { id: "a" });
+	await assert.rejects(host.create(subscriber(), { id: "a" }), WorkflowExists);
+	assert.deepEqual(await store.subscriptions("l"), []);
+
+	await assert.rejects(host.create({ nodes: { x: { definition: "nope", config: null } } }, { id: "b" }), InstantiateError);
+	assert.deepEqual(await store.ids(), ["a"]);
+});
+
+test("create without an id picks one", async () => {
+	const { store, host } = setup();
+	const { id } = await host.create(one);
+	assert.deepEqual(await store.ids(), [id]);
+});
+
+test("create reports a trigger on a missing listener as unready", async () => {
+	const { host } = setup();
+	const changes: HostChange[] = [];
+	host.watch((change) => changes.push(change));
+	await host.create({ ...subscriber(), triggers: [{ id: "in", kind: "hook", listener: "elsewhere" }] }, { id: "a" });
+	assert.deepEqual(host.unready(), [
+		{ scope: "trigger", workflowId: "a", trigger: "in", reason: 'no listener "elsewhere" in this deployment' },
+	]);
+	assert.ok(changes.some((change) => change.scope === "unready"));
+});
+
+test("spawn reports a trigger on a missing listener as unready, without waiting for a recover", async () => {
+	const { store, host, unready } = setup();
+	await createWorkflow(store, registry, { nodes: { s: { definition: "spawner", config: null } } }, { id: "parent" });
+	const template = { ...subscriber(), triggers: [{ id: "in", kind: "hook", listener: "elsewhere" }] } as JsonValue;
+	const changes: HostChange[] = [];
+	host.watch((change) => changes.push(change));
+
+	await host.submit("parent", "s", { type: "spawn", body: { id: "child", template } });
+	await host.idle();
+
+	const expected: Unready = {
+		scope: "trigger",
+		workflowId: "child",
+		trigger: "in",
+		reason: 'no listener "elsewhere" in this deployment',
+	};
+	assert.deepEqual(host.unready(), [expected]);
+	assert.deepEqual(unready, [expected]);
+	assert.ok(changes.some((change) => change.scope === "unready"));
+	assert.ok(changes.some((change) => change.scope === "workflow" && change.id === "child"));
+});
+
+test("a watcher hears the workflow change while an effect is out and again when it is back", async () => {
+	const slow = gate();
+	const { store, host } = setup({ performers: slow.performers });
+	await createWorkflow(store, registry, one, { id: "a" });
+	const heard: string[] = [];
+	const stop = host.watch((change) => {
+		if (change.scope === "workflow") heard.push(`${change.id}:${host.executing(change.id).length}`);
+	});
+
+	await host.submit("a", "w", { type: "go", body: 1 });
+	assert.ok(heard.includes("a:1"), `heard ${heard.join(",")}`);
+
+	slow.release();
+	await host.idle();
+	assert.equal(heard.at(-1), "a:0");
+
+	stop();
+	const before = heard.length;
+	await host.submit("a", "w", { type: "note", body: 2 });
+	assert.equal(heard.length, before);
+});
+
+test("a watcher that throws does not break the push", async () => {
+	const { store, host } = setup();
+	await createWorkflow(store, registry, one, { id: "a" });
+	host.watch(() => {
+		throw new Error("watcher exploded");
+	});
+	await host.submit("a", "w", { type: "note", body: 1 });
+	assert.equal((await got(host, "a")).length, 1);
 });

@@ -1,5 +1,6 @@
 import type { JsonValue } from "type-fest";
 import {
+	type CreateWorkflowOptions,
 	InvalidDelivery,
 	type InFlightEffect,
 	type LogEntry,
@@ -7,7 +8,9 @@ import {
 	type RunOptions,
 	type Snapshot,
 	type TransitionLog,
+	WorkflowExists,
 	WorkflowNotFound,
+	type WorkflowTemplate,
 	appendLog,
 	applyTriggerDelivery,
 	completeEffect,
@@ -48,6 +51,14 @@ export const DEFAULT_OUTBOX_RETENTION_MS = 24 * 60 * 60 * 1000;
 export type Unready =
 	| { scope: "listener"; listener: string; reason: string }
 	| { scope: "trigger"; workflowId: string; trigger: string; reason: string };
+
+/**
+ * 激活里有东西变了：只带 id，不带快照，观察者要什么自己去读（`snapshot`、`executing`、`unready`）。
+ * - `workflow`：这份工作流的工作副本或检查点可能变了，或者它正在执行的效果多了、少了；
+ * - `unready`：**未就绪**的那张表变了。
+ * 可能多报（一次推进什么都没改也会报），不会漏报。
+ */
+export type HostChange = { scope: "workflow"; id: string } | { scope: "unready" };
 
 /** 宿主吞下、但要让人看见的错误：Performer 缺席、匹配函数抛错、路由写失败…… */
 export type HostError = { error: unknown; workflowId?: string; effectId?: string; listener?: string };
@@ -122,6 +133,13 @@ export type Host = {
 	readonly registry: Registry;
 	/** 这份工作流此刻的快照：工作副本里的那份（比存储新），或者存储里的上一个检查点。 */
 	snapshot(id: string): Promise<Snapshot | undefined>;
+	/**
+	 * 实例化一份新工作流：快照与它的路由索引行在一次事务里落盘（与 `workflow.spawn` 同一次写，ADR-0015）。
+	 * id 不给就随机生成；已存在抛 `WorkflowExists`，模板不合规抛 `InstantiateError`。
+	 */
+	create(template: WorkflowTemplate, options?: CreateWorkflowOptions): Promise<{ id: string }>;
+	/** 观察激活里的变化（ADR-0017），返回取消函数。回调同步跑在推进的路径上，要快；它抛错被吞掉。 */
+	watch(onChange: (change: HostChange) => void): () => void;
 	/** 直接投给某个节点，然后推进（ADR-0001）。返回之前这条消息已经落盘（ADR-0016 的 W1）。 */
 	submit(id: string, node: string, message: { type: string; body: JsonValue }): Promise<Advance>;
 	/** 只推进，不投递。 */
@@ -165,6 +183,7 @@ export function createHost(options: HostOptions): Host {
 	const retries = new Map<string, ReturnType<typeof setTimeout>>();
 	const listenerUnready = new Map<string, string>();
 	const triggerUnready = new Map<string, Map<string, string>>();
+	const watchers = new Set<(change: HostChange) => void>();
 	let stopped = false;
 
 	const onError =
@@ -179,6 +198,21 @@ export function createHost(options: HostOptions): Host {
 			// 上报自己出错不能拖垮激活
 		}
 	};
+
+	function notify(change: HostChange): void {
+		for (const watcher of watchers) {
+			try {
+				watcher(change);
+			} catch {
+				// 观察者出错不能拖垮激活
+			}
+		}
+	}
+
+	/** 串行入口里的一项工作；做完（成功或失败）都报一次这份工作流变了。 */
+	function serial<T>(id: string, work: () => Promise<T>): Promise<T> {
+		return queue.add(id, work).finally(() => notify({ scope: "workflow", id }));
+	}
 
 	/** 后台工作：从不 reject（错误走 `onError`），`idle()` 等它们。 */
 	function track(work: () => Promise<unknown>, context: Omit<HostError, "error"> = {}): void {
@@ -263,13 +297,15 @@ export function createHost(options: HostOptions): Host {
 				options.onUnready?.({ scope: "trigger", workflowId: id, trigger: row.trigger, reason });
 			}
 		}
+		const changed = before.size !== after.size || [...after].some(([trigger, reason]) => before.get(trigger) !== reason);
 		if (after.size > 0) triggerUnready.set(id, after);
 		else triggerUnready.delete(id);
+		if (changed) notify({ scope: "unready" });
 	}
 
 	/** 一项串行工作：做 `first`，推进，按 ADR-0016 决定写不写检查点，交出效果。 */
 	function locked(id: string, first?: () => Promise<unknown>, durable = false): Promise<Advance> {
-		return queue.add(id, async () => {
+		return serial(id, async () => {
 			await first?.();
 			return settle(id, await push(id), durable);
 		});
@@ -311,6 +347,7 @@ export function createHost(options: HostOptions): Host {
 		}
 		running.set(effect.effectId, replayable(effect.kind));
 		executing.set(id, running);
+		notify({ scope: "workflow", id });
 
 		const timeoutMs = options.timeouts?.[effect.kind] ?? options.performerTimeoutMs ?? DEFAULT_PERFORMER_TIMEOUT_MS;
 		track(
@@ -329,6 +366,7 @@ export function createHost(options: HostOptions): Host {
 				} finally {
 					running.delete(effect.effectId);
 					if (running.size === 0) executing.delete(id);
+					notify({ scope: "workflow", id });
 				}
 			},
 			{ workflowId: id, effectId: effect.effectId },
@@ -359,7 +397,12 @@ export function createHost(options: HostOptions): Host {
 			const listener = target.graph.shape.triggers.find((t) => t.id === forward.trigger)?.listener ?? "";
 			entry = { target: id, listener, ...forward };
 		}
-		const { created } = await store.spawn(id, snapshot, subscriptionsOf(id, snapshot), entry);
+		const rows = subscriptionsOf(id, snapshot);
+		const { created } = await store.spawn(id, snapshot, rows, entry);
+		if (created) {
+			noteUnready(id, rows);
+			notify({ scope: "workflow", id });
+		}
 		track(() => host.drain(id), { workflowId: id });
 		return { ok: true, created };
 	};
@@ -369,7 +412,7 @@ export function createHost(options: HostOptions): Host {
 		let redispatched = 0;
 		for (const effect of snapshot.inFlight) {
 			if (effect.kind === graphMutateEffect.kind) {
-				await queue.add(id, () => performGraphMutate(copies, registry, id, effect.effectId));
+				await serial(id, () => performGraphMutate(copies, registry, id, effect.effectId));
 			} else if (dispatch(id, effect)) {
 				redispatched++;
 			}
@@ -383,6 +426,7 @@ export function createHost(options: HostOptions): Host {
 		if (listenerUnready.get(listener) !== reason) {
 			listenerUnready.set(listener, reason);
 			options.onUnready?.({ scope: "listener", listener, reason });
+			notify({ scope: "unready" });
 		}
 		const retryMs = options.retryMs ?? 0;
 		if (retryMs <= 0 || stopped || retries.has(listener)) return;
@@ -417,7 +461,7 @@ export function createHost(options: HostOptions): Host {
 				return;
 			}
 			handles.set(id, handle);
-			listenerUnready.delete(id);
+			if (listenerUnready.delete(id)) notify({ scope: "unready" });
 		} catch (error) {
 			markListenerUnready(id, error instanceof ListenerUnready ? error.reason : describe(error));
 		}
@@ -430,6 +474,24 @@ export function createHost(options: HostOptions): Host {
 		registry,
 
 		snapshot: (id) => copies.load(id),
+
+		async create(template, { id = crypto.randomUUID() } = {}) {
+			const snapshot = instantiate(registry, template);
+			const rows = subscriptionsOf(id, snapshot);
+			await serial(id, async () => {
+				const { created } = await store.spawn(id, snapshot, rows);
+				if (!created) throw new WorkflowExists(id);
+				noteUnready(id, rows);
+			});
+			return { id };
+		},
+
+		watch(onChange) {
+			watchers.add(onChange);
+			return () => {
+				watchers.delete(onChange);
+			};
+		},
 
 		submit: (id, node, message) => locked(id, () => deliverToNode(copies, id, node, message), true),
 
@@ -478,7 +540,7 @@ export function createHost(options: HostOptions): Host {
 		},
 
 		async resume(id) {
-			const resumed = await queue.add(id, async () => {
+			const resumed = await serial(id, async () => {
 				const cleared = await resumeWorkflow(copies, id);
 				// `resume` 返回之前，解除停住已经落盘（W1）。
 				if (cleared) await checkpoint(id);
@@ -497,7 +559,7 @@ export function createHost(options: HostOptions): Host {
 			result.scanned = ids.length;
 			for (const id of ids) {
 				try {
-					await queue.add(id, () => reconcile(id));
+					await serial(id, () => reconcile(id));
 					const loaded = await copies.load(id);
 					if (loaded === undefined) continue;
 					if (loaded.halted !== undefined) {
