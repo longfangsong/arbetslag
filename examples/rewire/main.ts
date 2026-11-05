@@ -6,7 +6,9 @@
  * - `{"text": "hello"}`   → `hub` 沿 `text` 端口发出：形状里接了几个 stage 就投几份（ADR-0011）
  *
  * 改图非法（重名、未知的加工方式、回收不存在的节点）不停住：回执是失败，`hub` 把违规记进自己的 state。
- * 每个 stage 说话走 `stage.say`，Performer 故意慢（`SAY_DELAY_MS`，默认 1.5 秒），好在监控里看见**等回执**。
+ * 每个 stage 说话走 `stage.say`：Performer 把那句话 POST 到 `OUTPUT_URL`（默认 `http://localhost:4000/output`），
+ * 之前故意等一会儿（`SAY_DELAY_MS`，默认 1.5 秒），好在监控里看见**等回执**。对方不是 2xx 也不停住：回执是失败，
+ * stage 把它记进自己的 state。
  */
 import type { JsonValue } from "type-fest";
 import { z } from "zod";
@@ -18,6 +20,9 @@ import workshop from "./workshop.template.json" with { type: "json" };
 const WEBHOOK_PORT = Number(process.env.PORT ?? 8788);
 const MONITOR_PORT = Number(process.env.MONITOR_PORT ?? 8791);
 const DELAY_MS = Number(process.env.SAY_DELAY_MS ?? 1500);
+const OUTPUT_URL = process.env.OUTPUT_URL ?? "http://localhost:4000/output";
+/** 说一句话的 HTTP 请求最多等这么久，超时同样落成失败回执。 */
+const SAY_TIMEOUT_MS = DELAY_MS + 10_000;
 const WORKFLOW = "workshop";
 /** state 里的日志只留最近这么多条。 */
 const KEEP = 10;
@@ -36,11 +41,19 @@ const transforms = {
 type Transform = keyof typeof transforms;
 const transformSchema = z.enum(Object.keys(transforms) as [Transform, ...Transform[]]);
 
-/** 收到 `text` 就按 config 加工一遍，交出 `stage.say`；回执回来记一笔。 */
+/** `stage.say` 的结果：对方收下了，或者没有（非 2xx、连不上、超时）。 */
+const sayResult = z.union([
+	z.object({ ok: z.literal(true), status: z.number() }),
+	z.object({ ok: z.literal(false), error: z.string() }),
+]);
+
+/** 收到 `text` 就按 config 加工一遍，交出 `stage.say`；回执回来按成败各记一笔。 */
 const stage = defineNode({
 	name: "stage",
-	version: 1,
-	state: z.object({ said: z.number() }).default({ said: 0 }),
+	version: 2,
+	state: z
+		.object({ said: z.number(), failed: z.number(), lastError: z.string().optional() })
+		.default({ said: 0, failed: 0 }),
 	config: z.object({ transform: transformSchema }),
 	ports: () => ({}),
 	step: ({ self, config, state, message }) => {
@@ -51,9 +64,16 @@ const stage = defineNode({
 				effects: [{ kind: "stage.say", input: { from: self, text: transforms[config.transform](text) } }],
 			};
 		}
-		if (message.type === "@effect.end") return { state: { said: state.said + 1 } };
+		if (message.type === "@effect.end") {
+			const { result } = message.body as { result: z.infer<typeof sayResult> };
+			// `lastError` 只说最近一次：说成功了就清掉，`failed` 留着累计。
+			if (result.ok) return { state: { said: state.said + 1, failed: state.failed } };
+			return { state: { ...state, failed: state.failed + 1, lastError: result.error } };
+		}
 		return { state };
 	},
+	/** v1 只数说出去的；那时没有失败这回事。 */
+	migrate: (state) => ({ said: (state as { said: number }).said, failed: 0 }),
 });
 
 // ── hub：收命令、改图、广播 ─────────────────────────────────────────────────
@@ -117,7 +137,7 @@ const hub = defineNode({
 const registry = createRegistry({
 	nodes: [hub, stage],
 	effects: [
-		{ kind: "stage.say", input: z.object({ from: z.string(), text: z.string() }), result: z.null() },
+		{ kind: "stage.say", input: z.object({ from: z.string(), text: z.string() }), result: sayResult },
 	],
 	triggers: [webhookKind],
 });
@@ -128,13 +148,23 @@ const host = createHost({
 	store,
 	registry,
 	performers: {
-		"stage.say": async (input) => {
+		"stage.say": async (input, { workflowId, effect, signal }) => {
 			await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
 			const { from, text } = input as { from: string; text: string };
-			console.log(`  [${from}] ${text}`);
-			return null;
+			// `effectId` 在重放时不变：对方可以拿它去重（ADR-0016）。
+			const response = await fetch(OUTPUT_URL, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ workflowId, effectId: effect.effectId, from, text }),
+				signal,
+			});
+			console.log(`  [${from}] ${text}  → ${response.status}`);
+			// 抛出去由宿主变成 `{ ok: false, error }`（`failure`）。
+			if (!response.ok) throw new Error(`${OUTPUT_URL} answered ${response.status}`);
+			return { ok: true, status: response.status };
 		},
 	},
+	timeouts: { "stage.say": SAY_TIMEOUT_MS },
 	listeners: [
 		{ id: "workshop", kind: "webhook", config: { port: WEBHOOK_PORT, path: "/workshop", output: "command" } },
 	],
@@ -157,6 +187,7 @@ console.log(`  curl -H 'content-type: application/json' -d '{"add":"upper"}' ${u
 console.log(`  curl -H 'content-type: application/json' -d '{"text":"hello"}' ${url}`);
 console.log(`  curl -H 'content-type: application/json' -d '{"remove":"upper"}' ${url}`);
 console.log(`  加工方式：${Object.keys(transforms).join("、")}`);
+console.log(`输出    POST ${OUTPUT_URL}`);
 
 process.once("SIGINT", () => {
 	void (async () => {

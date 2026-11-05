@@ -68,7 +68,7 @@ export function App() {
 			)}
 
 			{selected !== undefined ? (
-				<Detail id={selected} touched={touched.get(selected)} onBack={() => select(undefined)} />
+				<Detail id={selected} touched={touched.get(selected)} unready={unready} onBack={() => select(undefined)} />
 			) : (
 				<Card>
 					<CardHeader>
