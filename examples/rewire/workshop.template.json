@@ -1,0 +1,7 @@
+{
+	"nodes": {
+		"hub": { "definition": "hub", "config": null }
+	},
+	"triggers": [{ "id": "hook", "kind": "webhook", "listener": "workshop", "config": { "output": "command" } }],
+	"edges": [{ "from": "hook", "to": "hub", "port": "command" }]
+}

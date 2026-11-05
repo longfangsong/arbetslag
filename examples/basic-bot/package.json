@@ -4,12 +4,14 @@
 	"type": "module",
 	"scripts": {
 		"start": "node main.ts",
+		"monitor": "MONITOR=1 node main.ts",
 		"type-check": "tsc --noEmit"
 	},
 	"dependencies": {
 		"@arbetslag/kernel": "workspace:*",
 		"@arbetslag/llm": "workspace:*",
 		"@arbetslag/host-node": "workspace:*",
+		"@arbetslag/monitor": "workspace:*",
 		"type-fest": "catalog:",
 		"zod": "catalog:"
 	},

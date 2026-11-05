@@ -1,0 +1,7 @@
+{
+	"nodes": {
+		"echo": { "definition": "echo", "config": null }
+	},
+	"triggers": [{ "id": "hook", "kind": "webhook", "listener": "echo", "config": { "output": "message" } }],
+	"edges": [{ "from": "hook", "to": "echo", "port": "message" }]
+}

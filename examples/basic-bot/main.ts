@@ -37,6 +37,7 @@ import {
 	webhookKind,
 } from "@arbetslag/host-node";
 import { type ModelCall, modelPerformer } from "@arbetslag/llm";
+import { createMonitor } from "@arbetslag/monitor";
 
 /** 监听端口；被占就演示「未就绪」（ADR-0015）。 */
 const PORT = Number(process.env.PORT ?? 8787);
@@ -294,4 +295,15 @@ console.log(`  printer  ${JSON.stringify(final.graph.nodeStates.printer?.state)}
 console.log(`  在飞效果 ${final.inFlight.length} 个；每次投递都推到了静止：${results.every((r) => r.status === "quiescent")}`);
 const recovered = (await snapshot(hanging.id)).graph.nodeStates.chat?.state as { history: { role: string }[] };
 console.log(`  recover-me 的 history：${recovered.history.map((m) => m.role).join("、")}`);
-store.close();
+
+// ── 5. 监控（可选）：和激活同一个进程，看得见工作副本与正在执行的效果（ADR-0017） ──
+
+if (process.env.MONITOR === "1") {
+	const monitor = await createMonitor({ host: next, port: Number(process.env.MONITOR_PORT ?? 8790) });
+	console.log(`\n⑤ 监控：${monitor.url}（Ctrl+C 退出）`);
+	process.once("SIGINT", () => {
+		void monitor.close().then(() => store.close());
+	});
+} else {
+	store.close();
+}
