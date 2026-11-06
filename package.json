@@ -1,0 +1,5 @@
+{
+	"name": "arbetslag-monorepo",
+	"private": true,
+	"packageManager": "pnpm@10.6.5"
+}
