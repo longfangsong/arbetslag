@@ -14,8 +14,12 @@ import {
  */
 export type TelegramTriggerConfig = Record<string, never>;
 
-/** 投给节点的那条消息的载荷：文字 + 它从哪个聊天来。`updateId` 让总机能把它原样转交（`eventId`）。 */
+/**
+ * 投给节点的那条消息的载荷：文字 + 它从哪个聊天来。`updateId` 让总机能把它原样转交（`eventId`）。
+ * `listener` 是收到它的那个监听器（哪个 bot）：一个部署可以有好几个 bot（ADR-0018），回话要用同一个。
+ */
 export type TelegramMessage = {
+	listener: string;
 	text: string;
 	chatId: number;
 	messageId: number;
@@ -25,6 +29,7 @@ export type TelegramMessage = {
 };
 
 export const telegramMessageSchema = z.object({
+	listener: z.string().min(1),
 	text: z.string().min(1),
 	chatId: z.number().int(),
 	messageId: z.number().int(),
@@ -40,7 +45,7 @@ export const telegramKind: TriggerKindDefinition<TelegramTriggerConfig> = {
 	outputs: () => ({ [TELEGRAM_OUTPUT]: telegramMessageSchema }),
 };
 
-/** 监听器一侧的 config：一个 bot 一条长轮询。token 不进这里（部署的密钥），从 runtime 的选项给。 */
+/** 监听器一侧的 config：一个 bot 一条长轮询。token 不进这里（部署的密钥），从 runtime 的 `bots` 给。 */
 export const telegramListenerConfig = z.object({
 	/** 长轮询等多久（Telegram 上限 50 秒）。默认 25。 */
 	pollSeconds: z.number().int().min(1).max(50).default(25),
@@ -73,18 +78,34 @@ type TelegramUpdate = z.infer<typeof updateSchema>;
  */
 export type TelegramTransport = (method: string, body: unknown, signal: AbortSignal) => Promise<JsonValue>;
 
-export type TelegramOptions = {
+/** 一个 bot 的密钥与网关。 */
+export type TelegramBot = {
 	token: string;
-	/** 默认 `https://api.telegram.org`；自建网关改这里。 */
+	/** 默认 `https://api.telegram.org`；自建网关、测试用的假 Telegram 改这里。 */
 	apiBase?: string;
+};
+
+/**
+ * 部署里的 bot，按监听器 id（ADR-0018）：一个 token 一个监听器（ADR-0015）。
+ * 监听器与 `telegram.send` 共用这一份，回话因此能用收到消息的那个 bot。
+ */
+export type TelegramBots = Readonly<Record<string, TelegramBot | undefined>>;
+
+export type TelegramOptions = {
+	bots: TelegramBots;
+	/** 测试注入：不联网。给了就忽略各 bot 的 token 与 `apiBase`。 */
 	transport?: TelegramTransport;
 };
+
+export const DEFAULT_TELEGRAM_API = "https://api.telegram.org";
 
 export type TelegramHandle = ListenerHandle & { bot: string };
 
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-function createTransport(apiBase: string, token: string): TelegramTransport {
+export function createTelegramTransport(bot: TelegramBot): TelegramTransport {
+	const apiBase = bot.apiBase ?? DEFAULT_TELEGRAM_API;
+	const { token } = bot;
 	return async (method, body, signal) => {
 		const response = await fetch(`${apiBase}/bot${token}/${method}`, {
 			method: "POST",
@@ -111,8 +132,6 @@ function createTransport(apiBase: string, token: string): TelegramTransport {
  * 重复的那些由发件箱按 `update_id` 去重（ADR-0015）。
  */
 export function createTelegramRuntime(options: TelegramOptions): ListenerRuntime<TelegramHandle> {
-	const transport = options.transport ?? createTransport(options.apiBase ?? "https://api.telegram.org", options.token);
-
 	return {
 		kind: telegramKind.kind,
 
@@ -122,10 +141,15 @@ export function createTelegramRuntime(options: TelegramOptions): ListenerRuntime
 				throw new ListenerUnready(listener.id, `invalid config: ${parsed.error.message}`);
 			}
 			const config = parsed.data;
+			const bot = options.bots[listener.id];
+			if (options.transport === undefined && bot === undefined) {
+				throw new ListenerUnready(listener.id, "no token for this listener in the deployment");
+			}
+			const transport = options.transport ?? createTelegramTransport(bot as TelegramBot);
 
 			const controller = new AbortController();
 			const me = await getMe(listener.id, transport, controller.signal);
-			void poll(config, hooks, transport, controller);
+			void poll(listener.id, config, hooks, transport, controller);
 
 			return {
 				bot: me,
@@ -147,6 +171,7 @@ async function getMe(listener: string, transport: TelegramTransport, signal: Abo
 }
 
 async function poll(
+	listener: string,
 	config: TelegramListenerConfig,
 	hooks: ListenerHooks,
 	transport: TelegramTransport,
@@ -179,6 +204,7 @@ async function poll(
 				(allowed.size === 0 || allowed.has(message.chat.id));
 			if (relevant) {
 				const body: TelegramMessage = {
+					listener,
 					text: message.text as string,
 					chatId: message.chat.id,
 					messageId: message.message_id,

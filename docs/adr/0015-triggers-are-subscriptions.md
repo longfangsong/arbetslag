@@ -53,7 +53,7 @@
 
 - **总机**是一份持有低优先级 `always` 订阅（默认分组、`priority: -1`）的普通工作流，由应用在引导时创建。会话工作流的订阅在默认分组的 0 层，所以已有会话的事件不经过总机；只有新会话的第一条事件（默认分组 0 层没人命中）落到总机。别的分组里的订阅（审计等）不影响这一点。
 - **`workflow.spawn`**：框架提供的效果种类（声明随内核发布，与 `graph.mutate` 一样；执行归宿主，因为它跨工作流）。
-  - `input = { id, template, forward? }`：用 `template`（一份完整的模板数据，总机按会话把 chat id 填进触发器的匹配函数 config）实例化 id 为 `id` 的工作流；`forward = { trigger, output, body, eventId? }` 是要转交给它的那条事件。
+  - `input = { id, template, params?, forward? }`：按名字从部署的模板目录取 `template`，用 `params` 填它的参数（总机按会话把 chat id 填进去，匹配函数的 config 引用它），实例化 id 为 `id` 的工作流（ADR-0018）；`forward = { trigger, output, body, eventId? }` 是要转交给它的那条事件。
   - `id` 已存在不是失败：跳过实例化，只转交。`result` 为 `{ ok: true, created }` 或 `{ ok: false, error }`。
   - 执行顺序固定：先实例化，再在**一次原子写**里写入 `forward` 那一行发件箱与新工作流的全部索引行。之后到达的同一会话的事件直接命中新工作流的订阅，其 `seq` 一定大于被转交的那一行。
   - 转交不会造成重复：一条事件只有在默认分组 0 层没人命中时才落到总机，也就是说那一刻会话工作流没有收到它。

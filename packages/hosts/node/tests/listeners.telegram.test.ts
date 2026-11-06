@@ -78,7 +78,7 @@ test("the trigger side has no config and one output; the listener side defaults 
 	const config = telegramKind.config.parse({});
 	assert.deepEqual(Object.keys(telegramKind.outputs(config)), ["message"]);
 	const message = telegramKind.outputs(config).message;
-	assert.equal(message?.safeParse({ text: "hi", chatId: 1, messageId: 2, updateId: 3 }).success, true);
+	assert.equal(message?.safeParse({ listener: "tg", text: "hi", chatId: 1, messageId: 2, updateId: 3 }).success, true);
 	assert.equal(message?.safeParse({ text: "" }).success, false);
 	assert.equal(telegramKind.config.safeParse({ allowChats: [1] }).success, false, "chat filters are matchers now");
 
@@ -93,7 +93,7 @@ test("a text message is emitted with its chat and update id, and the offset move
 		return idle(signal); // 之后再无更新：卡在长轮询上，直到被关掉
 	});
 	const seen = hooks();
-	const runtime = createTelegramRuntime({ token: "t", transport });
+	const runtime = createTelegramRuntime({ bots: {}, transport });
 
 	const handle = await runtime.open(declaration(), seen.hooks);
 	assert.equal(handle.bot, "dev_bot");
@@ -101,7 +101,7 @@ test("a text message is emitted with its chat and update id, and the offset move
 
 	assert.deepEqual(seen.delivered[0], {
 		output: "message",
-		body: { text: "你好", chatId: 42, messageId: 7, updateId: 7, from: "longfangsong" },
+		body: { listener: "tg", text: "你好", chatId: 42, messageId: 7, updateId: 7, from: "longfangsong" },
 		eventId: "7",
 	});
 
@@ -127,7 +127,7 @@ test("messages without text are skipped, and allowChats filters the rest", async
 		return idle(signal);
 	});
 	const seen = hooks();
-	const runtime = createTelegramRuntime({ token: "t", transport });
+	const runtime = createTelegramRuntime({ bots: {}, transport });
 	const handle = await runtime.open(declaration({ allowChats: [1] }), seen.hooks);
 
 	await until(() => seen.delivered.length === 1);
@@ -141,7 +141,7 @@ test("messages without text are skipped, and allowChats filters the rest", async
 
 test("a bad token or an active webhook is unready, not a halt", async () => {
 	const { transport } = fakeTransport(() => new Error("Unauthorized"));
-	const runtime = createTelegramRuntime({ token: "t", transport });
+	const runtime = createTelegramRuntime({ bots: {}, transport });
 
 	await assert.rejects(
 		() => runtime.open(declaration(), hooks().hooks),
@@ -156,7 +156,7 @@ test("a poll that fails later reports unready and stops itself", async () => {
 		return new Error("Conflict: can't use getUpdates method while webhook is active");
 	});
 	const seen = hooks();
-	const runtime = createTelegramRuntime({ token: "t", transport });
+	const runtime = createTelegramRuntime({ bots: {}, transport });
 	const handle = await runtime.open(declaration(), seen.hooks);
 
 	await until(() => seen.unready.length === 1);
@@ -174,11 +174,19 @@ test("if the router cannot take an update, the offset stays put and the listener
 	});
 	const seen = hooks();
 	seen.fail();
-	const runtime = createTelegramRuntime({ token: "t", transport });
+	const runtime = createTelegramRuntime({ bots: {}, transport });
 	const handle = await runtime.open(declaration(), seen.hooks);
 
 	await until(() => seen.unready.length === 1);
 	assert.match(seen.unready[0] ?? "", /outbox unavailable/);
 	assert.equal(calls.filter((call) => call.method === "getUpdates").length, 1, "no poll past an update it could not hand over");
 	await handle.close();
+});
+
+test("a listener with no bot in the deployment is unready", async () => {
+	const runtime = createTelegramRuntime({ bots: { other: { token: "x" } } });
+	await assert.rejects(
+		() => runtime.open(declaration(), hooks().hooks),
+		(error: unknown) => error instanceof ListenerUnready && /no token/.test(error.reason),
+	);
 });

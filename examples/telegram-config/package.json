@@ -1,0 +1,11 @@
+{
+	"name": "@arbetslag/example-telegram-config",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"start": "arbetslag run arbetslag.yaml"
+	},
+	"dependencies": {
+		"@arbetslag/deploy": "workspace:*"
+	}
+}

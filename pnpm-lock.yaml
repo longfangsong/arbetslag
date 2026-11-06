@@ -160,6 +160,43 @@ importers:
         specifier: 'catalog:'
         version: 7.0.2
 
+  packages/deploy:
+    dependencies:
+      '@arbetslag/host-node':
+        specifier: workspace:*
+        version: link:../hosts/node
+      '@arbetslag/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@arbetslag/llm':
+        specifier: workspace:*
+        version: link:../llm
+      '@arbetslag/monitor':
+        specifier: workspace:*
+        version: link:../monitor
+      type-fest:
+        specifier: 'catalog:'
+        version: 5.10.0
+      yaml:
+        specifier: 2.9.1
+        version: 2.9.1
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.5
+      biome:
+        specifier: 'catalog:'
+        version: 0.3.3
+      tsdown:
+        specifier: ^0.23.0
+        version: 0.23.1(typescript@7.0.2)
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+
   packages/hosts/node:
     dependencies:
       '@arbetslag/kernel':
@@ -252,7 +289,7 @@ importers:
         version: 3.1.1
       '@tailwindcss/vite':
         specifier: ^4.3.4
-        version: 4.3.4(vite@8.3.6(@types/node@26.6.5)(jiti@2.7.0))
+        version: 4.3.4(vite@8.3.6(@types/node@26.6.5)(jiti@2.7.0)(yaml@2.9.1))
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.5
@@ -264,7 +301,7 @@ importers:
         version: 19.3.0(@types/react@19.3.0)
       '@vitejs/plugin-react':
         specifier: ^6.2.1
-        version: 6.2.1(vite@8.3.6(@types/node@26.6.5)(jiti@2.7.0))
+        version: 6.2.1(vite@8.3.6(@types/node@26.6.5)(jiti@2.7.0)(yaml@2.9.1))
       '@xyflow/react':
         specifier: 12.12.0
         version: 12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -306,7 +343,10 @@ importers:
         version: 7.0.2
       vite:
         specifier: ^8.3.6
-        version: 8.3.6(@types/node@26.6.5)(jiti@2.7.0)
+        version: 8.3.6(@types/node@26.6.5)(jiti@2.7.0)(yaml@2.9.1)
+      yaml:
+        specifier: 2.9.1
+        version: 2.9.1
       zod:
         specifier: 'catalog:'
         version: 4.6.7
@@ -2439,6 +2479,11 @@ packages:
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
+  yaml@2.9.1:
+    resolution: {integrity: sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw==}
+    engines: {node: '>= 14.6'}
+    hasBin: true
+
   yuku-ast@0.19.0:
     resolution: {integrity: sha512-PyCsiScaelhxBGzL8dyeJkLqvRZycoh78R31Vrt/WqYrm0hMFoKwIw/X7Dx5mBKLWAMlV9I9HEyBOHnj2gZVyw==}
     engines: {node: '>=14.18.0'}
@@ -3430,12 +3475,12 @@ snapshots:
       '@tailwindcss/oxide-win32-arm64-msvc': 4.3.4
       '@tailwindcss/oxide-win32-x64-msvc': 4.3.4
 
-  '@tailwindcss/vite@4.3.4(vite@8.3.6(@types/node@26.6.5)(jiti@2.7.0))':
+  '@tailwindcss/vite@4.3.4(vite@8.3.6(@types/node@26.6.5)(jiti@2.7.0)(yaml@2.9.1))':
     dependencies:
       '@tailwindcss/node': 4.3.4
       '@tailwindcss/oxide': 4.3.4
       tailwindcss: 4.3.4
-      vite: 8.3.6(@types/node@26.6.5)(jiti@2.7.0)
+      vite: 8.3.6(@types/node@26.6.5)(jiti@2.7.0)(yaml@2.9.1)
 
   '@types/d3-color@3.1.3': {}
 
@@ -3530,10 +3575,10 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@vitejs/plugin-react@6.2.1(vite@8.3.6(@types/node@26.6.5)(jiti@2.7.0))':
+  '@vitejs/plugin-react@6.2.1(vite@8.3.6(@types/node@26.6.5)(jiti@2.7.0)(yaml@2.9.1))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
-      vite: 8.3.6(@types/node@26.6.5)(jiti@2.7.0)
+      vite: 8.3.6(@types/node@26.6.5)(jiti@2.7.0)(yaml@2.9.1)
 
   '@xyflow/react@12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)':
     dependencies:
@@ -4429,7 +4474,7 @@ snapshots:
       core-util-is: 1.0.2
       extsprintf: 1.3.0
 
-  vite@8.3.6(@types/node@26.6.5)(jiti@2.7.0):
+  vite@8.3.6(@types/node@26.6.5)(jiti@2.7.0)(yaml@2.9.1):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
@@ -4440,8 +4485,11 @@ snapshots:
       '@types/node': 26.6.5
       fsevents: 2.3.3
       jiti: 2.7.0
+      yaml: 2.9.1
 
   wrappy@1.0.2: {}
+
+  yaml@2.9.1: {}
 
   yuku-ast@0.19.0:
     dependencies:

@@ -16,6 +16,11 @@ export const templateNodeSchema = z.object({
  * 只在实例化时被读一次，之后工作流与它无关（ADR-0002）。
  */
 export const workflowTemplateSchema = z.object({
+	/**
+	 * 参数与它们的默认值（ADR-0018）：模板里的字符串值用 `{{name}}` 引用。
+	 * 实例化之前由 `fillTemplate` 填掉，快照里没有它。
+	 */
+	params: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), jsonSchema).optional(),
 	nodes: z.record(z.string().min(1), templateNodeSchema),
 	edges: z.array(edgeSchema).default([]),
 	triggers: z.array(triggerSchema).default([]),

@@ -1,0 +1,39 @@
+# 一个 bot 的一个 chat：Telegram → relay → conversation ⇄ llm → relay → Telegram。
+# `listener` 与 `chatId` 由总机填；默认值只为了启动时能校验这份模板。
+params:
+  listener: bot
+  chatId: 0
+
+nodes:
+  relay:
+    definition: telegramRelay
+    config:
+      listener: "{{listener}}"
+      chatId: "{{chatId}}"
+  chat:
+    definition: conversation
+    config: null
+  bot:
+    definition: llm
+    config:
+      provider: main
+      model: gpt-4o-mini
+      system: >-
+        你是 Telegram 聊天里一个简洁的助手。用对方的语言回答，不超过三句。
+        不想说话时什么都不要输出。
+
+triggers:
+  - id: tg
+    kind: telegram
+    listener: "{{listener}}"
+    match:
+      fn: chatIs
+      config:
+        chatId: "{{chatId}}"
+
+edges:
+  - { from: tg, to: relay, port: message }
+  - { from: relay, to: chat, port: user }
+  - { from: chat, to: bot, port: history }
+  - { from: bot, to: chat, port: append }
+  - { from: bot, to: relay, port: reply }

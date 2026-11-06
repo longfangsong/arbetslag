@@ -57,7 +57,7 @@ const answered = new Promise<void>((resolve) => {
 	done = resolve;
 });
 
-const { switchboardTemplate, registry } = buildGraph({
+const { switchboardTemplate, templates, registry } = buildGraph({
 	model: env("ARBETSLAG_MODEL"),
 	system: "你是个简洁的助手，回答用中文，不超过三句。需要当前时间就用 clock 工具查，不要猜。",
 });
@@ -66,6 +66,7 @@ const store = createSqliteStore({ file: ":memory:" });
 const host = createHost({
 	store,
 	registry,
+	templates,
 	performers: {
 		"model.complete": modelPerformer(
 			createOpenAIModel({ apiKey: env("ARBETSLAG_API_KEY"), baseURL: env("ARBETSLAG_BASE_URL") }),
@@ -80,7 +81,7 @@ const host = createHost({
 	},
 	log,
 	listeners: [{ id: LISTENER, kind: "telegram", config: {} }],
-	runtimes: { telegram: createTelegramRuntime({ token: "selftest", transport }) },
+	runtimes: { telegram: createTelegramRuntime({ bots: {}, transport }) },
 	onUnready: (info) => console.log(`   ! 未就绪 ${info.scope === "listener" ? info.listener : info.trigger}：${info.reason}`),
 });
 

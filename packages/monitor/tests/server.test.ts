@@ -46,11 +46,17 @@ function gate() {
 	return { performers, release: () => waiting.splice(0).forEach((resolve) => resolve()) };
 }
 
+/** 模板目录里的一份（ADR-0018）：参数 `label` 进节点的初始 state。 */
+const labelled: WorkflowTemplate = {
+	params: { label: 0 },
+	nodes: { w: { definition: "worker", config: null, state: { got: "{{label}}" } } },
+};
+
 async function setup(performers: Performers = {}) {
 	const assets = await mkdtemp(join(tmpdir(), "monitor-assets-"));
 	await writeFile(join(assets, "index.html"), "<!doctype html><title>monitor</title>");
 	const store = createSqliteStore({ file: ":memory:" });
-	const host = createHost({ store, registry, performers, onError: () => {} });
+	const host = createHost({ store, registry, performers, templates: { labelled }, onError: () => {} });
 	const monitor = await createMonitor({ host, assets, coalesceMs: 5 });
 	const api = (path: string, init?: RequestInit) => fetch(`${monitor.url}${path}`, init);
 	const post = (body: unknown) =>
@@ -159,5 +165,28 @@ test("serves the web app, with index.html for client-side routes and no escape f
 	assert.equal(await (await api("/workflows/a")).text(), "<!doctype html><title>monitor</title>");
 	assert.equal((await api("/../../etc/passwd.txt")).status, 404);
 	assert.equal((await api("/api/nope")).status, 404);
+	await monitor.close();
+});
+
+test("the template directory is listed, and a workflow is created from it by name with params", async () => {
+	const { monitor, api, post } = await setup();
+	const entries = (await (await api("/api/templates")).json()) as { name: string; params: unknown }[];
+	assert.deepEqual(
+		entries.map((e) => [e.name, e.params]),
+		[["labelled", { label: 0 }]],
+	);
+
+	const created = await post({ template: "labelled", id: "l", params: { label: 5 } });
+	assert.equal(created.status, 201);
+	const detail = (await (await api("/api/workflows/l")).json()) as WorkflowDetail;
+	assert.deepEqual(detail.snapshot.graph.nodeStates.w?.state, { got: 5 });
+
+	const unknown = await post({ template: "nope" });
+	assert.equal(unknown.status, 400);
+	assert.deepEqual(await unknown.json(), { code: "template_unknown", name: "nope" });
+
+	const badParams = await post({ template: "labelled", params: { other: 1 } });
+	assert.equal(badParams.status, 400);
+	assert.equal(((await badParams.json()) as { code: string }).code, "template_invalid");
 	await monitor.close();
 });

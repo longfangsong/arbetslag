@@ -47,7 +47,7 @@ const log: TransitionLog = {
 	},
 };
 
-const { switchboardTemplate, registry } = buildGraph({
+const { switchboardTemplate, templates, registry } = buildGraph({
 	model,
 	system: "你是个简洁的助手，回答用中文，不超过三句。需要当前时间就用 clock 工具查，不要猜。",
 });
@@ -56,6 +56,7 @@ const store = createSqliteStore({ file: process.env.ARBETSLAG_DB ?? "./data/tele
 const host = createHost({
 	store,
 	registry,
+	templates,
 	performers: {
 		"model.complete": modelPerformer(createOpenAIModel({ apiKey, baseURL })),
 		"telegram.send": async (input, { signal }) => {
@@ -66,7 +67,7 @@ const host = createHost({
 	},
 	log,
 	listeners: [{ id: LISTENER, kind: "telegram", config: {} }],
-	runtimes: { telegram: createTelegramRuntime({ token }) },
+	runtimes: { telegram: createTelegramRuntime({ bots: { [LISTENER]: { token } } }) },
 	retryMs: 3000,
 	onUnready: (info) =>
 		console.log(`   ! 未就绪 ${info.scope === "listener" ? info.listener : info.trigger}：${info.reason}（3s 后重试）`),

@@ -5,10 +5,12 @@ import { extname, join, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { InstantiateError, WorkflowExists, type WorkflowTemplate } from "@arbetslag/kernel";
 import type { Host } from "@arbetslag/host-node";
+import type { JsonValue } from "type-fest";
 import type {
 	CreateRefusal,
 	MonitorEvent,
 	Overview,
+	TemplateEntry,
 	WorkflowDetail,
 	WorkflowSummary,
 } from "./protocol.ts";
@@ -148,6 +150,13 @@ export async function createMonitor(options: MonitorOptions): Promise<Monitor> {
 		res.write(`event: overview\ndata: ${JSON.stringify(data)}\n\n`);
 	}
 
+	function templateEntries(): TemplateEntry[] {
+		return Object.entries(host.templates)
+			.filter((entry): entry is [string, WorkflowTemplate] => entry[1] !== undefined)
+			.map(([name, template]) => ({ name, params: (template.params ?? {}) as Record<string, unknown>, template }))
+			.sort((a, b) => a.name.localeCompare(b.name));
+	}
+
 	async function detail(res: ServerResponse, id: string): Promise<void> {
 		const snapshot = await host.snapshot(id);
 		if (snapshot === undefined) return send(res, 404, { code: "workflow_not_found", id });
@@ -161,12 +170,27 @@ export async function createMonitor(options: MonitorOptions): Promise<Monitor> {
 		if (typeof body !== "object" || body === null || !("template" in body)) {
 			throw new BadRequest("expected { template, id? }");
 		}
-		const { template, id } = body as { template: unknown; id?: unknown };
+		const { template, id, params } = body as { template: unknown; id?: unknown; params?: unknown };
 		if (id !== undefined && (typeof id !== "string" || id.length === 0)) {
 			throw new BadRequest("id must be a non-empty string");
 		}
+		if (params !== undefined && (typeof params !== "object" || params === null || Array.isArray(params))) {
+			throw new BadRequest("params must be an object");
+		}
+		// 一个名字：从部署的模板目录里取（ADR-0018）；否则是上传的整份模板。
+		let resolved = template as WorkflowTemplate;
+		if (typeof template === "string") {
+			const found = host.templates[template];
+			if (found === undefined) {
+				return send(res, 400, { code: "template_unknown", name: template } satisfies CreateRefusal);
+			}
+			resolved = found;
+		}
 		try {
-			const created = await host.create(template as WorkflowTemplate, id === undefined ? {} : { id });
+			const created = await host.create(resolved, {
+				...(id === undefined ? {} : { id }),
+				...(params === undefined ? {} : { params: params as Record<string, JsonValue> }),
+			});
 			send(res, 201, created);
 		} catch (error) {
 			if (error instanceof InstantiateError) {
@@ -201,6 +225,7 @@ export async function createMonitor(options: MonitorOptions): Promise<Monitor> {
 
 		if (pathname === "/api/events" && method === "GET") return events(req, res);
 		if (pathname === "/api/workflows" && method === "GET") return send(res, 200, await overview());
+		if (pathname === "/api/templates" && method === "GET") return send(res, 200, templateEntries());
 		if (pathname === "/api/workflows" && method === "POST") return create(req, res);
 		if (match?.[1] !== undefined && method === "GET") return detail(res, decodeURIComponent(match[1]));
 		if (pathname.startsWith("/api/")) return send(res, 404, { code: "not_found" });

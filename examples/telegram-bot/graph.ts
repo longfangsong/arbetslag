@@ -6,7 +6,6 @@
  * - 会话工作流 `chat:<id>`：订阅 `chatIs(<id>)`，优先级 0；
  * - 总机 `switchboard`：订阅全部，优先级 -1，只接没人认领的消息——也就是每个 chat 的第一句。
  */
-import type { JsonValue } from "type-fest";
 import { z } from "zod";
 import { type WorkflowTemplate, createRegistry, defineNode } from "@arbetslag/kernel";
 import {
@@ -71,13 +70,14 @@ export function buildGraph(options: { model: string; system: string }) {
 		tools: [{ node: clock }],
 	});
 
-	/** 一个 chat 的会话工作流：只订阅这个 chat（匹配函数），默认分组、优先级 0。 */
-	const chatTemplate = (chatId: number): WorkflowTemplate => ({
+	/** 一个 chat 的会话工作流：只订阅这个 chat（匹配函数），默认分组、优先级 0。`chatId` 由总机填（ADR-0018）。 */
+	const chatTemplate: WorkflowTemplate = {
+		params: { chatId: 0 },
 		nodes: {
 			...layout.nodes,
 			// 对话历史在 `chat` 里（ADR-0010）；relay 只管把话换成 Telegram 消息。
 			chat: { definition: CONVERSATION_NAME, config: null },
-			relay: { definition: "relay", config: { chatId } },
+			relay: { definition: "relay", config: { chatId: "{{chatId}}" } },
 		},
 		edges: [
 			...layout.edges,
@@ -87,8 +87,10 @@ export function buildGraph(options: { model: string; system: string }) {
 			{ from: "relay", to: "chat", port: "user" },
 			{ from: "tg", to: "relay", port: TELEGRAM_OUTPUT },
 		],
-		triggers: [{ id: "tg", kind: "telegram", listener: LISTENER, match: { fn: "chatIs", config: { chatId } } }],
-	});
+		triggers: [
+			{ id: "tg", kind: "telegram", listener: LISTENER, match: { fn: "chatIs", config: { chatId: "{{chatId}}" } } },
+		],
+	};
 
 	/** 总机：为没人认领的 chat 起一份会话工作流，并把这句话转交过去（`workflow.spawn`）。 */
 	const switchboard = defineNode({
@@ -107,7 +109,8 @@ export function buildGraph(options: { model: string; system: string }) {
 						kind: "workflow.spawn",
 						input: {
 							id: chatWorkflowId(body.chatId),
-							template: chatTemplate(body.chatId) as JsonValue,
+							template: "chat",
+							params: { chatId: body.chatId },
 							forward: { trigger: "tg", output: TELEGRAM_OUTPUT, body, eventId: String(body.updateId) },
 						},
 					},
@@ -129,5 +132,5 @@ export function buildGraph(options: { model: string; system: string }) {
 		matchers: [chatIs],
 	});
 
-	return { switchboardTemplate, chatTemplate, registry };
+	return { switchboardTemplate, templates: { chat: chatTemplate }, registry };
 }

@@ -27,7 +27,8 @@
 |---|---|
 | `GET /api/workflows` | `Overview`：全部工作流的摘要 + 未就绪表 |
 | `GET /api/workflows/:id` | `WorkflowDetail`：摘要、完整快照、正在执行的 `effectId`；没有这份工作流 404 |
-| `POST /api/workflows` | `{ template, id? }` → 201 `{ id }`；400 `request_invalid` / `template_invalid`（带全部违规）；409 `workflow_exists` |
+| `GET /api/templates` | `TemplateEntry[]`：部署的模板目录，每份带名字、参数默认值与内容（ADR-0018） |
+| `POST /api/workflows` | `{ template, id?, params? }` → 201 `{ id }`；`template` 是模板目录里的名字或一整份模板。400 `request_invalid` / `template_unknown` / `template_invalid`（带全部违规）；409 `workflow_exists` |
 | `GET /api/events` | 实时通道：先一条 `overview`，之后增量 `workflow`（一份摘要）、`unready`（整张表） |
 
 - 形状定义在 `packages/monitor/src/protocol.ts`，前端只 import 那里的类型。
@@ -35,7 +36,7 @@
 - Node 上实时通道的载体是 SSE。前端把载体包在 `web/src/transport.ts` 一个文件里，事件的形状不随载体变。
 - 服务端把同一份工作流的变化合并（默认 100ms）后再推一次摘要；没有连接的客户端时，观察回调直接返回。快照的序列化不放在推进的路径上。
 - 详情页收到这份工作流的 `workflow` 事件就重新 `GET` 一次完整快照，不推快照增量。
-- 上传只收 JSON，按 `workflowTemplateSchema` 校验，上限 1 MB。
+- 上传的模板可以是 JSON 或 YAML，由前端解析成对象再发；服务端按 `workflowTemplateSchema` 校验，请求上限 1 MB。
 
 ### 新鲜度取决于宿主
 

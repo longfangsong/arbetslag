@@ -1,0 +1,24 @@
+# 一个 bot 的总机：接住还没有会话工作流认领的消息（优先级 -1），
+# 为那个 chat 从模板 `chat` 起一份工作流，并把这条消息转交过去。
+params:
+  listener: bot
+
+nodes:
+  switchboard:
+    definition: switchboard
+    config:
+      template: chat
+      params:
+        listener: listener
+        chatId: chatId
+      trigger: tg
+      eventId: updateId
+
+triggers:
+  - id: tg
+    kind: telegram
+    listener: "{{listener}}"
+    priority: -1
+
+edges:
+  - { from: tg, to: switchboard, port: message }

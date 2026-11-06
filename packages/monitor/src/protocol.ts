@@ -1,4 +1,4 @@
-import type { HaltReason, InstantiateViolation, Snapshot } from "@arbetslag/kernel";
+import type { HaltReason, InstantiateViolation, Snapshot, WorkflowTemplate } from "@arbetslag/kernel";
 
 /**
  * 监控的线上协议（ADR-0017）：浏览器只认这里的形状，不认宿主。
@@ -6,6 +6,7 @@ import type { HaltReason, InstantiateViolation, Snapshot } from "@arbetslag/kern
  *
  * - `GET  /api/workflows`      → `Overview`
  * - `GET  /api/workflows/:id`  → `WorkflowDetail`；没有这份工作流 404
+ * - `GET  /api/templates`      → `TemplateEntry[]`：部署的模板目录（ADR-0018）
  * - `POST /api/workflows`      `CreateRequest` → 201 `{ id }`；不合规 400 / id 已存在 409，都是 `CreateRefusal`
  * - `GET  /api/events`         → SSE：先一条 `overview`，之后 `workflow` / `unready` 增量（`MonitorEvent`）
  */
@@ -41,10 +42,15 @@ export type WorkflowDetail = {
 	executing: string[];
 };
 
-export type CreateRequest = { template: unknown; id?: string };
+/** 模板目录里的一份：名字、参数默认值、整份内容。 */
+export type TemplateEntry = { name: string; params: Record<string, unknown>; template: WorkflowTemplate };
+
+/** `template` 是模板目录里的名字，或者一整份模板（上传的）；`params` 填模板参数（ADR-0018）。 */
+export type CreateRequest = { template: string | WorkflowTemplate; id?: string; params?: Record<string, unknown> };
 
 export type CreateRefusal =
 	| { code: "request_invalid"; detail: string }
+	| { code: "template_unknown"; name: string }
 	| { code: "template_invalid"; violations: InstantiateViolation[] }
 	| { code: "workflow_exists"; id: string };
 

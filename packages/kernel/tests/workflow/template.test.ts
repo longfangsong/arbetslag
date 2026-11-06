@@ -6,7 +6,7 @@ import { createMemoryStore } from "../../src/testing/index.ts";
 import { createRegistry } from "../../src/registry.ts";
 import { WorkflowExists } from "../../src/failure/errors.ts";
 import { checkSnapshot } from "../../src/workflow/snapshot.ts";
-import { createWorkflow, instantiate, InstantiateError } from "../../src/workflow/template/index.ts";
+import { createWorkflow, fillTemplate, instantiate, InstantiateError } from "../../src/workflow/template/index.ts";
 
 const asker = defineNode({
 	name: "asker",
@@ -171,4 +171,70 @@ test("an invalid template saves nothing", async () => {
 		InstantiateError,
 	);
 	assert.equal(await store.load("w"), undefined);
+});
+
+// ── 参数（ADR-0018） ──────────────────────────────────────────────────────────
+
+const parameterized = {
+	params: { path: "/default", tool: "search" },
+	nodes: { a: { definition: "asker", config: { tools: ["{{tool}}"] } } },
+	triggers: [{ id: "in", kind: "webhook", listener: "l", config: { path: "{{path}}" } }],
+	edges: [{ from: "in", to: "a", port: "text" }],
+};
+
+test("fillTemplate: a whole placeholder keeps the value's type, an embedded one becomes text", () => {
+	const filled = fillTemplate(
+		{
+			params: { chatId: 0, name: "x" },
+			nodes: { r: { definition: "relay", config: { chatId: "{{chatId}}", label: "chat:{{chatId}}/{{name}}" } } },
+		},
+		{ chatId: 42 },
+	);
+	assert.ok(filled.ok);
+	assert.deepEqual(filled.template, {
+		nodes: { r: { definition: "relay", config: { chatId: 42, label: "chat:42/x" } } },
+	});
+});
+
+test("fillTemplate: undeclared, unknown and non-scalar-in-text parameters are violations", () => {
+	const filled = fillTemplate(
+		{
+			params: { obj: { a: 1 } },
+			nodes: { r: { definition: "relay", config: { x: "{{nope}}", y: "id:{{obj}}", z: "{{obj}}" } } },
+		},
+		{ extra: 1 },
+	);
+	assert.ok(!filled.ok);
+	assert.deepEqual(filled.violations, [
+		{ code: "param_unknown", name: "extra" },
+		{ code: "param_undeclared", name: "nope" },
+		{ code: "param_not_scalar", name: "obj" },
+	]);
+});
+
+test("instantiate fills parameters, defaults first, and keeps no params in the snapshot", () => {
+	const byDefault = instantiate(registry, parameterized);
+	assert.deepEqual(byDefault.graph.shape.triggers[0]?.config, { path: "/default" });
+	assert.deepEqual(byDefault.graph.shape.nodes.a?.config, { tools: ["search"] });
+
+	const given = instantiate(registry, parameterized, { path: "/given" });
+	assert.deepEqual(given.graph.shape.triggers[0]?.config, { path: "/given" });
+	assert.equal("params" in given.graph.shape, false);
+});
+
+test("instantiate reports parameter violations as template violations", () => {
+	assert.deepEqual(
+		codes(() => instantiate(registry, parameterized, { other: 1 })),
+		["param_unknown"],
+	);
+	assert.deepEqual(
+		codes(() => instantiate(registry, { nodes: { a: { definition: "asker", config: { tools: ["{{t}}"] } } } })),
+		["param_undeclared"],
+	);
+});
+
+test("createWorkflow passes its params through", async () => {
+	const store = createMemoryStore();
+	await createWorkflow(store, registry, parameterized, { id: "p", params: { tool: "fetch" } });
+	assert.deepEqual((await store.load("p"))?.graph.shape.nodes.a?.config, { tools: ["fetch"] });
 });

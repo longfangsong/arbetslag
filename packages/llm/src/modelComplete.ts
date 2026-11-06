@@ -11,6 +11,8 @@ const jsonSchema: z.ZodType<JsonValue> = z.json();
  * `params` 是厂商特有的旋钮，这里不解释它，由对应的 **Performer** 包接手。
  */
 export const modelCompleteInputSchema = z.object({
+	/** 用部署里哪个模型端点（ADR-0018）：只是名字，端点与密钥在部署配置里。 */
+	provider: z.string().min(1).optional(),
 	model: z.string().min(1),
 	messages: historySchema,
 	tools: z.array(toolSpecSchema).default([]),

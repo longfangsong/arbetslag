@@ -43,6 +43,8 @@ export const llmStateSchema = z
  * 端口由它推出来（ADR-0009）：`reply` + 每个工具一个 `tool.<name>`。
  */
 export const llmConfigSchema = z.object({
+	/** 部署里的模型端点名（ADR-0018）；省略时由 Performer 决定（部署里只有一个就用它）。 */
+	provider: z.string().min(1).optional(),
 	model: z.string().min(1),
 	system: z.string().optional(),
 	tools: z.array(toolSpecSchema).default([]),
@@ -71,6 +73,7 @@ function ask(state: LlmState, config: LlmConfig, history: History): Transition<L
 	if (config.system !== undefined) messages.push({ role: "system", blocks: [text(config.system)] });
 	messages.push(...forModel(history));
 	const input: ModelCompleteInput = {
+		...(config.provider === undefined ? {} : { provider: config.provider }),
 		model: config.model,
 		messages,
 		tools: config.tools,

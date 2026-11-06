@@ -10,10 +10,13 @@ import {
 	type WorkflowShapeViolation,
 } from "../shape/index.ts";
 import { initialNodeState } from "../graph/nodeState.ts";
+import type { JsonValue } from "type-fest";
+import { fillTemplate, type TemplateParamViolation } from "./params.ts";
 import { workflowTemplateSchema, type WorkflowTemplate } from "./template.ts";
 
 export type InstantiateViolation =
 	| { code: "template_malformed"; detail: string }
+	| TemplateParamViolation
 	| WorkflowShapeViolation
 	| RegistryViolation
 	| { code: "node_state_invalid"; id: string; detail: string };
@@ -33,15 +36,27 @@ export class InstantiateError extends Error {
 }
 
 /**
- * 用一份模板造出一份快照（不落盘）。config 与 state 取 schema 解析后的输出，
- * 所以默认值在这一刻写进快照。邮箱为空，没有在飞的效果。
+ * 用一份模板造出一份快照（不落盘）。先按 `params` 填参数（没给的取默认值，ADR-0018），
+ * 再校验。config 与 state 取 schema 解析后的输出，所以默认值在这一刻写进快照。
+ * 邮箱为空，没有在飞的效果。
  */
-export function instantiate(registry: Registry, template: WorkflowTemplate): Snapshot {
+export function instantiate(
+	registry: Registry,
+	template: WorkflowTemplate,
+	params: Readonly<Record<string, JsonValue>> = {},
+): Snapshot {
 	const parsed = workflowTemplateSchema.safeParse(template);
 	if (!parsed.success) {
 		throw new InstantiateError([{ code: "template_malformed", detail: formatIssues(parsed.error) }]);
 	}
-	const { nodes, edges, triggers } = parsed.data;
+	const filled = fillTemplate(parsed.data, params);
+	if (!filled.ok) throw new InstantiateError(filled.violations);
+	// 填进去的值可能让结构不再合法（比如一个对象填进了节点 id 的位置）：再收一次口。
+	const reparsed = workflowTemplateSchema.safeParse(filled.template);
+	if (!reparsed.success) {
+		throw new InstantiateError([{ code: "template_malformed", detail: formatIssues(reparsed.error) }]);
+	}
+	const { nodes, edges, triggers } = reparsed.data;
 
 	const shape: WorkflowShape = {
 		nodes: Object.fromEntries(
@@ -86,6 +101,8 @@ export function instantiate(registry: Registry, template: WorkflowTemplate): Sna
 export type CreateWorkflowOptions = {
 	/** 不给就由框架生成。id 是不透明字符串，等于 store key（ADR-0003）。 */
 	id?: string;
+	/** 模板参数（ADR-0018）；没给的取模板声明的默认值。 */
+	params?: Readonly<Record<string, JsonValue>>;
 };
 
 /**
@@ -99,6 +116,6 @@ export async function createWorkflow(
 	options: CreateWorkflowOptions = {},
 ): Promise<{ id: string }> {
 	const id = options.id ?? crypto.randomUUID();
-	await store.create(id, instantiate(registry, template));
+	await store.create(id, instantiate(registry, template, options.params));
 	return { id };
 }

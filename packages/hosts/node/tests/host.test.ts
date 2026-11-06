@@ -60,7 +60,8 @@ const switchboard = defineNode({
 						kind: "workflow.spawn",
 						input: {
 							id: `chat:${body.chatId}`,
-							template: chatTemplate(body.chatId),
+							template: "chat",
+							params: { chatId: body.chatId },
 							forward: { trigger: "in", output: "text", body, eventId: body.id },
 						},
 					},
@@ -141,9 +142,11 @@ const botSubscriber: WorkflowTemplate = {
 	edges: [{ from: "in", to: "b", port: "text" }],
 };
 
-function chatTemplate(chatId: number): JsonValue {
-	return subscriber({ match: { fn: "chatIs", config: { chatId } } }) as JsonValue;
-}
+/** 一个 chat 一份的会话工作流：按参数 `chatId` 只订阅那个 chat（ADR-0018）。 */
+const chatTemplate: WorkflowTemplate = {
+	params: { chatId: 0 },
+	...subscriber({ match: { fn: "chatIs", config: { chatId: "{{chatId}}" } } }),
+};
 
 /** 一个可控的 Performer：每次调用挂住，直到测试放行；记下每个 `effectId` 被交出几次。 */
 function gate(kind = "slow.call") {
@@ -185,6 +188,7 @@ function setup(options: Partial<HostOptions> = {}) {
 		store,
 		registry,
 		performers: instant,
+		templates: { chat: chatTemplate },
 		listeners: [{ id: "l", kind: "hook", config: {} }],
 		onError: (info) => errors.push(info.error),
 		onUnready: (info) => unready.push(info),
@@ -638,13 +642,13 @@ test("create reports a trigger on a missing listener as unready", async () => {
 });
 
 test("spawn reports a trigger on a missing listener as unready, without waiting for a recover", async () => {
-	const { store, host, unready } = setup();
+	const elsewhere: WorkflowTemplate = { ...subscriber(), triggers: [{ id: "in", kind: "hook", listener: "elsewhere" }] };
+	const { store, host, unready } = setup({ templates: { elsewhere } });
 	await createWorkflow(store, registry, { nodes: { s: { definition: "spawner", config: null } } }, { id: "parent" });
-	const template = { ...subscriber(), triggers: [{ id: "in", kind: "hook", listener: "elsewhere" }] } as JsonValue;
 	const changes: HostChange[] = [];
 	host.watch((change) => changes.push(change));
 
-	await host.submit("parent", "s", { type: "spawn", body: { id: "child", template } });
+	await host.submit("parent", "s", { type: "spawn", body: { id: "child", template: "elsewhere" } });
 	await host.idle();
 
 	const expected: Unready = {
@@ -689,4 +693,35 @@ test("a watcher that throws does not break the push", async () => {
 	});
 	await host.submit("a", "w", { type: "note", body: 1 });
 	assert.equal((await got(host, "a")).length, 1);
+});
+
+// ── 模板目录（ADR-0018） ───────────────────────────────────────────────────────
+
+test("spawn takes the template by name and fills its params", async () => {
+	const { store, host } = setup();
+	await createWorkflow(store, registry, { nodes: { s: { definition: "spawner", config: null } } }, { id: "parent" });
+	await host.submit("parent", "s", { type: "spawn", body: { id: "c7", template: "chat", params: { chatId: 7 } } });
+	await host.idle();
+	assert.deepEqual((await store.load("c7"))?.graph.shape.triggers[0]?.match, { fn: "chatIs", config: { chatId: 7 } });
+});
+
+test("a spawn naming a missing template, or with bad params, fails its receipt and halts nothing", async () => {
+	const { store, host } = setup();
+	await createWorkflow(store, registry, { nodes: { s: { definition: "spawner", config: null } } }, { id: "parent" });
+	await host.submit("parent", "s", { type: "spawn", body: { id: "x", template: "nope" } });
+	await host.submit("parent", "s", { type: "spawn", body: { id: "y", template: "chat", params: { other: 1 } } });
+	await host.idle();
+
+	assert.deepEqual(await store.ids(), ["parent"]);
+	const parent = await store.load("parent");
+	assert.equal(parent?.halted, undefined);
+	assert.equal(parent?.inFlight.length, 0, "both receipts came back");
+});
+
+test("create fills params, and exposes the template directory it was given", async () => {
+	const { store, host } = setup();
+	assert.deepEqual(Object.keys(host.templates), ["chat"]);
+	await host.create(chatTemplate, { id: "c", params: { chatId: 3 } });
+	assert.deepEqual((await store.load("c"))?.graph.shape.triggers[0]?.match, { fn: "chatIs", config: { chatId: 3 } });
+	await assert.rejects(host.create(chatTemplate, { id: "d", params: { nope: 1 } }), InstantiateError);
 });

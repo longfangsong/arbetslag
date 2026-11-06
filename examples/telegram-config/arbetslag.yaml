@@ -1,0 +1,28 @@
+# 只靠配置的 Telegram LLM bot（ADR-0018）：没有 main.ts。
+#
+#   TELEGRAM_BOT_TOKEN=… OPENAI_BASE_URL=… OPENAI_API_KEY=… pnpm --filter @arbetslag/example-telegram-config start
+#
+# 起来之后打开监控，New workflow → 模板 `switchboard`，参数 {"listener": "bot"}。
+# 之后每个跟 bot 说话的 chat 都会从模板 `chat` 得到自己的一份工作流。
+
+store: ./data/bot.sqlite
+templates: ./templates
+
+providers:
+  main:
+    kind: openai
+    baseURL: ${OPENAI_BASE_URL}
+    apiKey: ${OPENAI_API_KEY}
+
+listeners:
+  # 一个 bot 一个监听器。再跑一个 bot：加一个带自己 token 的监听器，
+  # 再在监控里用 {"listener": "<它的 id>"} 建第二个总机。
+  - id: bot
+    kind: telegram
+    token: ${TELEGRAM_BOT_TOKEN}
+
+monitor:
+  port: 8790
+
+log:
+  transitions: stdout

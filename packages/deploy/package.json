@@ -1,0 +1,44 @@
+{
+	"name": "@arbetslag/deploy",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Deployment config: run a Node host from a YAML file and a template directory, without writing a main.ts.",
+	"type": "module",
+	"engines": {
+		"node": ">=24"
+	},
+	"bin": {
+		"arbetslag": "./dist/cli.mjs"
+	},
+	"exports": {
+		".": {
+			"types": "./dist/index.d.mts",
+			"import": "./dist/index.mjs"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsdown",
+		"type-check": "tsc --noEmit",
+		"lint:check": "biome lint src tests",
+		"format": "biome format --write src tests",
+		"test": "node --test \"tests/**/*.test.ts\""
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"biome": "catalog:",
+		"tsdown": "^0.23.0",
+		"typescript": "catalog:"
+	},
+	"dependencies": {
+		"@arbetslag/host-node": "workspace:*",
+		"@arbetslag/kernel": "workspace:*",
+		"@arbetslag/llm": "workspace:*",
+		"@arbetslag/monitor": "workspace:*",
+		"type-fest": "catalog:",
+		"yaml": "2.9.1",
+		"zod": "catalog:"
+	}
+}

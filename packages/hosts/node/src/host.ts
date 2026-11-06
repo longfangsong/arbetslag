@@ -63,10 +63,15 @@ export type HostChange = { scope: "workflow"; id: string } | { scope: "unready" 
 /** 宿主吞下、但要让人看见的错误：Performer 缺席、匹配函数抛错、路由写失败…… */
 export type HostError = { error: unknown; workflowId?: string; effectId?: string; listener?: string };
 
+/** 模板目录（ADR-0018）：模板名 → 模板。`workflow.spawn` 按名字从这里取。 */
+export type Templates = Readonly<Record<string, WorkflowTemplate | undefined>>;
+
 export type HostOptions = {
 	store: SqliteStore;
 	registry: Registry;
 	performers: Performers;
+	/** 模板目录；省略即空，`workflow.spawn` 一律回执失败。 */
+	templates?: Templates;
 	/** 转移日志：旁路，可丢（ADR-0003）。 */
 	log?: TransitionLog;
 	/** 透传给每一次 `run`：预算、时钟、`effectId`。 */
@@ -131,11 +136,13 @@ export type RecoveryReport = {
 export type Host = {
 	readonly store: SqliteStore;
 	readonly registry: Registry;
+	readonly templates: Templates;
 	/** 这份工作流此刻的快照：工作副本里的那份（比存储新），或者存储里的上一个检查点。 */
 	snapshot(id: string): Promise<Snapshot | undefined>;
 	/**
 	 * 实例化一份新工作流：快照与它的路由索引行在一次事务里落盘（与 `workflow.spawn` 同一次写，ADR-0015）。
-	 * id 不给就随机生成；已存在抛 `WorkflowExists`，模板不合规抛 `InstantiateError`。
+	 * id 不给就随机生成；`params` 填模板参数（ADR-0018）。已存在抛 `WorkflowExists`，
+	 * 模板或参数不合规抛 `InstantiateError`。
 	 */
 	create(template: WorkflowTemplate, options?: CreateWorkflowOptions): Promise<{ id: string }>;
 	/** 观察激活里的变化（ADR-0017），返回取消函数。回调同步跑在推进的路径上，要快；它抛错被吞掉。 */
@@ -172,6 +179,7 @@ type Pushed = { status: Advance["status"]; rounds: number; steps: number; effect
 
 export function createHost(options: HostOptions): Host {
 	const { store, registry } = options;
+	const templates = options.templates ?? {};
 	const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS;
 	const copies = createWorkingCopies(store);
 	const queue = createKeyedQueue();
@@ -379,14 +387,17 @@ export function createHost(options: HostOptions): Host {
 	}
 
 	/**
-	 * `workflow.spawn`（ADR-0015）：实例化（已存在就跳过），并在一次原子写里落下新工作流的索引行
-	 * 与转交的那一行发件箱；然后让目标的激活去消费。
+	 * `workflow.spawn`（ADR-0015、0018）：按名字从模板目录取模板、填参数、实例化（已存在就跳过），
+	 * 并在一次原子写里落下新工作流的索引行与转交的那一行发件箱；然后让目标的激活去消费。
+	 * 模板不存在、参数或模板不合规都是失败回执。
 	 */
 	const spawn: Performer = async (input) => {
-		const { id, template, forward } = workflowSpawnInputSchema.parse(input);
+		const { id, template: name, params, forward } = workflowSpawnInputSchema.parse(input);
+		const template = templates[name];
+		if (template === undefined) return failure(new Error(`no template ${JSON.stringify(name)}`));
 		let snapshot: Snapshot;
 		try {
-			snapshot = instantiate(registry, template);
+			snapshot = instantiate(registry, template, params);
 		} catch (error) {
 			return failure(error);
 		}
@@ -472,11 +483,12 @@ export function createHost(options: HostOptions): Host {
 	const host: Host = {
 		store,
 		registry,
+		templates,
 
 		snapshot: (id) => copies.load(id),
 
-		async create(template, { id = crypto.randomUUID() } = {}) {
-			const snapshot = instantiate(registry, template);
+		async create(template, { id = crypto.randomUUID(), params } = {}) {
+			const snapshot = instantiate(registry, template, params);
 			const rows = subscriptionsOf(id, snapshot);
 			await serial(id, async () => {
 				const { created } = await store.spawn(id, snapshot, rows);

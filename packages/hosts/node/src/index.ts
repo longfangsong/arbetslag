@@ -8,3 +8,6 @@ export * from "./listeners/runtime.ts";
 export * from "./listeners/webhook.ts";
 export * from "./listeners/telegram.ts";
 export * from "./performers/timer.ts";
+export * from "./performers/telegramSend.ts";
+export * from "./nodes/telegramRelay.ts";
+export * from "./nodes/switchboard.ts";

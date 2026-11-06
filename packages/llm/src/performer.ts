@@ -13,6 +13,23 @@ export type PerformModel = (input: JsonValue, context: { workflowId: string }) =
 const describe = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /**
+ * 部署里有好几个模型端点时（ADR-0018）：按 input 的 `provider` 挑一个。
+ * 省略 `provider` 时部署里恰好一个就用它；挑不出来是失败结果，不是宿主故障。
+ */
+export function providerCall(providers: Readonly<Record<string, ModelCall>>): ModelCall {
+	const names = Object.keys(providers);
+	return async (request) => {
+		const name = request.input.provider ?? (names.length === 1 ? names[0] : undefined);
+		const call = name === undefined ? undefined : providers[name];
+		if (call === undefined) {
+			const wanted = request.input.provider === undefined ? "no provider given" : `no provider ${JSON.stringify(name)}`;
+			return { ok: false, error: `${wanted}; this deployment has ${JSON.stringify(names)}` };
+		}
+		return call(request);
+	};
+}
+
+/**
  * 把一次模型调用包成 `model.complete` 的 **Performer**：
  * 先按 `model.complete` 的 input schema 收口，再把抛错转成 `{ ok: false }`——
  * 失败是正常结果，不是宿主故障（ADR-0006）。
