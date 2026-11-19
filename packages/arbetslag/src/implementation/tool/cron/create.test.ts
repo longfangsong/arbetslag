@@ -82,3 +82,56 @@ describe("Cron tool callback URL", () => {
 		}
 	});
 });
+
+describe("Cron tool time zone", () => {
+	const caller = { chatId: "123" } as never;
+	const input = { schedule: "0 9 * * 1", title: "周一提醒", text: "提醒用户提交周报" };
+
+	// Runs the tool against a mocked cron-job.org and returns the result with the
+	// schedule time zone of the create request, if one was sent.
+	async function create(tool: CronCreate, timezone?: string) {
+		const fetchMock = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ jobId: 1 }), { status: 200 }),
+			);
+		try {
+			const r = await tool.call(null as never, caller, { ...input, timezone });
+			const body = fetchMock.mock.calls[0]?.[1]?.body;
+			const sent = body
+				? (JSON.parse(String(body)).job.schedule.timezone as string)
+				: undefined;
+			return { r, sent, calls: fetchMock.mock.calls.length };
+		} finally {
+			fetchMock.mockRestore();
+		}
+	}
+
+	it("sends the given time zone and returns it", async () => {
+		const tool = new CronCreate("key", "https://bot.example/cron", "s", "UTC");
+		const { r, sent } = await create(tool, "Europe/Stockholm");
+		expect(sent).toBe("Europe/Stockholm");
+		expect(r._unsafeUnwrap().timezone).toBe("Europe/Stockholm");
+	});
+
+	it("falls back to the constructor's time zone", async () => {
+		const tool = new CronCreate("key", "https://bot.example/cron", "s", "Asia/Shanghai");
+		const { r, sent } = await create(tool);
+		expect(sent).toBe("Asia/Shanghai");
+		expect(r._unsafeUnwrap().timezone).toBe("Asia/Shanghai");
+	});
+
+	it("defaults to the runtime's time zone as before", async () => {
+		const tool = new CronCreate("key", "https://bot.example/cron", "s");
+		const { sent } = await create(tool);
+		expect(sent).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
+	});
+
+	it("rejects an unknown time zone before calling cron-job.org", async () => {
+		const tool = new CronCreate("key", "https://bot.example/cron", "s", "UTC");
+		const { r, calls } = await create(tool, "Mars/Olympus_Mons");
+		expect(r.isErr()).toBe(true);
+		expect(r._unsafeUnwrapErr()).toContain("Mars/Olympus_Mons");
+		expect(calls).toBe(0);
+	});
+});

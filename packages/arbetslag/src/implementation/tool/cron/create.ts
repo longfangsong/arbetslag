@@ -25,6 +25,12 @@ export const CronCreateInputSchema = z
 			.describe(
 				"Callback payload: what should happen when the job fires. Written as an instruction to yourself, injected into this chat's context when due, e.g. '提醒用户：该提交周报了' or '查一下昨天约定的 API 状态并汇报'.",
 			),
+		timezone: z
+			.string()
+			.optional()
+			.describe(
+				'IANA time zone the schedule is read in, e.g. "Europe/Stockholm" or "Asia/Shanghai". Use the user\'s own time zone: cron-job.org applies its daylight saving rules, so "0 9 * * 1" stays 09:00 local time all year. Omit to use the default time zone.',
+			),
 	});
 
 export interface CronCreateResult {
@@ -32,6 +38,7 @@ export interface CronCreateResult {
 	url: string;
 	schedule: string;
 	title: string;
+	timezone: string;
 }
 
 export class CronCreate extends CronTool<
@@ -44,7 +51,7 @@ export class CronCreate extends CronTool<
 
 	name: string = "create_cron";
 	description: string =
-		"Create a cron job on cron-job.org. When due, it will GET the configured callback URL, delivering the job's payload to this chat. For one-off (non-recurring) tasks, set schedule to the exact firing time and delete the job with delete_cron after it has fired once. Returns the jobId (remember it to delete the job later).";
+		"Create a cron job on cron-job.org. When due, it will GET the configured callback URL, delivering the job's payload to this chat. The schedule is read in the given IANA time zone (default: the bot's time zone), with daylight saving handled by cron-job.org. For one-off (non-recurring) tasks, set schedule to the exact firing time and delete the job with delete_cron after it has fired once. Returns the jobId (remember it to delete the job later).";
 	inputSchema = CronCreateInputSchema;
 
 	constructor(
@@ -69,6 +76,14 @@ export class CronCreate extends CronTool<
 			log(`❌ invalid cron expression: "${input.schedule}"`);
 			return err(
 				`Invalid cron expression: "${input.schedule}". Expected 5 fields: minute hour day-of-month month day-of-week.`,
+			);
+		}
+
+		const timezone = input.timezone ?? this.timezone;
+		if (!isTimeZone(timezone)) {
+			log(`❌ invalid time zone: "${timezone}"`);
+			return err(
+				`Invalid time zone: "${timezone}". Expected an IANA time zone name such as "Europe/Stockholm".`,
 			);
 		}
 
@@ -101,7 +116,7 @@ export class CronCreate extends CronTool<
 						requestMethod: 0,
 						schedule: {
 							...schedule,
-							timezone: this.timezone,
+							timezone,
 							expiresAt: 0,
 						},
 					},
@@ -132,9 +147,20 @@ export class CronCreate extends CronTool<
 				url: url.toString(),
 				schedule: input.schedule,
 				title: input.title,
+				timezone,
 			});
 		} catch (e) {
 			return err(e instanceof Error ? e.message : String(e));
 		}
+	}
+}
+
+/** Whether the runtime knows the IANA time zone name. */
+function isTimeZone(name: string): boolean {
+	try {
+		new Intl.DateTimeFormat("en-US", { timeZone: name });
+		return true;
+	} catch {
+		return false;
 	}
 }
