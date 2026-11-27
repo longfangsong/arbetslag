@@ -1,5 +1,9 @@
 {
 	"name": "arbetslag-monorepo",
 	"private": true,
-	"packageManager": "pnpm@10.6.5"
+	"packageManager": "pnpm@10.6.5",
+	"scripts": {
+		"build": "pnpm -r build",
+		"start": "pnpm build && pnpm --filter @arbetslag/hosts/node start"
+	}
 }

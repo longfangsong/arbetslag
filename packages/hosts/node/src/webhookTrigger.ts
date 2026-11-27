@@ -1,9 +1,8 @@
-import type { Trigger, Message, Context } from "@arbetslag/kernel";
-import { createServer, type IncomingMessage, type RequestListener, type ServerResponse } from "node:http";
+import type { Context, Graph, Message, Trigger } from "@arbetslag/kernel";
+import { deliver, newId } from "@arbetslag/kernel";
+import { createServer, type Server } from "node:http";
 import type { JsonValue } from "type-fest";
 import z from "zod";
-import type { Graph } from "@arbetslag/kernel";
-import { newId } from "../../../kernel/src/utils";
 
 export const configSchema = z.object({
   port: z.number(),
@@ -13,71 +12,103 @@ export const configSchema = z.object({
 
 export type WebhookConfig = z.infer<typeof configSchema>;
 
+type Route = {
+  graph: Graph;
+  // 触发这条路由的 TriggerSubscription，投递时作为消息的 `from`
+  subscriptionId: string;
+};
+
+function normalizePath(path: string): string {
+  return path.replace(/^\/+/, "");
+}
+
+function splitHostAndPort(hostAndPort: string): [string, number] {
+  const separator = hostAndPort.lastIndexOf(":");
+  return [
+    hostAndPort.slice(0, separator),
+    Number.parseInt(hostAndPort.slice(separator + 1), 10),
+  ];
+}
+
 export class WebhookTrigger implements Trigger<WebhookConfig> {
-  name: string = "webhook";
+  name = "webhook";
   configSchema: z.ZodType<WebhookConfig> = configSchema;
 
-  // host:port => {path => Graph}
+  // host:port => { normalized path => route }
   // todo: support prefix matching
-  deliverTo: Map<string, Map<string, Graph>>;
+  private routes = new Map<string, Map<string, Route>>();
+  private servers: Array<Server> = [];
 
-  constructor() {
-    this.deliverTo = new Map();
-  }
-
-  connect(workflow: Graph) {
-    const clients = workflow.triggerSubscriptions.filter(client => client.triggerName === this.name);
-    for (const client of clients) {
-      const config = configSchema.parse(client.config);
-      if (this.deliverTo.get(`${config.host}:${config.port}`) === undefined) {
-        this.deliverTo.set(`${config.host}:${config.port}`, new Map());
+  connect(graph: Graph) {
+    for (const subscription of graph.triggerSubscriptions) {
+      if (subscription.triggerName !== this.name) {
+        continue;
       }
-      let path = config.path;
-      if (path[0] === '/') {
-        // remove leading `/`
-        path = path.slice(1);
+      const config = configSchema.parse(subscription.config);
+      const hostAndPort = `${config.host}:${config.port}`;
+      let routes = this.routes.get(hostAndPort);
+      if (routes === undefined) {
+        routes = new Map();
+        this.routes.set(hostAndPort, routes);
       }
-      this.deliverTo.get(`${config.host}:${config.port}`)!.set(config.path, workflow);
+      routes.set(normalizePath(config.path), {
+        graph,
+        subscriptionId: subscription.id,
+      });
     }
   }
 
   start(context: Context) {
-    for (const hostAndPort of this.deliverTo.keys()) {
-      const [host, port] = hostAndPort.split(":", 2);
-      createServer(async (req, res) => {
-        const method = req.method;
-        const url = req.url;
-        const pathStartPosition = url!.indexOf(hostAndPort) + hostAndPort.length;
-        // remove leading `/`
-        const path = url?.slice(pathStartPosition).slice(1);
-        const workflow = this.deliverTo.get(hostAndPort)?.get(path!);
-        if (!workflow) {
-          res.statusCode = 404;
-          res.end("No workflow found!");
-          return;
+    for (const [hostAndPort, routes] of this.routes) {
+      const [host, port] = splitHostAndPort(hostAndPort);
+      const server = createServer(async (req, res) => {
+        try {
+          const path = normalizePath((req.url ?? "/").split("?")[0] ?? "");
+          const route = routes.get(path);
+          if (route === undefined) {
+            res.statusCode = 404;
+            res.end("No workflow found!");
+            return;
+          }
+          const chunks: Array<Buffer> = [];
+          for await (const chunk of req) {
+            chunks.push(chunk as Buffer);
+          }
+          const message: Message = {
+            id: newId(),
+            from: route.subscriptionId,
+            type: `trigger:${this.name}`,
+            method: req.method ?? "GET",
+            headers: Object.fromEntries(
+              Object.entries(req.headers).filter(
+                (entry): entry is [string, string | Array<string>] =>
+                  entry[1] !== undefined,
+              ),
+            ) as JsonValue,
+            body: Buffer.concat(chunks).toString(),
+          };
+          await deliver(context, route.graph, message);
+          res.end("ok");
+        } catch (error) {
+          res.statusCode = 500;
+          res.end(error instanceof Error ? error.message : String(error));
         }
-        const headers = req.headers;
-        const chunks = [];
-        for await (const chunk of req) chunks.push(chunk);
-        const body = Buffer.concat(chunks).toString();
-        await workflow.stepUntilIdle(context, {
-          id: newId(),
-          from: workflow.triggerSubscriptions.find(it => {
-            const clientConfig = configSchema.parse(it.config);
-            return it.triggerName === this.name &&
-              host === clientConfig.host &&
-              parseInt(port!) === clientConfig.port &&
-              path === clientConfig.path
-          })!.id,
-          type: `trigger:${this.name}`,
-
-          method: method!,
-          headers: headers as JsonValue,
-          body
-        });
-        await context.store.set(workflow.id, workflow.serialize());
-        res.end("ok");
-      }).listen(port, parseInt(host!));
+      });
+      server.on("error", (error) => {
+        console.error(`webhook ${hostAndPort} failed:`, error);
+      });
+      server.listen(port, host);
+      this.servers.push(server);
     }
+  }
+
+  async stop() {
+    await Promise.all(
+      this.servers.map(
+        (server) =>
+          new Promise<void>((resolve) => server.close(() => resolve())),
+      ),
+    );
+    this.servers = [];
   }
 }

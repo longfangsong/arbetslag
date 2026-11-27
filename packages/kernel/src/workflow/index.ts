@@ -59,17 +59,18 @@ export class Graph {
     const edges = this.edges.filter(
       (it) => it.from === message.from && it.type === message.type,
     );
-    for (let edge of edges) {
+    for (const edge of edges) {
       switch (edge.to) {
         case "broadcast": {
           this.nodes.forEach((it) => it.inputBox.push(message));
           break;
         }
-        case "system":
+        case "system": {
           this.inbox.push(message);
           break;
+        }
         default: {
-          for (let target of edge.to) {
+          for (const target of edge.to) {
             this.nodes.find((it) => it.id === target)?.inputBox.push(message);
           }
         }
@@ -83,9 +84,9 @@ export class Graph {
 
   private handleSystemMessage(context: Context, message: Message) {
     switch (message.type) {
-      case "createNode":
+      case "createNode": {
         const definitionName = message["definitionName"] as string;
-        const node = Node.create(context, definitionName, message["config"]!);
+        const node = Node.create(context, definitionName, message["config"] ?? null);
         this.nodes.push(node);
         this.deliver(context, {
           id: newId(),
@@ -95,18 +96,23 @@ export class Graph {
           nodeId: node.id,
         });
         break;
-      case "createEdge":
+      }
+      case "createEdge": {
         const edgeFrom = message["edgeFrom"] as string;
         const edgeTo = message["edgeTo"] as string;
         const edgeType = message["edgeType"] as string;
         const existingEdge = this.edges.find(
-          (it) => it.from === edgeFrom && it.type === edgeTo,
+          (it) => it.from === edgeFrom && it.type === edgeType,
         );
         if (existingEdge) {
           if (!Array.isArray(existingEdge.to)) {
-            throw "todo: implement error handling";
+            throw new Error(
+              `cannot add edge from ${edgeFrom} (${edgeType}): it already targets ${existingEdge.to}`,
+            );
           }
-          existingEdge.to.push(edgeTo);
+          if (!existingEdge.to.includes(edgeTo)) {
+            existingEdge.to.push(edgeTo);
+          }
         } else {
           this.edges.push({
             from: edgeFrom,
@@ -121,7 +127,8 @@ export class Graph {
           to: message.from,
         });
         break;
-      case "deleteNode":
+      }
+      case "deleteNode": {
         const id = message["id"] as string;
         this.nodes = this.nodes.filter((it) => it.id !== id);
         this.edges.forEach((it) => {
@@ -142,15 +149,19 @@ export class Graph {
           to: message.from,
         });
         break;
-      case "deleteEdge":
+      }
+      case "deleteEdge": {
         const from = message["from"] as string;
         const to = message["to"] as string;
         const type = message["type"] as string;
         const edge = this.edges.find(
-          (edge) => edge.from === from && edge.type === to,
+          (it) => it.from === from && it.type === type,
         );
         if (Array.isArray(edge?.to)) {
           edge.to = edge.to.filter((it) => it !== to);
+          if (edge.to.length === 0) {
+            this.edges = this.edges.filter((it) => it !== edge);
+          }
         }
         this.deliver(context, {
           id: newId(),
@@ -163,16 +174,20 @@ export class Graph {
           edgeType: type,
         });
         break;
+      }
     }
   }
 
   async stepUntilIdle(context: Context, message: Message) {
-    // todo: assert message is from a triggerConfig in this graph
     this.deliver(context, message);
     await this.stepAllNodes(context);
+    // 处理系统消息时新投递进来的系统消息留在新的 inbox 里，不能丢
     while (this.inbox.length > 0) {
-      this.inbox.forEach((it) => this.handleSystemMessage(context, it));
+      const systemMessages = this.inbox;
       this.inbox = [];
+      for (const systemMessage of systemMessages) {
+        this.handleSystemMessage(context, systemMessage);
+      }
       await this.stepAllNodes(context);
     }
   }

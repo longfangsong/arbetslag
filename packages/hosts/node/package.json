@@ -17,7 +17,8 @@
 		"build": "tsdown",
 		"type-check": "tsc --noEmit",
 		"lint:check": "biome lint src tests",
-		"format": "biome format --write src tests"
+		"format": "biome format --write src tests",
+		"start": "tsdown && node dist/index.mjs"
 	},
 	"devDependencies": {
 		"@types/node": "catalog:",

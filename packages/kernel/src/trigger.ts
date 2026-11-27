@@ -1,5 +1,6 @@
 import type { JsonValue } from "type-fest";
 import type z from "zod";
+import type { Context } from ".";
 import type { Graph } from "./workflow";
 
 /// Host 启动时注册每个实现
@@ -9,9 +10,16 @@ export interface Trigger<Config extends JsonValue> {
 	configSchema: z.ZodType<Config>;
 	// 将 Trigger 和图内的 TriggerSubscription （提供 config）连接起来
 	connect(workflow: Graph): void;
-};
+
+	// 开始接收外部事件；已连接的 TriggerSubscription 会收到消息
+	start(context: Context): void | Promise<void>;
+
+	// 停止接收外部事件
+	stop?(): void | Promise<void>;
+}
 
 export interface Repository {
-	register(definition: Trigger<JsonValue>): void;
+	register(trigger: Trigger<JsonValue>): void;
 	get(name: string): Trigger<JsonValue> | undefined;
+	all(): ReadonlyArray<Trigger<JsonValue>>;
 }
